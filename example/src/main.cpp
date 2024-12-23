@@ -10,7 +10,6 @@
 #include <kvf/util.hpp>
 #include <kvf/window.hpp>
 #include <filesystem>
-#include <fstream>
 #include <print>
 
 namespace {
@@ -23,15 +22,8 @@ struct ShaderLoader {
 
 	auto load(std::string_view const uri) -> vk::UniqueShaderModule {
 		auto const path = dir / uri;
-		if (!fs::is_regular_file(path)) { throw std::runtime_error{std::format("Invalid shader path: {}", path.generic_string())}; }
-		auto file = std::ifstream{path, std::ios::binary | std::ios::ate};
-		if (!file.is_open()) { throw std::runtime_error{std::format("Failed to open SPIR-V file: {}", uri)}; }
-		auto const size = file.tellg();
-		if (std::size_t(size) % sizeof(std::uint32_t) != 0) { throw std::runtime_error{std::format("Invalid SPIR-V: {}, size: {}B", uri, std::size_t(size))}; }
-		file.seekg(0, std::ios::beg);
-		spir_v.resize(std::size_t(size) / sizeof(std::uint32_t));
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-		file.read(reinterpret_cast<char*>(spir_v.data()), size);
+		auto const result = kvf::util::spirv_from_file(spir_v, path.string().c_str());
+		if (result != kvf::IoResult::Success) { throw std::runtime_error{std::format("Failed to load shader: {}", path.generic_string())}; }
 		auto smci = vk::ShaderModuleCreateInfo{};
 		smci.setCode(spir_v);
 		return device.createShaderModuleUnique(smci);

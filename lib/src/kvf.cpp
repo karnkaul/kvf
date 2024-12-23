@@ -11,6 +11,7 @@
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <mutex>
 #include <ranges>
 
@@ -40,12 +41,32 @@ constexpr void ensure_positive(T&... out) {
 #include <kvf/util.hpp>
 
 namespace kvf {
+namespace {
+template <typename T>
+auto read_from_file(T& out, klib::CString path) -> IoResult {
+	using value_type = T::value_type;
+	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
+	if (!file.is_open()) { return IoResult::OpenFailed; }
+	auto const size = file.tellg();
+	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
+	file.seekg(0, std::ios::beg);
+	out.resize(std::size_t(size) / sizeof(value_type));
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+	file.read(reinterpret_cast<char*>(out.data()), size);
+	return IoResult::Success;
+}
+} // namespace
+
 void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
 	auto di = vk::DependencyInfo{};
 	di.pImageMemoryBarriers = image_barriers.data();
 	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
 	command_buffer.pipelineBarrier2(di);
 }
+
+auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
+auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
+auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
 } // namespace kvf
 // render_device
 
