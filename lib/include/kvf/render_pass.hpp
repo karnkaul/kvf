@@ -46,7 +46,7 @@ class RenderPass {
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits { return m_samples; }
 
-	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return render_target().extent; }
+	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_extent; }
 	[[nodiscard]] auto render_target() const -> RenderTarget const&;
 
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);

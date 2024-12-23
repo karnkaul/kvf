@@ -1107,7 +1107,6 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
 	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
-
 	m_command_buffer = command_buffer;
 
 	set_render_targets();
