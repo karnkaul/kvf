@@ -1,7 +1,7 @@
 #pragma once
 #include <kvf/buffering.hpp>
-#include <kvf/image.hpp>
 #include <kvf/render_device_fwd.hpp>
+#include <kvf/vma.hpp>
 #include <span>
 
 namespace kvf {
@@ -38,6 +38,10 @@ class RenderPass {
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline;
 
+	[[nodiscard]] auto has_color_target() const -> bool { return bool(m_framebuffers.front().color); }
+	[[nodiscard]] auto has_resolve_target() const -> bool { return bool(m_framebuffers.front().resolve); }
+	[[nodiscard]] auto has_depth_target() const -> bool { return bool(m_framebuffers.front().depth); }
+
 	[[nodiscard]] auto get_color_format() const -> vk::Format;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits { return m_samples; }
@@ -57,10 +61,6 @@ class RenderPass {
 		vma::Image color{};
 		vma::Image resolve{};
 		vma::Image depth{};
-
-		[[nodiscard]] auto has_color_target() const -> bool { return color.get_image() != vk::Image{}; }
-		[[nodiscard]] auto has_resolve_target() const -> bool { return resolve.get_image() != vk::Image{}; }
-		[[nodiscard]] auto has_depth_target() const -> bool { return depth.get_image() != vk::Image{}; }
 	};
 
 	struct Targets {
@@ -70,9 +70,6 @@ class RenderPass {
 	};
 
 	void set_render_targets();
-
-	[[nodiscard]] auto color_image_info(vk::SampleCountFlagBits samples) const -> vma::ImageCreateInfo;
-	[[nodiscard]] auto depth_image_info() const -> vma::ImageCreateInfo;
 
 	RenderDevice* m_device{};
 	vk::SampleCountFlagBits m_samples{};

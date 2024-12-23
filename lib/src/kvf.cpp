@@ -19,7 +19,7 @@
 namespace kvf {
 namespace {
 template <typename... T>
-constexpr void sanitize_extent(T&... out) {
+constexpr void ensure_positive(T&... out) {
 	auto const sanitize = [](auto& t) {
 		if (t <= 0) { t = 1; }
 	};
@@ -881,27 +881,72 @@ void RenderDevice::render(RenderTarget const& frame) { m_impl->render(frame); }
 
 // image
 
-#include <kvf/image.hpp>
+#include <kvf/vma.hpp>
 
 namespace kvf::vma {
+void Buffer::Deleter::operator()(Resource<vk::Buffer> const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
+
+Buffer::Buffer(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
+	: m_device(render_device), m_create_info(create_info) {
+	if (!resize(size)) { throw Error{"Failed to create Vulkan Buffer"}; }
+}
+
+auto Buffer::resize(vk::DeviceSize size) -> bool {
+	if (m_device == nullptr) { return false; }
+	ensure_positive(size);
+	if (m_capacity >= size) {
+		m_size = size;
+		return true;
+	}
+
+	auto vaci = VmaAllocationCreateInfo{};
+	vaci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+	if (m_create_info.type == BufferType::Device) {
+		vaci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	} else {
+		vaci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+		vaci.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+	}
+
+	auto const bci = vk::BufferCreateInfo{{}, size, m_create_info.usage};
+	auto vbci = static_cast<VkBufferCreateInfo>(bci);
+
+	VmaAllocation allocation{};
+	VkBuffer buffer{};
+	auto alloc_info = VmaAllocationInfo{};
+	if (vmaCreateBuffer(m_device->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
+
+	m_size = m_capacity = size;
+	m_buffer = Resource<vk::Buffer>{
+		.allocator = m_device->get_allocator(),
+		.allocation = allocation,
+		.resource = buffer,
+	};
+	m_mapped = alloc_info.pMappedData;
+	return true;
+}
+
 void Image::Deleter::operator()(Resource<vk::Image> const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
-void Image::recreate(CreateInfo const& create_info) {
-	if (m_device == nullptr) { return; }
-	auto extent = create_info.extent;
-	sanitize_extent(extent.width, extent.height);
-	if (m_extent == extent) { return; }
-	m_extent = extent;
+Image::Image(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
+	: m_device(render_device), m_create_info(create_info) {
+	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
+}
+
+auto Image::resize(vk::Extent2D extent) -> bool {
+	if (m_device == nullptr) { return false; }
+	ensure_positive(extent.width, extent.height);
+	if (m_extent == extent) { return true; }
 
 	auto const queue_family = m_device->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
-		.setFormat(create_info.format)
-		.setUsage(create_info.usage)
+		.setFormat(m_create_info.format)
+		.setUsage(m_create_info.usage)
 		.setImageType(vk::ImageType::e2D)
-		.setArrayLayers(create_info.layers)
-		.setMipLevels(create_info.mips)
-		.setSamples(create_info.samples)
+		.setArrayLayers(m_create_info.layers)
+		.setMipLevels(m_create_info.mips)
+		.setSamples(m_create_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
 		.setQueueFamilyIndices(queue_family);
@@ -910,24 +955,22 @@ void Image::recreate(CreateInfo const& create_info) {
 	vaci.usage = VMA_MEMORY_USAGE_AUTO;
 	VkImage image{};
 	VmaAllocation allocation{};
-	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) {
-		log::error("Failed to create Vulkan Image");
-		return;
-	}
+	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
+	m_extent = extent;
 	m_image = Resource<vk::Image>{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
 		.resource = image,
 	};
-
 	auto const make_image_view = MakeImageView{
 		.image = m_image.get().resource,
 		.format = ici.format,
-		.subresource = vk::ImageSubresourceRange{create_info.aspect, 0, create_info.mips, 0, create_info.layers},
+		.subresource = vk::ImageSubresourceRange{m_create_info.aspect, 0, m_create_info.mips, 0, m_create_info.layers},
 		.type = vk::ImageViewType::e2D,
 	};
 	m_view = make_image_view(m_device->get_device());
+	return true;
 }
 } // namespace kvf::vma
 
@@ -939,14 +982,35 @@ namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 void RenderPass::set_color_target() {
+	using Usage = vk::ImageUsageFlagBits;
+	static constexpr auto usage_v = Usage::eColorAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
+	auto const color_ici = vma::ImageCreateInfo{
+		.format = m_device->color_target_format(),
+		.usage = usage_v,
+		.aspect = vk::ImageAspectFlagBits::eColor,
+		.samples = m_samples,
+	};
+	auto const resolve_ici = [&] {
+		auto ret = color_ici;
+		ret.samples = vk::SampleCountFlagBits::e1;
+		return ret;
+	}();
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = vma::Image{m_device, color_image_info(m_samples)};
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, color_image_info(vk::SampleCountFlagBits::e1)}; }
+		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
 	}
 }
 
 void RenderPass::set_depth_target() {
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_image_info()}; }
+	using Usage = vk::ImageUsageFlagBits;
+	static constexpr auto usage_v = Usage::eDepthStencilAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
+	auto const depth_ici = vma::ImageCreateInfo{
+		.format = m_device->depth_target_format(),
+		.usage = usage_v,
+		.aspect = vk::ImageAspectFlagBits::eDepth,
+		.samples = m_samples,
+	};
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
@@ -1001,8 +1065,8 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 	auto const& framebuffer = m_framebuffers.front();
 	auto const colour_format = m_device->color_target_format();
 	auto const depth_format = m_device->depth_target_format();
-	if (framebuffer.has_color_target()) { prci.setColorAttachmentFormats(colour_format); }
-	if (framebuffer.has_depth_target()) { prci.setDepthAttachmentFormat(depth_format); }
+	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
+	if (framebuffer.depth) { prci.setDepthAttachmentFormat(depth_format); }
 
 	auto gpci = vk::GraphicsPipelineCreateInfo{};
 	gpci.setPVertexInputState(&pvisci)
@@ -1025,12 +1089,12 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
-	if (!m_framebuffers.front().has_color_target()) { return vk::Format::eUndefined; }
+	if (!has_color_target()) { return vk::Format::eUndefined; }
 	return m_device->color_target_format();
 }
 
 auto RenderPass::get_depth_format() const -> vk::Format {
-	if (!m_framebuffers.front().has_depth_target()) { return vk::Format::eUndefined; }
+	if (!has_depth_target()) { return vk::Format::eUndefined; }
 	return m_device->depth_target_format();
 }
 
@@ -1041,7 +1105,7 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 }
 
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
-	sanitize_extent(extent.width, extent.height);
+	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
 
 	m_command_buffer = command_buffer;
@@ -1146,37 +1210,13 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
-auto RenderPass::color_image_info(vk::SampleCountFlagBits const samples) const -> vma::ImageCreateInfo {
-	using Usage = vk::ImageUsageFlagBits;
-	static constexpr auto usage_v = Usage::eColorAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
-	return vma::ImageCreateInfo{
-		.extent = m_extent,
-		.format = m_device->color_target_format(),
-		.usage = usage_v,
-		.aspect = vk::ImageAspectFlagBits::eColor,
-		.samples = samples,
-	};
-}
-
-auto RenderPass::depth_image_info() const -> vma::ImageCreateInfo {
-	using Usage = vk::ImageUsageFlagBits;
-	static constexpr auto usage_v = Usage::eDepthStencilAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
-	return vma::ImageCreateInfo{
-		.extent = m_extent,
-		.format = m_device->depth_target_format(),
-		.usage = usage_v,
-		.aspect = vk::ImageAspectFlagBits::eDepth,
-		.samples = m_samples,
-	};
-}
-
 void RenderPass::set_render_targets() {
 	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
-	if (framebuffer.has_color_target() && framebuffer.color.get_extent() != m_extent) {
-		framebuffer.color.recreate(color_image_info(m_samples));
-		if (framebuffer.has_resolve_target()) { framebuffer.resolve.recreate(color_image_info(vk::SampleCountFlagBits::e1)); }
+	if (framebuffer.color && framebuffer.color.get_extent() != m_extent) {
+		framebuffer.color.resize(m_extent);
+		if (framebuffer.resolve) { framebuffer.resolve.resize(m_extent); }
 	}
-	if (framebuffer.has_depth_target() && framebuffer.depth.get_extent() != m_extent) { framebuffer.depth.recreate(depth_image_info()); }
+	if (framebuffer.depth && framebuffer.depth.get_extent() != m_extent) { framebuffer.depth.resize(m_extent); }
 
 	m_targets.color = framebuffer.color.render_target();
 	m_targets.resolve = framebuffer.resolve.render_target();
