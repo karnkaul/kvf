@@ -8,9 +8,11 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
-  vma::vma
-  klib::klib
   ms::gsl
+  klib::klib
+  glfw::glfw
+  vma::vma
+  dear_imgui::dear_imgui
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE

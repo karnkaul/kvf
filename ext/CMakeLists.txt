@@ -3,6 +3,8 @@ if(NOT TARGET klib)
 endif()
 
 # file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
+add_subdirectory(src/gsl)
+
 add_subdirectory(src/dyvk)
 
 add_subdirectory(src/vma)
@@ -20,4 +22,12 @@ target_compile_definitions(vma PUBLIC
   VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
 
-add_subdirectory(src/gsl)
+set(GLFW_VULKAN_STATIC OFF)
+set(GLFW_INSTALL OFF)
+set(GLFW_BUILD_DOCS OFF)
+set(GLFW_BUILD_EXAMPLES OFF)
+set(GLFW_BUILD_TESTS OFF)
+add_subdirectory(src/glfw)
+add_library(glfw::glfw ALIAS glfw)
+
+add_subdirectory(src/dear_imgui)
