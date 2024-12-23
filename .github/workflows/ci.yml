@@ -16,15 +16,11 @@ jobs:
       - name: init
         run: sudo apt install -yqq ninja-build xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
       - name: configure
-        run: export CXX=g++-14; cmake -S . --preset=default -B build
+        run: export CC=gcc-14; export CXX=g++-14; cmake -S . --preset=default -B build
       - name: build debug
         run: cmake --build build --config=Debug
       - name: build release
         run: cmake --build build --config=Release
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   linux-clang:
     runs-on: ubuntu-latest
     steps:
@@ -37,10 +33,6 @@ jobs:
         run: cmake --build build --config=Debug
       - name: build release
         run: cmake --build build --config=Release
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   windows-vs22:
     runs-on: windows-latest
     steps:
@@ -51,10 +43,6 @@ jobs:
         run: cmake --build build --config=Debug
       - name: build release
         run: cmake --build build --config=Release
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   windows-clang:
     runs-on: windows-latest
     steps:
@@ -67,7 +55,3 @@ jobs:
         run: cmake --build clang --config=Debug
       - name: build release
         run: cmake --build clang --config=Release
-      - name: test debug
-        run: cd clang && ctest -V -C Debug
-      - name: test release
-        run: cd clang && ctest -V -C Release

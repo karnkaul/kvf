@@ -207,7 +207,7 @@ struct GpuList {
 }
 
 [[nodiscard]] constexpr auto get_optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	static constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
 	for (auto const desired : desired_v) {
 		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
 	}
@@ -330,7 +330,7 @@ struct Swapchain {
 
   private:
 	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
-		static constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
+		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
 		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
 		auto const x = std::clamp(framebuffer.width, caps.minImageExtent.width, caps.maxImageExtent.width);
 		auto const y = std::clamp(framebuffer.height, caps.minImageExtent.height, caps.maxImageExtent.height);

@@ -138,3 +138,7 @@ auto main(int argc, char** argv) -> int {
 		return EXIT_FAILURE;
 	}
 }
+
+#if defined(_WIN32)
+auto WinMain(int argc, char** argv) -> int { return main(argc, argv); }
+#endif
