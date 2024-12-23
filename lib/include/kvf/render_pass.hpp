@@ -13,6 +13,10 @@ class RenderPass {
 
 	void resize(vk::Extent2D extent);
 
+	[[nodiscard]] auto get_color_format() const -> vk::Format;
+	[[nodiscard]] auto get_depth_format() const -> vk::Format;
+	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits { return m_samples; }
+
 	[[nodiscard]] auto render_target() const -> RenderTarget;
 
 	void begin_render(vk::CommandBuffer command_buffer);

@@ -4,6 +4,7 @@
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
+#include <kvf/pipeline_state.hpp>
 #include <kvf/types.hpp>
 #include <kvf/window.hpp>
 #include <gsl/pointers>
@@ -71,6 +72,9 @@ class RenderDevice {
 	[[nodiscard]] auto render_image_format() const -> vk::Format;
 	[[nodiscard]] auto depth_image_format() const -> vk::Format;
 	[[nodiscard]] auto color_barrier() const -> vk::ImageMemoryBarrier2;
+
+	[[nodiscard]] auto create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule;
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) const -> vk::UniquePipeline;
 
 	void queue_submit(vk::SubmitInfo2 const& si);
 

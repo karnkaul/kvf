@@ -440,6 +440,83 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule {
+		auto smci = vk::ShaderModuleCreateInfo{};
+		smci.setCode(spir_v);
+		return m_device->createShaderModuleUnique(smci);
+	}
+
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state) const -> vk::UniquePipeline {
+		auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+		shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
+		shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
+		shader_stages[0].pName = shader_stages[1].pName = "main";
+
+		shader_stages[0].module = state.vertex_shader;
+		shader_stages[1].module = state.fragment_shader;
+
+		auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+		pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+		auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+		auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+		auto pcbas = vk::PipelineColorBlendAttachmentState{};
+		auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+		using CCF = vk::ColorComponentFlagBits;
+		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+			.setBlendEnable(alpha_blend ? vk::True : vk::False)
+			.setSrcColorBlendFactor(vk::BlendFactor::eSrc1Alpha)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setAlphaBlendOp(vk::BlendOp::eAdd);
+		auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+		pcbsci.setAttachments(pcbas);
+
+		auto const pdscis = std::array{
+			vk::DynamicState::eViewport,
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eLineWidth,
+		};
+		auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+		pdsci.setDynamicStates(pdscis);
+
+		auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+		auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+		pmsci.setRasterizationSamples(state.samples).setSampleShadingEnable(vk::False);
+
+		auto prci = vk::PipelineRenderingCreateInfo{};
+		if (state.color_format != vk::Format::eUndefined) { prci.setColorAttachmentFormats(state.color_format); }
+		if (state.depth_format != vk::Format::eUndefined) { prci.setDepthAttachmentFormat(state.depth_format); }
+
+		auto gpci = vk::GraphicsPipelineCreateInfo{};
+		gpci.setPVertexInputState(&pvisci)
+			.setStages(shader_stages)
+			.setPRasterizationState(&prsci)
+			.setPDepthStencilState(&pdssci)
+			.setPInputAssemblyState(&piasci)
+			.setPColorBlendState(&pcbsci)
+			.setPDynamicState(&pdsci)
+			.setPViewportState(&pvsci)
+			.setPMultisampleState(&pmsci)
+			.setLayout(layout)
+			.setPNext(&prci);
+
+		auto ret = vk::Pipeline{};
+		if (m_device->createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+		return vk::UniquePipeline{ret, *m_device};
+	}
+
 	void queue_submit(vk::SubmitInfo2 const& si) {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si);
@@ -869,6 +946,12 @@ auto RenderDevice::render_image_format() const -> vk::Format { return m_impl->re
 auto RenderDevice::depth_image_format() const -> vk::Format { return m_impl->depth_image_format(); }
 auto RenderDevice::color_barrier() const -> vk::ImageMemoryBarrier2 { return m_impl->color_barrier(); }
 
+auto RenderDevice::create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule { return m_impl->create_shader_module(spir_v); }
+
+auto RenderDevice::create_pipeline(vk::PipelineLayout const layout, PipelineState const& state) const -> vk::UniquePipeline {
+	return m_impl->create_pipeline(layout, state);
+}
+
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si) { m_impl->queue_submit(si); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
@@ -954,6 +1037,16 @@ void RenderPass::set_depth_target() {
 void RenderPass::resize(vk::Extent2D extent) {
 	sanitize_extent(extent.width, extent.height);
 	m_extent = extent;
+}
+
+auto RenderPass::get_color_format() const -> vk::Format {
+	if (!m_framebuffers.front().has_color_target()) { return vk::Format::eUndefined; }
+	return m_device->render_image_format();
+}
+
+auto RenderPass::get_depth_format() const -> vk::Format {
+	if (!m_framebuffers.front().has_depth_target()) { return vk::Format::eUndefined; }
+	return m_device->depth_image_format();
 }
 
 auto RenderPass::render_target() const -> RenderTarget {
