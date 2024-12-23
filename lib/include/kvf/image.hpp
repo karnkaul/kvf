@@ -1,7 +1,7 @@
 #pragma once
 #include <klib/unique.hpp>
 #include <kvf/render_device.hpp>
-#include <kvf/types.hpp>
+#include <kvf/render_target.hpp>
 
 namespace kvf::vma {
 template <typename Type>

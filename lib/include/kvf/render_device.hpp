@@ -5,7 +5,7 @@
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
 #include <kvf/pipeline_state.hpp>
-#include <kvf/types.hpp>
+#include <kvf/render_target.hpp>
 #include <kvf/window.hpp>
 #include <gsl/pointers>
 #include <memory>
@@ -69,12 +69,9 @@ class RenderDevice {
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const>;
 	auto request_present_mode(vk::PresentModeKHR desired) -> bool;
 
-	[[nodiscard]] auto render_image_format() const -> vk::Format;
-	[[nodiscard]] auto depth_image_format() const -> vk::Format;
-	[[nodiscard]] auto color_barrier() const -> vk::ImageMemoryBarrier2;
-
-	[[nodiscard]] auto create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule;
-	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) const -> vk::UniquePipeline;
+	[[nodiscard]] auto color_target_format() const -> vk::Format;
+	[[nodiscard]] auto depth_target_format() const -> vk::Format;
+	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 
 	void queue_submit(vk::SubmitInfo2 const& si);
 

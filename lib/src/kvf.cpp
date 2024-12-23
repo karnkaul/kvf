@@ -39,20 +39,97 @@ constexpr void sanitize_extent(T&... out) {
 
 #include <kvf/util.hpp>
 
-void kvf::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
+namespace kvf {
+void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
 	auto di = vk::DependencyInfo{};
 	di.pImageMemoryBarriers = image_barriers.data();
 	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
 	command_buffer.pipelineBarrier2(di);
 }
 
+auto util::create_shader_module(vk::Device device, std::span<std::uint32_t const> spir_v) -> vk::UniqueShaderModule {
+	auto smci = vk::ShaderModuleCreateInfo{};
+	smci.setCode(spir_v);
+	return device.createShaderModuleUnique(smci);
+}
+
+auto util::create_pipeline(vk::Device device, vk::PipelineLayout const layout, PipelineState const& state) -> vk::UniquePipeline {
+	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
+	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
+	shader_stages[0].pName = shader_stages[1].pName = "main";
+
+	shader_stages[0].module = state.vertex_shader;
+	shader_stages[1].module = state.fragment_shader;
+
+	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+	auto pcbas = vk::PipelineColorBlendAttachmentState{};
+	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+	using CCF = vk::ColorComponentFlagBits;
+	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+		.setBlendEnable(alpha_blend ? vk::True : vk::False)
+		.setSrcColorBlendFactor(vk::BlendFactor::eSrc1Alpha)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+		.setColorBlendOp(vk::BlendOp::eAdd)
+		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+		.setAlphaBlendOp(vk::BlendOp::eAdd);
+	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+	pcbsci.setAttachments(pcbas);
+
+	auto const pdscis = std::array{
+		vk::DynamicState::eViewport,
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eLineWidth,
+	};
+	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+	pdsci.setDynamicStates(pdscis);
+
+	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+	pmsci.setRasterizationSamples(state.samples).setSampleShadingEnable(vk::False);
+
+	auto prci = vk::PipelineRenderingCreateInfo{};
+	if (state.color_format != vk::Format::eUndefined) { prci.setColorAttachmentFormats(state.color_format); }
+	if (state.depth_format != vk::Format::eUndefined) { prci.setDepthAttachmentFormat(state.depth_format); }
+
+	auto gpci = vk::GraphicsPipelineCreateInfo{};
+	gpci.setPVertexInputState(&pvisci)
+		.setStages(shader_stages)
+		.setPRasterizationState(&prsci)
+		.setPDepthStencilState(&pdssci)
+		.setPInputAssemblyState(&piasci)
+		.setPColorBlendState(&pcbsci)
+		.setPDynamicState(&pdsci)
+		.setPViewportState(&pvsci)
+		.setPMultisampleState(&pmsci)
+		.setLayout(layout)
+		.setPNext(&prci);
+
+	auto ret = vk::Pipeline{};
+	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+	return vk::UniquePipeline{ret, device};
+}
+} // namespace kvf
 // render_device
 
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
-#include <kvf/types.hpp>
 
 namespace kvf {
 namespace {
@@ -210,7 +287,7 @@ struct Swapchain {
 		m_layout = vk::ImageLayout::eUndefined;
 
 		auto const extent = m_info.imageExtent;
-		log::info("Swapchain extent: {}x{}, mode: {}", extent.width, extent.height, to_str(m_info.presentMode));
+		log::info("Swapchain extent: {}x{}, mode: {}", extent.width, extent.height, util::to_str(m_info.presentMode));
 	}
 
 	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
@@ -433,88 +510,11 @@ struct RenderDevice::Impl {
 
 	[[nodiscard]] auto depth_image_format() const -> vk::Format { return m_depth_format; }
 
-	[[nodiscard]] auto color_barrier() const -> vk::ImageMemoryBarrier2 {
+	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags const aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 {
 		auto ret = vk::ImageMemoryBarrier2{};
 		ret.srcQueueFamilyIndex = ret.dstQueueFamilyIndex = get_queue_family();
-		ret.subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eColor).setLevelCount(1).setLayerCount(1);
+		ret.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(1);
 		return ret;
-	}
-
-	[[nodiscard]] auto create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule {
-		auto smci = vk::ShaderModuleCreateInfo{};
-		smci.setCode(spir_v);
-		return m_device->createShaderModuleUnique(smci);
-	}
-
-	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state) const -> vk::UniquePipeline {
-		auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-		shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-		shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-		shader_stages[0].pName = shader_stages[1].pName = "main";
-
-		shader_stages[0].module = state.vertex_shader;
-		shader_stages[1].module = state.fragment_shader;
-
-		auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-		pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-		auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-		auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-		auto pcbas = vk::PipelineColorBlendAttachmentState{};
-		auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-		using CCF = vk::ColorComponentFlagBits;
-		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-			.setBlendEnable(alpha_blend ? vk::True : vk::False)
-			.setSrcColorBlendFactor(vk::BlendFactor::eSrc1Alpha)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-			.setColorBlendOp(vk::BlendOp::eAdd)
-			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-			.setAlphaBlendOp(vk::BlendOp::eAdd);
-		auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
-		pcbsci.setAttachments(pcbas);
-
-		auto const pdscis = std::array{
-			vk::DynamicState::eViewport,
-			vk::DynamicState::eScissor,
-			vk::DynamicState::eLineWidth,
-		};
-		auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-		pdsci.setDynamicStates(pdscis);
-
-		auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-		auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-		pmsci.setRasterizationSamples(state.samples).setSampleShadingEnable(vk::False);
-
-		auto prci = vk::PipelineRenderingCreateInfo{};
-		if (state.color_format != vk::Format::eUndefined) { prci.setColorAttachmentFormats(state.color_format); }
-		if (state.depth_format != vk::Format::eUndefined) { prci.setDepthAttachmentFormat(state.depth_format); }
-
-		auto gpci = vk::GraphicsPipelineCreateInfo{};
-		gpci.setPVertexInputState(&pvisci)
-			.setStages(shader_stages)
-			.setPRasterizationState(&prsci)
-			.setPDepthStencilState(&pdssci)
-			.setPInputAssemblyState(&piasci)
-			.setPColorBlendState(&pcbsci)
-			.setPDynamicState(&pdsci)
-			.setPViewportState(&pvsci)
-			.setPMultisampleState(&pmsci)
-			.setLayout(layout)
-			.setPNext(&prci);
-
-		auto ret = vk::Pipeline{};
-		if (m_device->createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-		return vk::UniquePipeline{ret, *m_device};
 	}
 
 	void queue_submit(vk::SubmitInfo2 const& si) {
@@ -568,14 +568,14 @@ struct RenderDevice::Impl {
 
 		if (frame.image && frame.view) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eTransferDstOptimal);
-			record_barriers(m_current_cmd, {&barrier, 1});
+			util::record_barrier(m_current_cmd, barrier);
 			blit_to_backbuffer(frame, backbuffer, m_current_cmd);
 			backbuffer_load_op = vk::AttachmentLoadOp::eLoad;
 		}
 
 		if (should_render_imgui) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eAttachmentOptimal);
-			record_barriers(m_current_cmd, {&barrier, 1});
+			util::record_barrier(m_current_cmd, barrier);
 			auto cai = vk::RenderingAttachmentInfo{};
 			cai.setImageView(backbuffer.view)
 				.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
@@ -585,7 +585,7 @@ struct RenderDevice::Impl {
 		}
 
 		barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::ePresentSrcKHR);
-		record_barriers(m_current_cmd, {&barrier, 1});
+		util::record_barrier(m_current_cmd, barrier);
 
 		m_current_cmd.end();
 
@@ -799,7 +799,7 @@ struct RenderDevice::Impl {
 
 	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd) const {
 		static auto const isr_v = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-		auto barrier = color_barrier();
+		auto barrier = image_barrier();
 		barrier.setImage(frame.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentRead | vk::AccessFlagBits2::eColorAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
@@ -808,7 +808,7 @@ struct RenderDevice::Impl {
 			.setOldLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
 			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
 			.setSubresourceRange(isr_v);
-		record_barriers(cmd, {&barrier, 1});
+		util::record_barrier(cmd, barrier);
 
 		auto const src_offset = vk::Offset3D{std::int32_t(frame.extent.width), std::int32_t(frame.extent.height), 1};
 		auto const dst_offset = vk::Offset3D{std::int32_t(backbuffer.extent.width), std::int32_t(backbuffer.extent.height), 1};
@@ -832,7 +832,7 @@ struct RenderDevice::Impl {
 			.setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
 			.setOldLayout(barrier.newLayout)
 			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-		record_barriers(cmd, {&barrier, 1});
+		util::record_barrier(cmd, barrier);
 	}
 
 	void render_imgui(vk::CommandBuffer cmd, vk::RenderingAttachmentInfo const& backbuffer, vk::Extent2D const extent) {
@@ -848,7 +848,7 @@ struct RenderDevice::Impl {
 
 	[[nodiscard]] auto transition_backbuffer(vk::Image backbuffer, vk::ImageLayout const target) -> vk::ImageMemoryBarrier2 {
 		static constexpr auto isr_v = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-		auto ret = color_barrier();
+		auto ret = image_barrier();
 		ret.setImage(backbuffer).setSubresourceRange(isr_v).setOldLayout(m_backbuffer_layout).setNewLayout(target);
 		switch (m_backbuffer_layout) {
 		case vk::ImageLayout::eUndefined:
@@ -942,15 +942,9 @@ auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_imp
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
 auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
 
-auto RenderDevice::render_image_format() const -> vk::Format { return m_impl->render_image_format(); }
-auto RenderDevice::depth_image_format() const -> vk::Format { return m_impl->depth_image_format(); }
-auto RenderDevice::color_barrier() const -> vk::ImageMemoryBarrier2 { return m_impl->color_barrier(); }
-
-auto RenderDevice::create_shader_module(std::span<std::uint32_t const> spir_v) const -> vk::UniqueShaderModule { return m_impl->create_shader_module(spir_v); }
-
-auto RenderDevice::create_pipeline(vk::PipelineLayout const layout, PipelineState const& state) const -> vk::UniquePipeline {
-	return m_impl->create_pipeline(layout, state);
-}
+auto RenderDevice::color_target_format() const -> vk::Format { return m_impl->render_image_format(); }
+auto RenderDevice::depth_target_format() const -> vk::Format { return m_impl->depth_image_format(); }
+auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si) { m_impl->queue_submit(si); }
 
@@ -1041,12 +1035,12 @@ void RenderPass::resize(vk::Extent2D extent) {
 
 auto RenderPass::get_color_format() const -> vk::Format {
 	if (!m_framebuffers.front().has_color_target()) { return vk::Format::eUndefined; }
-	return m_device->render_image_format();
+	return m_device->color_target_format();
 }
 
 auto RenderPass::get_depth_format() const -> vk::Format {
 	if (!m_framebuffers.front().has_depth_target()) { return vk::Format::eUndefined; }
-	return m_device->depth_image_format();
+	return m_device->depth_target_format();
 }
 
 auto RenderPass::render_target() const -> RenderTarget {
@@ -1062,7 +1056,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 
 	m_barriers.clear();
 	if (m_render_targets.color.image) {
-		auto barrier = m_device->color_barrier();
+		auto barrier = m_device->image_barrier();
 		barrier.setImage(m_render_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -1079,8 +1073,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 		m_barriers.push_back(barrier);
 	}
 	if (m_render_targets.depth.image) {
-		auto barrier = m_device->color_barrier();
-		barrier.subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eDepth);
+		auto barrier = m_device->image_barrier(vk::ImageAspectFlagBits::eDepth);
 		barrier.setImage(m_render_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -1091,7 +1084,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 		m_barriers.push_back(barrier);
 	}
 
-	if (m_command_buffer) { record_barriers(m_command_buffer, m_barriers); }
+	if (m_command_buffer) { util::record_barriers(m_command_buffer, m_barriers); }
 
 	auto cai = vk::RenderingAttachmentInfo{};
 	auto dai = vk::RenderingAttachmentInfo{};
@@ -1127,7 +1120,7 @@ void RenderPass::end_render() {
 
 	m_barriers.clear();
 	if (m_render_targets.color.image) {
-		auto barrier = m_device->color_barrier();
+		auto barrier = m_device->image_barrier();
 		barrier.setImage(m_render_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
@@ -1144,8 +1137,7 @@ void RenderPass::end_render() {
 		m_barriers.push_back(barrier);
 	}
 	if (m_render_targets.depth.image && depth_store_op == vk::AttachmentStoreOp::eStore) {
-		auto barrier = m_device->color_barrier();
-		barrier.subresourceRange.setAspectMask(vk::ImageAspectFlagBits::eDepth);
+		auto barrier = m_device->image_barrier(vk::ImageAspectFlagBits::eDepth);
 		barrier.setImage(m_render_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -1155,7 +1147,7 @@ void RenderPass::end_render() {
 			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 		m_barriers.push_back(barrier);
 	}
-	if (m_command_buffer) { record_barriers(m_command_buffer, m_barriers); }
+	if (m_command_buffer) { util::record_barriers(m_command_buffer, m_barriers); }
 
 	m_command_buffer = vk::CommandBuffer{};
 }
@@ -1165,7 +1157,7 @@ auto RenderPass::color_image_info(vk::SampleCountFlagBits const samples) const -
 	static constexpr auto usage_v = Usage::eColorAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
 	return vma::ImageCreateInfo{
 		.extent = m_extent,
-		.format = m_device->render_image_format(),
+		.format = m_device->color_target_format(),
 		.usage = usage_v,
 		.aspect = vk::ImageAspectFlagBits::eColor,
 		.samples = samples,
@@ -1177,7 +1169,7 @@ auto RenderPass::depth_image_info() const -> vma::ImageCreateInfo {
 	static constexpr auto usage_v = Usage::eDepthStencilAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
 	return vma::ImageCreateInfo{
 		.extent = m_extent,
-		.format = m_device->depth_image_format(),
+		.format = m_device->depth_target_format(),
 		.usage = usage_v,
 		.aspect = vk::ImageAspectFlagBits::eDepth,
 	};
