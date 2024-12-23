@@ -8,9 +8,11 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
-  vma::vma
-  klib::klib
   ms::gsl
+  klib::klib
+  glfw::glfw
+  vma::vma
+  dear_imgui::dear_imgui
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
@@ -35,35 +37,4 @@ target_sources(${PROJECT_NAME} PUBLIC FILE_SET HEADERS BASE_DIRS "${CMAKE_CURREN
 
 target_sources(${PROJECT_NAME} PRIVATE
   src/kvf.cpp
-)
-
-target_precompile_headers(${PROJECT_NAME} PRIVATE
-  <vulkan/vulkan.hpp>
-  <vk_mem_alloc.h>
-  <algorithm>
-  <atomic>
-  <chrono>
-  <cmath>
-  <cstdint>
-  <deque>
-  <expected>
-  <filesystem>
-  <format>
-  <functional>
-  <future>
-  <map>
-  <memory>
-  <mutex>
-  <numeric>
-  <optional>
-  <print>
-  <ranges>
-  <span>
-  <string>
-  <thread>
-  <unordered_map>
-  <unordered_set>
-  <utility>
-  <variant>
-  <vector>
 )

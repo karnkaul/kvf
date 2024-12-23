@@ -11,3 +11,6 @@ tests/tmp.cpp
 CMakeSettings.json
 compile_commands.json
 /CMakeUserPresets.json
+
+imgui.ini
+kvf-example.log
