@@ -1,10 +1,10 @@
+file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
+
 if(NOT TARGET klib)
   add_subdirectory(src/klib)
 endif()
 
-file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
 add_subdirectory(src/gsl)
-
 add_subdirectory(src/dyvk)
 
 add_subdirectory(src/vma)
