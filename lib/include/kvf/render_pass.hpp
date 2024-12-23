@@ -6,9 +6,11 @@
 namespace kvf {
 class RenderPass {
   public:
-	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent);
+	static constexpr auto samples_v = vk::SampleCountFlagBits::e1;
 
-	void set_color_target(vk::SampleCountFlagBits samples = vk::SampleCountFlagBits::e1);
+	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent, vk::SampleCountFlagBits samples = samples_v);
+
+	void set_color_target();
 	void set_depth_target();
 
 	void resize(vk::Extent2D extent);
@@ -17,7 +19,8 @@ class RenderPass {
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits { return m_samples; }
 
-	[[nodiscard]] auto render_target() const -> RenderTarget;
+	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return render_target().extent; }
+	[[nodiscard]] auto render_target() const -> RenderTarget const&;
 
 	void begin_render(vk::CommandBuffer command_buffer);
 	void end_render();

@@ -79,7 +79,7 @@ auto util::create_pipeline(vk::Device device, vk::PipelineLayout const layout, P
 	using CCF = vk::ColorComponentFlagBits;
 	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
 		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrc1Alpha)
+		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
 		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
 		.setColorBlendOp(vk::BlendOp::eAdd)
 		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
@@ -1012,12 +1012,12 @@ void Image::recreate(CreateInfo const& create_info) {
 #include <kvf/render_pass.hpp>
 
 namespace kvf {
-RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent) : m_device(render_device), m_device_block(render_device->get_device()) {
+RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent, vk::SampleCountFlagBits const samples)
+	: m_device(render_device), m_samples(samples), m_device_block(render_device->get_device()) {
 	resize(extent);
 }
 
-void RenderPass::set_color_target(vk::SampleCountFlagBits const samples) {
-	m_samples = samples;
+void RenderPass::set_color_target() {
 	for (auto& framebuffer : m_framebuffers) {
 		framebuffer.color = vma::Image{m_device, color_image_info(m_samples)};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, color_image_info(vk::SampleCountFlagBits::e1)}; }
@@ -1043,7 +1043,7 @@ auto RenderPass::get_depth_format() const -> vk::Format {
 	return m_device->depth_target_format();
 }
 
-auto RenderPass::render_target() const -> RenderTarget {
+auto RenderPass::render_target() const -> RenderTarget const& {
 	if (m_render_targets.resolve.view) { return m_render_targets.resolve; }
 	if (m_render_targets.color.view) { return m_render_targets.color; }
 	return m_render_targets.depth;
@@ -1172,6 +1172,7 @@ auto RenderPass::depth_image_info() const -> vma::ImageCreateInfo {
 		.format = m_device->depth_target_format(),
 		.usage = usage_v,
 		.aspect = vk::ImageAspectFlagBits::eDepth,
+		.samples = m_samples,
 	};
 }
 
