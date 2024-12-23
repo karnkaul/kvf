@@ -31,7 +31,9 @@ struct ShaderLoader {
 		spir_v.resize(std::size_t(size) / sizeof(std::uint32_t));
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
 		file.read(reinterpret_cast<char*>(spir_v.data()), size);
-		return kvf::util::create_shader_module(device, spir_v);
+		auto smci = vk::ShaderModuleCreateInfo{};
+		smci.setCode(spir_v);
+		return device.createShaderModuleUnique(smci);
 	}
 };
 
@@ -97,11 +99,8 @@ struct App {
 			.vertex_bindings = {},
 			.vertex_shader = *vertex_shader,
 			.fragment_shader = *fragment_shader,
-			.color_format = m_color_pass.get_color_format(),
-			.depth_format = m_color_pass.get_depth_format(),
-			.samples = m_color_pass.get_samples(),
 		};
-		m_pipeline = kvf::util::create_pipeline(m_device.get_device(), *m_pipeline_layout, pipeline_state);
+		m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 		if (!m_pipeline) { throw std::runtime_error{"Failed to create Vulkan Pipeline"}; }
 	}
 

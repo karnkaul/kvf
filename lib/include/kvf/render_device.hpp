@@ -1,12 +1,12 @@
 #pragma once
+#include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
 #include <klib/constants.hpp>
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
-#include <kvf/pipeline_state.hpp>
+#include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
-#include <kvf/window.hpp>
 #include <gsl/pointers>
 #include <memory>
 #include <span>

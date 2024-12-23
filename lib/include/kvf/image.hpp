@@ -1,7 +1,9 @@
 #pragma once
+#include <vk_mem_alloc.h>
 #include <klib/unique.hpp>
-#include <kvf/render_device.hpp>
+#include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
+#include <gsl/pointers>
 
 namespace kvf::vma {
 template <typename Type>

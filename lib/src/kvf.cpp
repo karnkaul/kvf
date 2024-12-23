@@ -1,6 +1,3 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <vk_mem_alloc.h>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
@@ -48,83 +45,6 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 	di.pImageMemoryBarriers = image_barriers.data();
 	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
 	command_buffer.pipelineBarrier2(di);
-}
-
-auto util::create_shader_module(vk::Device device, std::span<std::uint32_t const> spir_v) -> vk::UniqueShaderModule {
-	auto smci = vk::ShaderModuleCreateInfo{};
-	smci.setCode(spir_v);
-	return device.createShaderModuleUnique(smci);
-}
-
-auto util::create_pipeline(vk::Device device, vk::PipelineLayout const layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-	shader_stages[0].pName = shader_stages[1].pName = "main";
-
-	shader_stages[0].module = state.vertex_shader;
-	shader_stages[1].module = state.fragment_shader;
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbas = vk::PipelineColorBlendAttachmentState{};
-	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-	using CCF = vk::ColorComponentFlagBits;
-	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-		.setColorBlendOp(vk::BlendOp::eAdd)
-		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
-	pcbsci.setAttachments(pcbas);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
-	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(state.samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	if (state.color_format != vk::Format::eUndefined) { prci.setColorAttachmentFormats(state.color_format); }
-	if (state.depth_format != vk::Format::eUndefined) { prci.setDepthAttachmentFormat(state.depth_format); }
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
 }
 } // namespace kvf
 // render_device
@@ -1027,6 +947,81 @@ void RenderPass::set_color_target() {
 
 void RenderPass::set_depth_target() {
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_image_info()}; }
+}
+
+auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
+	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
+	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
+	shader_stages[0].pName = shader_stages[1].pName = "main";
+
+	shader_stages[0].module = state.vertex_shader;
+	shader_stages[1].module = state.fragment_shader;
+
+	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+	auto pcbas = vk::PipelineColorBlendAttachmentState{};
+	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+	using CCF = vk::ColorComponentFlagBits;
+	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+		.setBlendEnable(alpha_blend ? vk::True : vk::False)
+		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+		.setColorBlendOp(vk::BlendOp::eAdd)
+		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+		.setAlphaBlendOp(vk::BlendOp::eAdd);
+	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+	pcbsci.setAttachments(pcbas);
+
+	auto const pdscis = std::array{
+		vk::DynamicState::eViewport,
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eLineWidth,
+	};
+	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+	pdsci.setDynamicStates(pdscis);
+
+	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+	pmsci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
+
+	auto prci = vk::PipelineRenderingCreateInfo{};
+	auto const& framebuffer = m_framebuffers.front();
+	auto const colour_format = m_device->color_target_format();
+	auto const depth_format = m_device->depth_target_format();
+	if (framebuffer.has_color_target()) { prci.setColorAttachmentFormats(colour_format); }
+	if (framebuffer.has_depth_target()) { prci.setDepthAttachmentFormat(depth_format); }
+
+	auto gpci = vk::GraphicsPipelineCreateInfo{};
+	gpci.setPVertexInputState(&pvisci)
+		.setStages(shader_stages)
+		.setPRasterizationState(&prsci)
+		.setPDepthStencilState(&pdssci)
+		.setPInputAssemblyState(&piasci)
+		.setPColorBlendState(&pcbsci)
+		.setPDynamicState(&pdsci)
+		.setPViewportState(&pvsci)
+		.setPMultisampleState(&pmsci)
+		.setLayout(layout)
+		.setPNext(&prci);
+
+	auto const device = m_device->get_device();
+	auto ret = vk::Pipeline{};
+	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+	return vk::UniquePipeline{ret, device};
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
