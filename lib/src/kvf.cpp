@@ -14,6 +14,8 @@
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <cmath>
+#include <mutex>
+#include <ranges>
 
 // common
 
