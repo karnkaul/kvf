@@ -4,6 +4,7 @@
 #include <klib/log.hpp>
 #include <klib/version_str.hpp>
 #include <kvf/build_version.hpp>
+#include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
 #include <kvf/render_pass.hpp>
 #include <kvf/util.hpp>
@@ -39,9 +40,11 @@ struct ShaderLoader {
 
 struct App {
 	explicit App(std::string_view const build_version, std::string_view const shader_dir)
-		: m_shader_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e4) {}
+		: m_shader_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
 
 	void run() {
+		m_device_blocker = m_device.get_device();
+
 		m_color_pass.set_color_target();
 		m_color_pass.set_depth_target();
 		m_color_pass.clear_color = vk::ClearColorValue{std::array{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -53,21 +56,23 @@ struct App {
 
 			ImGui::ShowDemoWindow();
 
-			auto const framebuffer_extent = m_device.get_framebuffer_extent();
+			static constexpr auto upscale_v = 2.0f;
+			auto const framebuffer_extent = kvf::util::scale_extent(m_device.get_framebuffer_extent(), upscale_v);
 			m_color_pass.begin_render(command_buffer, framebuffer_extent);
 
-			command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
-			auto const viewport = vk::Viewport{0.0f, float(framebuffer_extent.height), float(framebuffer_extent.width), -float(framebuffer_extent.height)};
-			auto const scissor = vk::Rect2D{{}, framebuffer_extent};
-			command_buffer.setViewport(0, viewport);
-			command_buffer.setScissor(0, scissor);
-			command_buffer.draw(3, 1, 0, 0);
+			if (command_buffer) {
+				command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
+				auto const viewport = vk::Viewport{0.0f, float(framebuffer_extent.height), float(framebuffer_extent.width), -float(framebuffer_extent.height)};
+				auto const scissor = vk::Rect2D{{}, framebuffer_extent};
+				command_buffer.setViewport(0, viewport);
+				command_buffer.setScissor(0, scissor);
+				command_buffer.draw(3, 1, 0, 0);
+			}
+
 			m_color_pass.end_render();
 
 			m_device.render(m_color_pass.render_target());
 		}
-
-		m_device.get_device().waitIdle();
 	}
 
   private:
@@ -113,6 +118,8 @@ struct App {
 
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
+
+	kvf::DeviceBlock m_device_blocker{};
 };
 } // namespace
 
