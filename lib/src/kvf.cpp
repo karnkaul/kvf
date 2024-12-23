@@ -8,6 +8,7 @@
 #include <klib/scoped_defer.hpp>
 #include <klib/unique.hpp>
 #include <klib/version_str.hpp>
+#include <kvf/build_version.hpp>
 #include <kvf/error.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
@@ -465,6 +466,7 @@ class DearImGui {
 
 struct RenderDevice::Impl {
 	Impl(GLFWwindow* window, Flags const flags, GpuSelector const& gpu_selector) : m_window(window), m_flags(flags) {
+		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
@@ -1012,10 +1014,7 @@ void Image::recreate(CreateInfo const& create_info) {
 #include <kvf/render_pass.hpp>
 
 namespace kvf {
-RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent, vk::SampleCountFlagBits const samples)
-	: m_device(render_device), m_samples(samples), m_device_block(render_device->get_device()) {
-	resize(extent);
-}
+RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 void RenderPass::set_color_target() {
 	for (auto& framebuffer : m_framebuffers) {
@@ -1026,11 +1025,6 @@ void RenderPass::set_color_target() {
 
 void RenderPass::set_depth_target() {
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_image_info()}; }
-}
-
-void RenderPass::resize(vk::Extent2D extent) {
-	sanitize_extent(extent.width, extent.height);
-	m_extent = extent;
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -1044,20 +1038,23 @@ auto RenderPass::get_depth_format() const -> vk::Format {
 }
 
 auto RenderPass::render_target() const -> RenderTarget const& {
-	if (m_render_targets.resolve.view) { return m_render_targets.resolve; }
-	if (m_render_targets.color.view) { return m_render_targets.color; }
-	return m_render_targets.depth;
+	if (m_targets.resolve.view) { return m_targets.resolve; }
+	if (m_targets.color.view) { return m_targets.color; }
+	return m_targets.depth;
 }
 
-void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
+void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
+	sanitize_extent(extent.width, extent.height);
+	m_extent = extent;
+
 	m_command_buffer = command_buffer;
 
 	set_render_targets();
 
 	m_barriers.clear();
-	if (m_render_targets.color.image) {
+	if (m_targets.color.image) {
 		auto barrier = m_device->image_barrier();
-		barrier.setImage(m_render_targets.color.image)
+		barrier.setImage(m_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
 			.setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
@@ -1066,15 +1063,15 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 			.setNewLayout(vk::ImageLayout::eAttachmentOptimal);
 		m_barriers.push_back(barrier);
 	}
-	if (m_render_targets.resolve.image) {
-		KLIB_ASSERT(m_render_targets.color.image && !m_barriers.empty());
+	if (m_targets.resolve.image) {
+		KLIB_ASSERT(m_targets.color.image && !m_barriers.empty());
 		auto barrier = m_barriers.back();
-		barrier.setImage(m_render_targets.resolve.image);
+		barrier.setImage(m_targets.resolve.image);
 		m_barriers.push_back(barrier);
 	}
-	if (m_render_targets.depth.image) {
+	if (m_targets.depth.image) {
 		auto barrier = m_device->image_barrier(vk::ImageAspectFlagBits::eDepth);
-		barrier.setImage(m_render_targets.depth.image)
+		barrier.setImage(m_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
 			.setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
@@ -1089,20 +1086,20 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 	auto cai = vk::RenderingAttachmentInfo{};
 	auto dai = vk::RenderingAttachmentInfo{};
 
-	if (m_render_targets.color.view) {
-		cai.setImageView(m_render_targets.color.view)
+	if (m_targets.color.view) {
+		cai.setImageView(m_targets.color.view)
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(vk::AttachmentStoreOp::eStore)
 			.setClearValue(clear_color);
 	}
-	if (m_render_targets.resolve.view) {
-		cai.setResolveImageView(m_render_targets.resolve.view)
+	if (m_targets.resolve.view) {
+		cai.setResolveImageView(m_targets.resolve.view)
 			.setResolveImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setResolveMode(vk::ResolveModeFlagBits::eAverage);
 	}
-	if (m_render_targets.depth.view) {
-		dai.setImageView(m_render_targets.depth.view)
+	if (m_targets.depth.view) {
+		dai.setImageView(m_targets.depth.view)
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(depth_store_op)
@@ -1110,8 +1107,8 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer) {
 	}
 
 	auto ri = vk::RenderingInfo{};
-	if (dai.imageView) { ri.setPDepthAttachment(&dai).setRenderArea(vk::Rect2D{{}, m_render_targets.depth.extent}); }
-	if (cai.imageView) { ri.setColorAttachments(cai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_render_targets.color.extent}); }
+	if (dai.imageView) { ri.setPDepthAttachment(&dai).setRenderArea(vk::Rect2D{{}, m_targets.depth.extent}); }
+	if (cai.imageView) { ri.setColorAttachments(cai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
 	if (m_command_buffer) { command_buffer.beginRendering(ri); }
 }
 
@@ -1119,9 +1116,9 @@ void RenderPass::end_render() {
 	if (m_command_buffer) { m_command_buffer.endRendering(); }
 
 	m_barriers.clear();
-	if (m_render_targets.color.image) {
+	if (m_targets.color.image) {
 		auto barrier = m_device->image_barrier();
-		barrier.setImage(m_render_targets.color.image)
+		barrier.setImage(m_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
 			.setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead | vk::AccessFlagBits2::eTransferRead)
@@ -1130,15 +1127,15 @@ void RenderPass::end_render() {
 			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 		m_barriers.push_back(barrier);
 	}
-	if (m_render_targets.resolve.image) {
-		KLIB_ASSERT(m_render_targets.color.image && !m_barriers.empty());
+	if (m_targets.resolve.image) {
+		KLIB_ASSERT(m_targets.color.image && !m_barriers.empty());
 		auto barrier = m_barriers.back();
-		barrier.setImage(m_render_targets.resolve.image);
+		barrier.setImage(m_targets.resolve.image);
 		m_barriers.push_back(barrier);
 	}
-	if (m_render_targets.depth.image && depth_store_op == vk::AttachmentStoreOp::eStore) {
+	if (m_targets.depth.image && depth_store_op == vk::AttachmentStoreOp::eStore) {
 		auto barrier = m_device->image_barrier(vk::ImageAspectFlagBits::eDepth);
-		barrier.setImage(m_render_targets.depth.image)
+		barrier.setImage(m_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
 			.setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
@@ -1184,8 +1181,8 @@ void RenderPass::set_render_targets() {
 	}
 	if (framebuffer.has_depth_target() && framebuffer.depth.get_extent() != m_extent) { framebuffer.depth.recreate(depth_image_info()); }
 
-	m_render_targets.color = framebuffer.color.render_target();
-	m_render_targets.resolve = framebuffer.resolve.render_target();
-	m_render_targets.depth = framebuffer.depth.render_target();
+	m_targets.color = framebuffer.color.render_target();
+	m_targets.resolve = framebuffer.resolve.render_target();
+	m_targets.depth = framebuffer.depth.render_target();
 }
 } // namespace kvf

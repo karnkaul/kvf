@@ -2,7 +2,7 @@
 #include <klib/version.hpp>
 
 namespace kvf {
-constexpr auto build_version_v = Version{
+constexpr auto build_version_v = klib::Version{
 	.major = @PROJECT_VERSION_MAJOR@,
 	.minor = @PROJECT_VERSION_MINOR@,
 	.patch = @PROJECT_VERSION_PATCH@,

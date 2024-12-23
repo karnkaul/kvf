@@ -1,5 +1,4 @@
 #pragma once
-#include <kvf/device_block.hpp>
 #include <kvf/image.hpp>
 #include <kvf/render_device.hpp>
 
@@ -8,12 +7,10 @@ class RenderPass {
   public:
 	static constexpr auto samples_v = vk::SampleCountFlagBits::e1;
 
-	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::Extent2D extent, vk::SampleCountFlagBits samples = samples_v);
+	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
 	void set_color_target();
 	void set_depth_target();
-
-	void resize(vk::Extent2D extent);
 
 	[[nodiscard]] auto get_color_format() const -> vk::Format;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
@@ -22,14 +19,14 @@ class RenderPass {
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return render_target().extent; }
 	[[nodiscard]] auto render_target() const -> RenderTarget const&;
 
-	void begin_render(vk::CommandBuffer command_buffer);
+	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);
 	void end_render();
 
 	vk::ClearColorValue clear_color{};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};
 
-  protected:
+  private:
 	struct Framebuffer {
 		vma::Image color{};
 		vma::Image resolve{};
@@ -59,11 +56,7 @@ class RenderPass {
 	vk::CommandBuffer m_command_buffer{};
 	vk::Extent2D m_extent{};
 
-	Targets m_render_targets{};
-
-  private:
+	Targets m_targets{};
 	std::vector<vk::ImageMemoryBarrier2> m_barriers{};
-
-	DeviceBlock m_device_block{};
 };
 } // namespace kvf
