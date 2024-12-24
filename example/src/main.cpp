@@ -32,7 +32,7 @@ struct ShaderLoader {
 
 struct App {
 	explicit App(std::string_view const build_version, std::string_view const shader_dir)
-		: m_shader_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
+		: m_assets_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
 
 	void run() {
 		m_device_blocker = m_device.get_device();
@@ -85,7 +85,7 @@ struct App {
 	void create_pipeline() {
 		auto loader = ShaderLoader{
 			.device = m_device.get_device(),
-			.dir = m_shader_dir,
+			.dir = m_assets_dir,
 		};
 		auto const vertex_shader = loader.load("shader.vert");
 		auto const fragment_shader = loader.load("shader.frag");
@@ -101,7 +101,7 @@ struct App {
 		if (!m_pipeline) { throw std::runtime_error{"Failed to create Vulkan Pipeline"}; }
 	}
 
-	std::string_view m_shader_dir{};
+	std::string_view m_assets_dir{};
 
 	kvf::UniqueWindow m_window{};
 	kvf::RenderDevice m_device;
@@ -118,16 +118,16 @@ struct App {
 auto main(int argc, char** argv) -> int {
 	auto const log_file = klib::log::File{"kvf-example.log"};
 	try {
-		auto shader_dir = std::string_view{"."};
+		auto assets_dir = std::string_view{"."};
 		auto const args = std::array{
-			klib::args::positional(shader_dir, klib::args::ArgType::Optional, "SHADER_DIR"),
+			klib::args::option(assets_dir, "a,assets", "example assets directory"),
 		};
 		auto const build_version = klib::to_string(kvf::build_version_v);
 		auto const parse_info = klib::args::ParseInfo{.version = build_version};
 		auto const parse_result = klib::args::parse(parse_info, args, argc, argv);
 		if (parse_result.early_return()) { return parse_result.get_return_code(); }
-		klib::log::info("kvf", "Using shader dir: {}", shader_dir);
-		App{build_version, shader_dir}.run();
+		klib::log::info("kvf", "Using assets directory: {}", assets_dir);
+		App{build_version, assets_dir}.run();
 	} catch (std::exception const& e) {
 		klib::log::error("PANIC", "{}", e.what());
 		return EXIT_FAILURE;
