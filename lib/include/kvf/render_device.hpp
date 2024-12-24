@@ -79,7 +79,7 @@ class RenderDevice {
 	void set_render_imgui(bool should_render);
 
 	[[nodiscard]] auto next_frame() -> vk::CommandBuffer;
-	void render(RenderTarget const& frame);
+	void render(RenderTarget const& frame, vk::Filter filter = vk::Filter::eLinear);
 
   private:
 	struct Impl;

@@ -11,6 +11,13 @@
 namespace kvf {
 enum class IoResult : int { Success, OpenFailed, SizeMismatch };
 
+struct RgbaBitmap {
+	static constexpr std::uint32_t channels_v{4};
+
+	std::span<std::byte const> bytes{};
+	vk::Extent2D extent{};
+};
+
 namespace util {
 constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view {
 	switch (present_mode) {
@@ -40,5 +47,8 @@ auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -
 
 auto overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
 auto write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool;
+
+auto write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool;
+inline auto write_to(vma::Image& dst, RgbaBitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
 } // namespace util
 } // namespace kvf

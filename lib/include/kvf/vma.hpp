@@ -60,14 +60,14 @@ class Buffer : public Resource<vk::Buffer> {
 
 	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize { return m_capacity; }
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize { return m_size; }
-	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_create_info; }
+	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_info; }
 
   private:
 	struct Deleter {
 		void operator()(Payload const& buffer) const noexcept;
 	};
 
-	CreateInfo m_create_info{};
+	CreateInfo m_info{};
 	klib::Unique<Payload, Deleter> m_buffer{};
 	vk::DeviceSize m_capacity{};
 	vk::DeviceSize m_size{};
@@ -84,9 +84,9 @@ using ImageFlags = int;
 
 struct ImageCreateInfo {
 	vk::Format format;
-	vk::ImageUsageFlags usage;
-	vk::ImageAspectFlags aspect;
 
+	vk::ImageAspectFlags aspect{vk::ImageAspectFlagBits::eColor};
+	vk::ImageUsageFlags usage{vk::ImageUsageFlagBits::eSampled}; // transfer is implied
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
 	std::uint32_t layers{1};
 	std::uint32_t mips{1};
@@ -105,12 +105,15 @@ class Image : public Resource<vk::Image> {
 	explicit Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
 
 	auto resize(vk::Extent2D extent) -> bool;
+	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }
 
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_extent; }
-	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_create_info; }
+	[[nodiscard]] auto get_layout() const -> vk::ImageLayout { return m_layout; }
+	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_info; }
+	[[nodiscard]] auto subresource_range() const -> vk::ImageSubresourceRange;
 
 	[[nodiscard]] auto render_target() const -> RenderTarget { return RenderTarget{.image = get_image(), .view = get_view(), .extent = get_extent()}; }
 
@@ -119,9 +122,10 @@ class Image : public Resource<vk::Image> {
 		void operator()(Payload const& image) const noexcept;
 	};
 
-	CreateInfo m_create_info{};
+	CreateInfo m_info{};
 	klib::Unique<Payload, Deleter> m_image{};
 	vk::UniqueImageView m_view{};
 	vk::Extent2D m_extent{};
+	vk::ImageLayout m_layout{};
 };
 } // namespace kvf::vma
