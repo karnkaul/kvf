@@ -36,6 +36,7 @@ auto string_from_file(std::string& out_string, klib::CString path) -> IoResult;
 auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult;
 auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult;
 
-auto write_to_buffer(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
+auto overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
+auto write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool;
 } // namespace util
 } // namespace kvf
