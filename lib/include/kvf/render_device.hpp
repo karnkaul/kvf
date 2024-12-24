@@ -69,8 +69,8 @@ class RenderDevice {
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const>;
 	auto request_present_mode(vk::PresentModeKHR desired) -> bool;
 
-	[[nodiscard]] auto color_target_format() const -> vk::Format;
-	[[nodiscard]] auto depth_target_format() const -> vk::Format;
+	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
+	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});

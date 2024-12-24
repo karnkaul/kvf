@@ -52,6 +52,8 @@ using namespace std::chrono_literals;
 constexpr auto srgb_formats_v = std::array{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb, vk::Format::eA8B8G8R8SrgbPack32};
 constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
 
+constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
+
 auto srgb_to_linear(float const f) -> float {
 	if (f < 0.04045f) { return f / 12.92f; }
 	return std::pow((f + 0.055f) / 1.055f, 2.4f);
@@ -200,7 +202,8 @@ struct Swapchain {
 		m_layout = vk::ImageLayout::eUndefined;
 
 		auto const extent = m_info.imageExtent;
-		log::info("Swapchain extent: {}x{}, mode: {}", extent.width, extent.height, util::to_str(m_info.presentMode));
+		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
+		log::info("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
 	}
 
 	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
@@ -417,12 +420,8 @@ struct RenderDevice::Impl {
 		return true;
 	}
 
-	[[nodiscard]] auto render_image_format() const -> vk::Format {
-		if ((m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer) { return vk::Format::eR8G8B8A8Unorm; }
-		return vk::Format::eR8G8B8A8Srgb;
-	}
-
-	[[nodiscard]] auto depth_image_format() const -> vk::Format { return m_depth_format; }
+	[[nodiscard]] auto get_swapchain_format() const -> vk::Format { return m_swapchain.get_info().imageFormat; }
+	[[nodiscard]] auto get_depth_format() const -> vk::Format { return m_depth_format; }
 
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags const aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 {
 		auto ret = vk::ImageMemoryBarrier2{};
@@ -856,8 +855,8 @@ auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_imp
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
 auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
 
-auto RenderDevice::color_target_format() const -> vk::Format { return m_impl->render_image_format(); }
-auto RenderDevice::depth_target_format() const -> vk::Format { return m_impl->depth_image_format(); }
+auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
+auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
@@ -992,10 +991,10 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
-void RenderPass::set_color_target() {
+void RenderPass::set_color_target(vk::Format const format) {
 	static constexpr auto usage_v = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
 	auto const color_ici = vma::ImageCreateInfo{
-		.format = m_device->color_target_format(),
+		.format = format,
 		.aspect = vk::ImageAspectFlagBits::eColor,
 		.usage = usage_v,
 		.samples = m_samples,
@@ -1015,7 +1014,7 @@ void RenderPass::set_color_target() {
 void RenderPass::set_depth_target() {
 	static constexpr auto usage_v = vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
 	auto const depth_ici = vma::ImageCreateInfo{
-		.format = m_device->depth_target_format(),
+		.format = m_device->get_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
 		.usage = usage_v,
 		.samples = m_samples,
@@ -1074,10 +1073,9 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 
 	auto prci = vk::PipelineRenderingCreateInfo{};
 	auto const& framebuffer = m_framebuffers.front();
-	auto const colour_format = m_device->color_target_format();
-	auto const depth_format = m_device->depth_target_format();
+	auto const colour_format = framebuffer.color.get_info().format;
 	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
-	if (framebuffer.depth) { prci.setDepthAttachmentFormat(depth_format); }
+	if (framebuffer.depth) { prci.setDepthAttachmentFormat(framebuffer.depth.get_info().format); }
 
 	auto gpci = vk::GraphicsPipelineCreateInfo{};
 	gpci.setPVertexInputState(&pvisci)
@@ -1101,12 +1099,12 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 
 auto RenderPass::get_color_format() const -> vk::Format {
 	if (!has_color_target()) { return vk::Format::eUndefined; }
-	return m_device->color_target_format();
+	return m_device->get_swapchain_format();
 }
 
 auto RenderPass::get_depth_format() const -> vk::Format {
 	if (!has_depth_target()) { return vk::Format::eUndefined; }
-	return m_device->depth_target_format();
+	return m_device->get_depth_format();
 }
 
 auto RenderPass::render_target() const -> RenderTarget const& {
