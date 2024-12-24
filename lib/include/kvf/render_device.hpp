@@ -1,12 +1,12 @@
 #pragma once
+#include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
 #include <klib/constants.hpp>
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
-#include <kvf/pipeline_state.hpp>
+#include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
-#include <kvf/window.hpp>
 #include <gsl/pointers>
 #include <memory>
 #include <span>
@@ -69,17 +69,17 @@ class RenderDevice {
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const>;
 	auto request_present_mode(vk::PresentModeKHR desired) -> bool;
 
-	[[nodiscard]] auto color_target_format() const -> vk::Format;
-	[[nodiscard]] auto depth_target_format() const -> vk::Format;
+	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
+	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 
-	void queue_submit(vk::SubmitInfo2 const& si);
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
 
 	[[nodiscard]] auto get_render_imgui() const -> bool;
 	void set_render_imgui(bool should_render);
 
 	[[nodiscard]] auto next_frame() -> vk::CommandBuffer;
-	void render(RenderTarget const& frame);
+	void render(RenderTarget const& frame, vk::Filter filter = vk::Filter::eLinear);
 
   private:
 	struct Impl;

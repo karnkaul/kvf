@@ -50,8 +50,8 @@ jobs:
       - name: init
         run: choco install ninja
       - name: configure
-        run: cmake -S . --preset=ninja-clang -B clang
+        run: cmake -S . --preset=ninja-clang -B build
       - name: build debug
-        run: cmake --build clang --config=Debug
+        run: cmake --build build --config=Debug
       - name: build release
-        run: cmake --build clang --config=Release
+        run: cmake --build build --config=Release
