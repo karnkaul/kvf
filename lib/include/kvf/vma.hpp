@@ -1,8 +1,10 @@
 #pragma once
 #include <vk_mem_alloc.h>
+#include <klib/polymorphic.hpp>
 #include <klib/unique.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
+#include <kvf/vma_fwd.hpp>
 #include <cstdint>
 #include <gsl/pointers>
 
@@ -11,12 +13,26 @@ template <typename Type>
 concept ResourceT = std::same_as<Type, vk::Buffer> || std::same_as<Type, vk::Image>;
 
 template <ResourceT Type>
-struct Resource {
-	VmaAllocator allocator{};
-	VmaAllocation allocation{};
-	Type resource{};
+class Resource : public klib::Polymorphic {
+  public:
+	Resource() = default;
 
-	auto operator==(Resource const& rhs) const -> bool { return allocation == rhs.allocation; }
+	[[nodiscard]] auto get_render_device() const -> RenderDevice* { return m_device; }
+
+	explicit operator bool() const { return m_device != nullptr; }
+
+  protected:
+	explicit Resource(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {}
+
+	struct Payload {
+		VmaAllocator allocator{};
+		VmaAllocation allocation{};
+		Type resource{};
+
+		auto operator==(Payload const& rhs) const -> bool { return allocation == rhs.allocation; }
+	};
+
+	RenderDevice* m_device{};
 };
 
 enum class BufferType : std::uint8_t { Host, Device };
@@ -27,7 +43,7 @@ struct BufferCreateInfo {
 	BufferType type{BufferType::Host};
 };
 
-class Buffer {
+class Buffer : public Resource<vk::Buffer> {
   public:
 	using CreateInfo = BufferCreateInfo;
 
@@ -35,7 +51,7 @@ class Buffer {
 
 	Buffer() = default;
 
-	explicit Buffer(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
+	explicit Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
 
 	auto resize(vk::DeviceSize size) -> bool;
 
@@ -46,16 +62,13 @@ class Buffer {
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize { return m_size; }
 	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_create_info; }
 
-	explicit operator bool() const { return m_buffer.get().resource != vk::Buffer{}; }
-
   private:
 	struct Deleter {
-		void operator()(Resource<vk::Buffer> const& buffer) const noexcept;
+		void operator()(Payload const& buffer) const noexcept;
 	};
 
-	RenderDevice const* m_device{};
 	CreateInfo m_create_info{};
-	klib::Unique<Resource<vk::Buffer>, Deleter> m_buffer{};
+	klib::Unique<Payload, Deleter> m_buffer{};
 	vk::DeviceSize m_capacity{};
 	vk::DeviceSize m_size{};
 	void* m_mapped{};
@@ -72,7 +85,7 @@ struct ImageCreateInfo {
 	vk::ImageViewType view_type{vk::ImageViewType::e2D};
 };
 
-class Image {
+class Image : public Resource<vk::Image> {
   public:
 	using CreateInfo = ImageCreateInfo;
 
@@ -80,7 +93,7 @@ class Image {
 
 	Image() = default;
 
-	explicit Image(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
+	explicit Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
 
 	auto resize(vk::Extent2D extent) -> bool;
 
@@ -92,16 +105,13 @@ class Image {
 
 	[[nodiscard]] auto render_target() const -> RenderTarget { return RenderTarget{.image = get_image(), .view = get_view(), .extent = get_extent()}; }
 
-	explicit operator bool() const { return m_image.get().resource != vk::Image{}; }
-
   private:
 	struct Deleter {
-		void operator()(Resource<vk::Image> const& image) const noexcept;
+		void operator()(Payload const& image) const noexcept;
 	};
 
-	RenderDevice const* m_device{};
 	CreateInfo m_create_info{};
-	klib::Unique<Resource<vk::Image>, Deleter> m_image{};
+	klib::Unique<Payload, Deleter> m_image{};
 	vk::UniqueImageView m_view{};
 	vk::Extent2D m_extent{};
 };

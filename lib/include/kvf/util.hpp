@@ -1,5 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
+#include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <cstddef>
 #include <cstdint>
@@ -34,5 +35,7 @@ inline void record_barrier(vk::CommandBuffer const command_buffer, vk::ImageMemo
 auto string_from_file(std::string& out_string, klib::CString path) -> IoResult;
 auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult;
 auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult;
+
+auto write_to_buffer(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
 } // namespace util
 } // namespace kvf

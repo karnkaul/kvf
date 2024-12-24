@@ -36,44 +36,13 @@ constexpr void ensure_positive(T&... out) {
 } // namespace
 } // namespace kvf
 
-// util
-
-#include <kvf/util.hpp>
-
-namespace kvf {
-namespace {
-template <typename T>
-auto read_from_file(T& out, klib::CString path) -> IoResult {
-	using value_type = T::value_type;
-	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
-	if (!file.is_open()) { return IoResult::OpenFailed; }
-	auto const size = file.tellg();
-	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
-	file.seekg(0, std::ios::beg);
-	out.resize(std::size_t(size) / sizeof(value_type));
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-	file.read(reinterpret_cast<char*>(out.data()), size);
-	return IoResult::Success;
-}
-} // namespace
-
-void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
-	auto di = vk::DependencyInfo{};
-	di.pImageMemoryBarriers = image_barriers.data();
-	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
-	command_buffer.pipelineBarrier2(di);
-}
-
-auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
-auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
-auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
-} // namespace kvf
 // render_device
 
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
+#include <kvf/util.hpp>
 
 namespace kvf {
 namespace {
@@ -462,9 +431,9 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
-	void queue_submit(vk::SubmitInfo2 const& si) {
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
 		auto lock = std::scoped_lock{m_queue_mutex};
-		m_queue.submit2(si);
+		m_queue.submit2(si, fence);
 	}
 
 	auto next_frame() -> vk::CommandBuffer {
@@ -891,7 +860,7 @@ auto RenderDevice::color_target_format() const -> vk::Format { return m_impl->re
 auto RenderDevice::depth_target_format() const -> vk::Format { return m_impl->depth_image_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 
-void RenderDevice::queue_submit(vk::SubmitInfo2 const& si) { m_impl->queue_submit(si); }
+void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
@@ -905,10 +874,11 @@ void RenderDevice::render(RenderTarget const& frame) { m_impl->render(frame); }
 #include <kvf/vma.hpp>
 
 namespace kvf::vma {
-void Buffer::Deleter::operator()(Resource<vk::Buffer> const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
+void Buffer::Deleter::operator()(Payload const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
 
-Buffer::Buffer(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
-	: m_device(render_device), m_create_info(create_info) {
+Buffer::Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
+	: Resource<vk::Buffer>(render_device), m_create_info(create_info) {
+	if (m_create_info.type == BufferType::Device) { m_create_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
 	if (!resize(size)) { throw Error{"Failed to create Vulkan Buffer"}; }
 }
 
@@ -938,7 +908,7 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	if (vmaCreateBuffer(m_device->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
 
 	m_size = m_capacity = size;
-	m_buffer = Resource<vk::Buffer>{
+	m_buffer = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
 		.resource = buffer,
@@ -947,10 +917,10 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	return true;
 }
 
-void Image::Deleter::operator()(Resource<vk::Image> const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
+void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
-Image::Image(gsl::not_null<RenderDevice const*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
-	: m_device(render_device), m_create_info(create_info) {
+Image::Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
+	: Resource<vk::Image>(render_device), m_create_info(create_info) {
 	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
 }
 
@@ -979,7 +949,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
-	m_image = Resource<vk::Image>{
+	m_image = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
 		.resource = image,
@@ -1241,5 +1211,93 @@ void RenderPass::set_render_targets() {
 	m_targets.color = framebuffer.color.render_target();
 	m_targets.resolve = framebuffer.resolve.render_target();
 	m_targets.depth = framebuffer.depth.render_target();
+}
+} // namespace kvf
+
+// command_buffer
+
+#include <kvf/command_buffer.hpp>
+
+namespace kvf {
+CommandBuffer::CommandBuffer(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {
+	auto const device = render_device->get_device();
+	auto cpci = vk::CommandPoolCreateInfo{};
+	cpci.setQueueFamilyIndex(render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
+	m_pool = device.createCommandPoolUnique(cpci);
+	auto cbai = vk::CommandBufferAllocateInfo{};
+	cbai.setCommandPool(*m_pool).setCommandBufferCount(1);
+	if (device.allocateCommandBuffers(&cbai, &m_cmd) != vk::Result::eSuccess) { throw Error{"Failed to allocate Vulkan Command Buffer"}; }
+	m_cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+}
+
+auto CommandBuffer::submit_and_wait(chr::seconds const timeout) -> bool {
+	m_cmd.end();
+	auto const cbsi = vk::CommandBufferSubmitInfo{m_cmd};
+	auto si = vk::SubmitInfo2{};
+	si.setCommandBufferInfos(cbsi);
+	auto const fence = m_device->get_device().createFenceUnique({});
+	m_device->queue_submit(si, *fence);
+	auto const timeout_ns = std::uint64_t(chr::nanoseconds{timeout}.count());
+	return m_device->get_device().waitForFences(*fence, vk::True, timeout_ns) == vk::Result::eSuccess;
+}
+} // namespace kvf
+
+// util
+
+namespace kvf {
+namespace {
+template <typename T>
+auto read_from_file(T& out, klib::CString path) -> IoResult {
+	using value_type = T::value_type;
+	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
+	if (!file.is_open()) { return IoResult::OpenFailed; }
+	auto const size = file.tellg();
+	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
+	file.seekg(0, std::ios::beg);
+	out.resize(std::size_t(size) / sizeof(value_type));
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+	file.read(reinterpret_cast<char*>(out.data()), size);
+	return IoResult::Success;
+}
+} // namespace
+
+void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
+	auto di = vk::DependencyInfo{};
+	di.pImageMemoryBarriers = image_barriers.data();
+	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
+	command_buffer.pipelineBarrier2(di);
+}
+
+auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
+auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
+auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
+
+auto util::write_to_buffer(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset) -> bool {
+	if (!dst) { return false; }
+
+	if (!dst.resize(offset + bytes.size())) { return false; }
+	if (bytes.empty()) { return true; }
+
+	if (auto* ptr = dst.get_mapped()) {
+		auto const span = std::span{static_cast<std::byte*>(ptr), dst.get_size()}.subspan(offset);
+		std::memcpy(span.data(), bytes.data(), bytes.size());
+		return true;
+	}
+
+	// if ((dst.get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
+	if (!write_to_buffer(staging, bytes)) { return false; }
+
+	auto cmd = CommandBuffer{dst.get_render_device()};
+	auto cbi = vk::CopyBufferInfo2{};
+	auto const bc = vk::BufferCopy2{offset, 0, staging.get_size()};
+	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
+	cmd.get().copyBuffer2(cbi);
+	return cmd.submit_and_wait();
 }
 } // namespace kvf

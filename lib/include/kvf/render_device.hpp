@@ -73,7 +73,7 @@ class RenderDevice {
 	[[nodiscard]] auto depth_target_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 
-	void queue_submit(vk::SubmitInfo2 const& si);
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
 
 	[[nodiscard]] auto get_render_imgui() const -> bool;
 	void set_render_imgui(bool should_render);
