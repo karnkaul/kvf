@@ -43,6 +43,8 @@ jobs:
         run: cmake --build build --config=Debug
       - name: build release
         run: cmake --build build --config=Release
+      - name: temp
+        run: build/example/Debug/kvf-example example/spir_v
   windows-clang:
     runs-on: windows-latest
     steps:
@@ -50,8 +52,10 @@ jobs:
       - name: init
         run: choco install ninja
       - name: configure
-        run: cmake -S . --preset=ninja-clang -B clang
+        run: cmake -S . --preset=ninja-clang -B build
       - name: build debug
-        run: cmake --build clang --config=Debug
+        run: cmake --build build --config=Debug
       - name: build release
-        run: cmake --build clang --config=Release
+        run: cmake --build build --config=Release
+      - name: temp
+        run: build/example/Release/kvf-example example/spir_v

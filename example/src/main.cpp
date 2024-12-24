@@ -126,8 +126,8 @@ auto main(int argc, char** argv) -> int {
 		auto const parse_info = klib::args::ParseInfo{.version = build_version};
 		auto const parse_result = klib::args::parse(parse_info, args, argc, argv);
 		if (parse_result.early_return()) { return parse_result.get_return_code(); }
-		auto app = App{build_version, shader_dir};
-		app.run();
+		klib::log::info("kvf", "Using shader dir: {}", shader_dir);
+		App{build_version, shader_dir}.run();
 	} catch (std::exception const& e) {
 		klib::log::error("PANIC", "{}", e.what());
 		return EXIT_FAILURE;
@@ -136,7 +136,3 @@ auto main(int argc, char** argv) -> int {
 		return EXIT_FAILURE;
 	}
 }
-
-#if defined(_WIN32)
-auto WinMain(int argc, char** argv) -> int { return main(argc, argv); }
-#endif
