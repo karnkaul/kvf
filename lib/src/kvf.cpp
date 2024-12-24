@@ -1348,9 +1348,9 @@ struct MakeMipMaps {
 
 void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
 
-RgbaImage::RgbaImage(std::span<std::byte const> compressed) { load(compressed); }
+RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compressed); }
 
-auto RgbaImage::load(std::span<std::byte const> compressed) -> bool {
+auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
 	auto const* ptr = static_cast<void const*>(compressed.data());
 	auto x = int{};
 	auto y = int{};
@@ -1360,6 +1360,7 @@ auto RgbaImage::load(std::span<std::byte const> compressed) -> bool {
 
 	m_ptr = result;
 	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
+	m_size_bytes = std::size_t(m_extent.width * m_extent.height * channels_v);
 	return true;
 }
 

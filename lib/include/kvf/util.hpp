@@ -27,7 +27,7 @@ class RgbaImage {
 
 	explicit RgbaImage(std::span<std::byte const> compressed);
 
-	auto load(std::span<std::byte const> compressed) -> bool;
+	auto decompress(std::span<std::byte const> compressed) -> bool;
 
 	[[nodiscard]] auto is_loaded() const -> bool { return !m_ptr.is_identity(); }
 	[[nodiscard]] auto bitmap() const -> RgbaBitmap;
