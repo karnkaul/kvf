@@ -74,6 +74,14 @@ class Buffer : public Resource<vk::Buffer> {
 	void* m_mapped{};
 };
 
+struct ImageFlag {
+	enum : int {
+		None = 0,
+		DedicatedAlloc = 1 << 0,
+	};
+};
+using ImageFlags = int;
+
 struct ImageCreateInfo {
 	vk::Format format;
 	vk::ImageUsageFlags usage;
@@ -83,6 +91,7 @@ struct ImageCreateInfo {
 	std::uint32_t layers{1};
 	std::uint32_t mips{1};
 	vk::ImageViewType view_type{vk::ImageViewType::e2D};
+	ImageFlags flags{};
 };
 
 class Image : public Resource<vk::Image> {

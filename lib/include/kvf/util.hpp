@@ -26,6 +26,8 @@ constexpr auto scale_extent(vk::Extent2D const extent, float const scale) -> vk:
 	return vk::Extent2D{std::uint32_t(float(extent.width) * scale), std::uint32_t(float(extent.height) * scale)};
 }
 
+auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
+
 void record_barriers(vk::CommandBuffer command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers);
 
 inline void record_barrier(vk::CommandBuffer const command_buffer, vk::ImageMemoryBarrier2 const& image_barrier) {

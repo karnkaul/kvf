@@ -869,7 +869,7 @@ auto RenderDevice::next_frame() -> vk::CommandBuffer { return m_impl->next_frame
 void RenderDevice::render(RenderTarget const& frame) { m_impl->render(frame); }
 } // namespace kvf
 
-// image
+// vma
 
 #include <kvf/vma.hpp>
 
@@ -944,6 +944,10 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	auto const vici = static_cast<VkImageCreateInfo>(ici);
 	auto vaci = VmaAllocationCreateInfo{};
 	vaci.usage = VMA_MEMORY_USAGE_AUTO;
+	if ((m_create_info.flags & ImageFlag::DedicatedAlloc) == ImageFlag::DedicatedAlloc) {
+		vaci.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+		vaci.priority = 1.0f;
+	}
 	VkImage image{};
 	VmaAllocation allocation{};
 	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
@@ -980,6 +984,7 @@ void RenderPass::set_color_target() {
 		.usage = usage_v,
 		.aspect = vk::ImageAspectFlagBits::eColor,
 		.samples = m_samples,
+		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
 	auto const resolve_ici = [&] {
 		auto ret = color_ici;
@@ -1000,6 +1005,7 @@ void RenderPass::set_depth_target() {
 		.usage = usage_v,
 		.aspect = vk::ImageAspectFlagBits::eDepth,
 		.samples = m_samples,
+		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
 }
@@ -1260,6 +1266,10 @@ auto read_from_file(T& out, klib::CString path) -> IoResult {
 	return IoResult::Success;
 }
 } // namespace
+
+auto compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
+	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
+}
 
 void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
 	auto di = vk::DependencyInfo{};
