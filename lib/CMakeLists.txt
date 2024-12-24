@@ -20,6 +20,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   klib::klib-warnings
   klib::klib-ndwerror
   klib::klib-msbuild-mp
+  stb-image::stb-image
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

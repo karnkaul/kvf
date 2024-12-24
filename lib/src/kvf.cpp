@@ -1264,6 +1264,8 @@ auto CommandBuffer::submit_and_wait(chr::seconds const timeout) -> bool {
 
 // util
 
+#include <stb/stb_image.h>
+
 namespace kvf {
 namespace {
 template <typename T>
@@ -1343,6 +1345,28 @@ struct MakeMipMaps {
 	}
 };
 } // namespace
+
+void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
+
+RgbaImage::RgbaImage(std::span<std::byte const> compressed) { load(compressed); }
+
+auto RgbaImage::load(std::span<std::byte const> compressed) -> bool {
+	auto const* ptr = static_cast<void const*>(compressed.data());
+	auto x = int{};
+	auto y = int{};
+	auto in_channels = int{};
+	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
+	if (in_channels != 4 || result == nullptr || x <= 0 || y <= 0) { return false; }
+
+	m_ptr = result;
+	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
+	return true;
+}
+
+auto RgbaImage::bitmap() const -> RgbaBitmap {
+	if (!is_loaded()) { return {}; }
+	return RgbaBitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .extent = m_extent};
+}
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;

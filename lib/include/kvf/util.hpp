@@ -1,5 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
+#include <klib/unique.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <cstddef>
@@ -16,6 +17,28 @@ struct RgbaBitmap {
 
 	std::span<std::byte const> bytes{};
 	vk::Extent2D extent{};
+};
+
+class RgbaImage {
+  public:
+	static constexpr auto channels_v{RgbaBitmap::channels_v};
+
+	RgbaImage() = default;
+
+	explicit RgbaImage(std::span<std::byte const> compressed);
+
+	auto load(std::span<std::byte const> compressed) -> bool;
+
+	[[nodiscard]] auto is_loaded() const -> bool { return !m_ptr.is_identity(); }
+	[[nodiscard]] auto bitmap() const -> RgbaBitmap;
+
+  private:
+	struct Deleter {
+		void operator()(void* ptr) const noexcept;
+	};
+	klib::Unique<void*, Deleter> m_ptr{};
+	std::size_t m_size_bytes{};
+	vk::Extent2D m_extent{};
 };
 
 namespace util {
