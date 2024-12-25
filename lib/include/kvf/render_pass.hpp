@@ -33,8 +33,8 @@ class RenderPass {
 
 	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
-	void set_color_target(vk::Format format = vk::Format::eUndefined); // undefined = RGBA with swapchain color space
-	void set_depth_target();
+	auto set_color_target(vk::Format format = vk::Format::eUndefined) -> RenderPass&; // undefined = RGBA with swapchain color space
+	auto set_depth_target() -> RenderPass&;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline;
 

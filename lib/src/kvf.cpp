@@ -1004,7 +1004,7 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
-void RenderPass::set_color_target(vk::Format format) {
+auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
 	auto const color_ici = vma::ImageCreateInfo{
 		.format = format,
@@ -1022,9 +1022,10 @@ void RenderPass::set_color_target(vk::Format format) {
 		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
 	}
+	return *this;
 }
 
-void RenderPass::set_depth_target() {
+auto RenderPass::set_depth_target() -> RenderPass& {
 	auto const depth_ici = vma::ImageCreateInfo{
 		.format = m_device->get_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
@@ -1033,6 +1034,7 @@ void RenderPass::set_depth_target() {
 		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
+	return *this;
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
@@ -1126,6 +1128,8 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 }
 
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
+	if (!has_color_target() && !has_depth_target()) { return; }
+
 	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
 	m_command_buffer = command_buffer;
