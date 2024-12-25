@@ -25,8 +25,8 @@ auto Triangle::get_render_target() const -> RenderTarget { return m_color_pass.r
 
 void Triangle::create_pipeline() {
 	auto loader = ShaderLoader{get_device().get_device(), get_assets_dir()};
-	auto const vertex_shader = loader.load("shader.vert");
-	auto const fragment_shader = loader.load("shader.frag");
+	auto const vertex_shader = loader.load("triangle.vert");
+	auto const fragment_shader = loader.load("triangle.frag");
 
 	m_pipeline_layout = get_device().get_device().createPipelineLayoutUnique({});
 	auto const pipeline_state = kvf::PipelineState{
