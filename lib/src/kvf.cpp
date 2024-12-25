@@ -439,10 +439,10 @@ struct RenderDevice::Impl {
 	void set_window_closing(bool const value) const { glfwSetWindowShouldClose(m_window, value ? GLFW_TRUE : GLFW_FALSE); }
 
 	auto next_frame() -> vk::CommandBuffer {
-		glfwPollEvents();
-
 		auto const drawn = *m_syncs.at(m_frame_index).drawn;
 		if (!util::wait_for_fence(*m_device, drawn)) { throw Error{"Failed to wait for Render Fence"}; }
+
+		glfwPollEvents();
 		m_imgui.new_frame();
 
 		if (m_current_cmd) {	 // previous render() early returned
