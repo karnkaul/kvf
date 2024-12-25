@@ -1354,7 +1354,7 @@ auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
 	auto y = int{};
 	auto in_channels = int{};
 	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
-	if (in_channels != 4 || result == nullptr || x <= 0 || y <= 0) { return false; }
+	if (result == nullptr || x <= 0 || y <= 0) { return false; }
 
 	m_ptr = result;
 	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
