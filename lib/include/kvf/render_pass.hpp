@@ -52,6 +52,10 @@ class RenderPass {
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);
 	void end_render();
 
+	[[nodiscard]] auto viewport() const -> vk::Viewport;
+	[[nodiscard]] auto scissor() const -> vk::Rect2D;
+	void bind_pipeline(vk::Pipeline pipeline) const;
+
 	vk::ClearColorValue clear_color{};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};

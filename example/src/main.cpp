@@ -54,11 +54,7 @@ struct App {
 			auto const framebuffer_extent = kvf::util::scale_extent(m_device.get_framebuffer_extent(), upscale_v);
 			m_color_pass.begin_render(command_buffer, framebuffer_extent);
 
-			command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
-			auto const viewport = vk::Viewport{0.0f, float(framebuffer_extent.height), float(framebuffer_extent.width), -float(framebuffer_extent.height)};
-			auto const scissor = vk::Rect2D{{}, framebuffer_extent};
-			command_buffer.setViewport(0, viewport);
-			command_buffer.setScissor(0, scissor);
+			m_color_pass.bind_pipeline(*m_pipeline);
 			command_buffer.draw(3, 1, 0, 0);
 
 			m_color_pass.end_render();

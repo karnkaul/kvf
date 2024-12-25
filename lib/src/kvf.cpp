@@ -1219,6 +1219,17 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
+auto RenderPass::viewport() const -> vk::Viewport { return vk::Viewport{0.0f, float(m_extent.height), float(m_extent.width), -float(m_extent.height)}; }
+
+auto RenderPass::scissor() const -> vk::Rect2D { return {{}, m_extent}; }
+
+void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
+	if (!m_command_buffer) { return; }
+	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	m_command_buffer.setViewport(0, viewport());
+	m_command_buffer.setScissor(0, scissor());
+}
+
 void RenderPass::set_render_targets() {
 	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
 	if (framebuffer.color && framebuffer.color.get_extent() != m_extent) {
