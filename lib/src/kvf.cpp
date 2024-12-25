@@ -1,6 +1,3 @@
-#define GLFW_INCLUDE_VULKAN
-#include <GLFW/glfw3.h>
-
 #include <vk_mem_alloc.h>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
@@ -14,6 +11,7 @@
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <cmath>
+#include <fstream>
 #include <mutex>
 #include <ranges>
 
@@ -22,7 +20,7 @@
 namespace kvf {
 namespace {
 template <typename... T>
-constexpr void sanitize_extent(T&... out) {
+constexpr void ensure_positive(T&... out) {
 	auto const sanitize = [](auto& t) {
 		if (t <= 0) { t = 1; }
 	};
@@ -38,109 +36,20 @@ constexpr void sanitize_extent(T&... out) {
 } // namespace
 } // namespace kvf
 
-// util
-
-#include <kvf/util.hpp>
-
-namespace kvf {
-void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
-	auto di = vk::DependencyInfo{};
-	di.pImageMemoryBarriers = image_barriers.data();
-	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
-	command_buffer.pipelineBarrier2(di);
-}
-
-auto util::create_shader_module(vk::Device device, std::span<std::uint32_t const> spir_v) -> vk::UniqueShaderModule {
-	auto smci = vk::ShaderModuleCreateInfo{};
-	smci.setCode(spir_v);
-	return device.createShaderModuleUnique(smci);
-}
-
-auto util::create_pipeline(vk::Device device, vk::PipelineLayout const layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-	shader_stages[0].pName = shader_stages[1].pName = "main";
-
-	shader_stages[0].module = state.vertex_shader;
-	shader_stages[1].module = state.fragment_shader;
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbas = vk::PipelineColorBlendAttachmentState{};
-	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-	using CCF = vk::ColorComponentFlagBits;
-	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-		.setColorBlendOp(vk::BlendOp::eAdd)
-		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
-	pcbsci.setAttachments(pcbas);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
-	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(state.samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	if (state.color_format != vk::Format::eUndefined) { prci.setColorAttachmentFormats(state.color_format); }
-	if (state.depth_format != vk::Format::eUndefined) { prci.setDepthAttachmentFormat(state.depth_format); }
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
-}
-} // namespace kvf
 // render_device
 
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
 #include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
+#include <kvf/util.hpp>
 
 namespace kvf {
 namespace {
-namespace chr = std::chrono;
-using namespace std::chrono_literals;
-
 constexpr auto srgb_formats_v = std::array{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb, vk::Format::eA8B8G8R8SrgbPack32};
 constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
+
+constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
 
 auto srgb_to_linear(float const f) -> float {
 	if (f < 0.04045f) { return f / 12.92f; }
@@ -224,138 +133,6 @@ struct GpuList {
 	}
 	return vk::SurfaceFormatKHR{};
 }
-
-struct MakeImageView {
-	vk::Image image;
-	vk::Format format;
-
-	vk::ImageSubresourceRange subresource{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-	vk::ImageViewType type{vk::ImageViewType::e2D};
-
-	[[nodiscard]] auto operator()(vk::Device device) const -> vk::UniqueImageView {
-		auto ivci = vk::ImageViewCreateInfo{};
-		ivci.viewType = type;
-		ivci.format = format;
-		ivci.subresourceRange = subresource;
-		ivci.image = image;
-		return device.createImageViewUnique(ivci);
-	}
-};
-
-struct Swapchain {
-	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
-		m_device = device;
-		m_physical_device = physical_device;
-		m_info = info;
-		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
-		m_info.imageArrayLayers = 1u;
-
-		m_queue = queue;
-	}
-
-	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
-		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
-
-		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
-		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
-		if (present_mode) { m_info.presentMode = *present_mode; }
-		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
-		m_info.oldSwapchain = *m_swapchain;
-
-		m_device.waitIdle();
-		m_swapchain = m_device.createSwapchainKHRUnique(m_info);
-		if (!m_swapchain) { throw Error{"Failed to create Vulkan Swapchain"}; }
-
-		auto image_count = std::uint32_t{};
-		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, nullptr) != vk::Result::eSuccess) { throw Error{"Failed to get Swapchain Images"}; }
-		m_images.resize(image_count);
-		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, m_images.data()) != vk::Result::eSuccess) {
-			throw Error{"Failed to get Swapchain Images"};
-		}
-
-		m_image_views.clear();
-		m_image_views.reserve(m_images.size());
-		auto make_image_view = MakeImageView{
-			.image = vk::Image{},
-			.format = m_info.imageFormat,
-			.subresource = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-			.type = vk::ImageViewType::e2D,
-		};
-		for (auto const image : m_images) {
-			make_image_view.image = image;
-			m_image_views.push_back(make_image_view(m_device));
-		}
-
-		m_image_index.reset();
-		m_layout = vk::ImageLayout::eUndefined;
-
-		auto const extent = m_info.imageExtent;
-		log::info("Swapchain extent: {}x{}, mode: {}", extent.width, extent.height, util::to_str(m_info.presentMode));
-	}
-
-	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
-
-	auto acquire_next_image(vk::Extent2D const framebuffer, vk::Semaphore const ssignal) -> std::optional<std::uint32_t> {
-		if (m_image_index) { return m_image_index; }
-
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-
-		auto image_index = std::uint32_t{};
-		auto const result = m_device.acquireNextImageKHR(*m_swapchain, timeout_v.count(), ssignal, {}, &image_index);
-		switch (result) {
-		case vk::Result::eErrorOutOfDateKHR:
-		case vk::Result::eSuboptimalKHR: recreate(framebuffer); return {};
-		case vk::Result::eSuccess: m_image_index = image_index; return m_image_index;
-		default: log::error("Failed to acquire Swapchain Image"); return {};
-		}
-	}
-
-	void present(vk::Queue queue, vk::Extent2D const framebuffer, vk::Semaphore const wait) {
-		if (!m_image_index) { return; }
-
-		auto pi = vk::PresentInfoKHR{};
-		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
-		auto const result = queue.presentKHR(&pi);
-		switch (result) {
-		case vk::Result::eErrorOutOfDateKHR:
-		case vk::Result::eSuboptimalKHR: recreate(framebuffer); break;
-		default: break;
-		}
-		m_image_index.reset();
-	}
-
-	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
-	[[nodiscard]] auto get_images() const -> std::span<vk::Image const> { return m_images; }
-	[[nodiscard]] auto get_image_views() const -> std::span<vk::UniqueImageView const> { return m_image_views; }
-
-  private:
-	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
-		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
-		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
-		auto const x = std::clamp(framebuffer.width, caps.minImageExtent.width, caps.maxImageExtent.width);
-		auto const y = std::clamp(framebuffer.height, caps.minImageExtent.height, caps.maxImageExtent.height);
-		return vk::Extent2D{x, y};
-	}
-
-	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
-		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
-		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
-	}
-
-	vk::PhysicalDevice m_physical_device{};
-	vk::Device m_device{};
-	std::vector<vk::PresentModeKHR> m_present_modes{};
-
-	vk::SwapchainCreateInfoKHR m_info{};
-	vk::UniqueSwapchainKHR m_swapchain{};
-	std::vector<vk::Image> m_images{};
-	std::vector<vk::UniqueImageView> m_image_views{};
-
-	std::optional<std::uint32_t> m_image_index{};
-	vk::ImageLayout m_layout{};
-
-	vk::Queue m_queue;
-};
 
 class DearImGui {
   public:
@@ -464,6 +241,141 @@ class DearImGui {
 	vk::UniqueDescriptorPool m_pool{};
 	State m_state{};
 };
+
+struct MakeImageView {
+	vk::Image image;
+	vk::Format format;
+
+	vk::ImageSubresourceRange subresource{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+	vk::ImageViewType type{vk::ImageViewType::e2D};
+
+	[[nodiscard]] auto operator()(vk::Device device) const -> vk::UniqueImageView {
+		auto ivci = vk::ImageViewCreateInfo{};
+		ivci.viewType = type;
+		ivci.format = format;
+		ivci.subresourceRange = subresource;
+		ivci.image = image;
+		return device.createImageViewUnique(ivci);
+	}
+};
+
+struct Swapchain {
+	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
+		m_device = device;
+		m_physical_device = physical_device;
+		m_info = info;
+		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+		m_info.imageArrayLayers = 1u;
+
+		m_queue = queue;
+	}
+
+	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
+		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
+
+		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
+		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
+		if (present_mode) { m_info.presentMode = *present_mode; }
+		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
+		m_info.oldSwapchain = *m_swapchain;
+
+		m_device.waitIdle();
+		m_swapchain = m_device.createSwapchainKHRUnique(m_info);
+		if (!m_swapchain) { throw Error{"Failed to create Vulkan Swapchain"}; }
+
+		auto image_count = std::uint32_t{};
+		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, nullptr) != vk::Result::eSuccess) { throw Error{"Failed to get Swapchain Images"}; }
+		m_images.resize(image_count);
+		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, m_images.data()) != vk::Result::eSuccess) {
+			throw Error{"Failed to get Swapchain Images"};
+		}
+
+		m_image_views.clear();
+		m_image_views.reserve(m_images.size());
+		auto make_image_view = MakeImageView{
+			.image = vk::Image{},
+			.format = m_info.imageFormat,
+			.subresource = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+			.type = vk::ImageViewType::e2D,
+		};
+		for (auto const image : m_images) {
+			make_image_view.image = image;
+			m_image_views.push_back(make_image_view(m_device));
+		}
+
+		m_image_index.reset();
+		m_layout = vk::ImageLayout::eUndefined;
+
+		auto const extent = m_info.imageExtent;
+		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
+		log::debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
+	}
+
+	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
+
+	auto acquire_next_image(vk::Semaphore const signal) -> bool {
+		if (m_image_index) { return true; }
+
+		static constexpr std::chrono::nanoseconds timeout_v = 5s;
+
+		auto image_index = std::uint32_t{};
+		auto const result = m_device.acquireNextImageKHR(*m_swapchain, timeout_v.count(), signal, {}, &image_index);
+		switch (result) {
+		case vk::Result::eErrorOutOfDateKHR: return false;
+		case vk::Result::eSuboptimalKHR:
+		case vk::Result::eSuccess: m_image_index = image_index; return true;
+		default: throw Error{"Failed to acquire Swapchain Image"};
+		}
+	}
+
+	auto present(vk::Queue queue, vk::Semaphore const wait) -> bool {
+		KLIB_ASSERT(m_image_index);
+
+		auto pi = vk::PresentInfoKHR{};
+		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
+		auto const result = queue.presentKHR(&pi);
+		m_image_index.reset();
+
+		switch (result) {
+		case vk::Result::eErrorOutOfDateKHR: return false;
+		case vk::Result::eSuboptimalKHR:
+		case vk::Result::eSuccess: return true;
+		default: throw Error{"Failed to present Swapchain Image"};
+		}
+	}
+
+	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
+	[[nodiscard]] auto get_image() const -> vk::Image { return m_image_index ? m_images[*m_image_index] : vk::Image{}; }
+	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
+
+  private:
+	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
+		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
+		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
+		auto const x = std::clamp(framebuffer.width, caps.minImageExtent.width, caps.maxImageExtent.width);
+		auto const y = std::clamp(framebuffer.height, caps.minImageExtent.height, caps.maxImageExtent.height);
+		return vk::Extent2D{x, y};
+	}
+
+	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
+		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
+		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
+	}
+
+	vk::PhysicalDevice m_physical_device{};
+	vk::Device m_device{};
+	std::vector<vk::PresentModeKHR> m_present_modes{};
+
+	vk::SwapchainCreateInfoKHR m_info{};
+	vk::UniqueSwapchainKHR m_swapchain{};
+	std::vector<vk::Image> m_images{};
+	std::vector<vk::UniqueImageView> m_image_views{};
+
+	std::optional<std::uint32_t> m_image_index{};
+	vk::ImageLayout m_layout{};
+
+	vk::Queue m_queue;
+};
 } // namespace
 
 struct RenderDevice::Impl {
@@ -507,12 +419,8 @@ struct RenderDevice::Impl {
 		return true;
 	}
 
-	[[nodiscard]] auto render_image_format() const -> vk::Format {
-		if ((m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer) { return vk::Format::eR8G8B8A8Unorm; }
-		return vk::Format::eR8G8B8A8Srgb;
-	}
-
-	[[nodiscard]] auto depth_image_format() const -> vk::Format { return m_depth_format; }
+	[[nodiscard]] auto get_swapchain_format() const -> vk::Format { return m_swapchain.get_info().imageFormat; }
+	[[nodiscard]] auto get_depth_format() const -> vk::Format { return m_depth_format; }
 
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags const aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 {
 		auto ret = vk::ImageMemoryBarrier2{};
@@ -521,24 +429,28 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
-	void queue_submit(vk::SubmitInfo2 const& si) {
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
 		auto lock = std::scoped_lock{m_queue_mutex};
-		m_queue.submit2(si);
+		m_queue.submit2(si, fence);
 	}
 
 	auto next_frame() -> vk::CommandBuffer {
 		glfwPollEvents();
+
 		auto const drawn = *m_syncs.at(m_frame_index).drawn;
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-		if (m_device->waitForFences(drawn, vk::True, timeout_v.count()) != vk::Result::eSuccess) { throw Error{"Failed to wait for Render Fence"}; }
+		if (!util::wait_for_fence(*m_device, drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 		m_imgui.new_frame();
 
-		m_current_cmd = m_command_buffers.at(m_frame_index);
+		if (m_current_cmd) {	 // previous render() early returned
+			m_current_cmd.end(); // discard existing commands
+		} else {
+			m_current_cmd = m_command_buffers.at(m_frame_index);
+		}
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
 		return m_current_cmd;
 	}
 
-	void render(RenderTarget const& frame) {
+	void render(RenderTarget const& frame, vk::Filter const filter) {
 		m_imgui.end_frame();
 		if (!m_current_cmd) { return; }
 
@@ -550,22 +462,21 @@ struct RenderDevice::Impl {
 		}
 
 		auto const& sync = m_syncs.at(m_frame_index);
-
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-		if (m_device->waitForFences(*sync.drawn, vk::True, timeout_v.count()) != vk::Result::eSuccess) { throw Error{"Failed to wait for Render Fence"}; }
-		m_device->resetFences(*sync.drawn);
+		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 
 		auto lock = std::unique_lock{m_queue_mutex};
-		auto const image_index = m_swapchain.acquire_next_image(framebuffer_extent, *sync.draw);
-		if (!image_index) { return; }
+		if (!m_swapchain.acquire_next_image(*sync.draw)) { return; } // out of date
 		lock.unlock();
+
+		m_device->resetFences(*sync.drawn); // must submit after reset
 
 		m_backbuffer_layout = vk::ImageLayout::eUndefined;
 		auto const backbuffer = RenderTarget{
-			.image = m_swapchain.get_images()[*image_index],
-			.view = *m_swapchain.get_image_views()[*image_index],
+			.image = m_swapchain.get_image(),
+			.view = m_swapchain.get_image_view(),
 			.extent = m_swapchain.get_info().imageExtent,
 		};
+		KLIB_ASSERT(backbuffer.image && backbuffer.view);
 
 		auto barrier = vk::ImageMemoryBarrier2{};
 		auto backbuffer_load_op = vk::AttachmentLoadOp::eClear;
@@ -573,7 +484,7 @@ struct RenderDevice::Impl {
 		if (frame.image && frame.view) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eTransferDstOptimal);
 			util::record_barrier(m_current_cmd, barrier);
-			blit_to_backbuffer(frame, backbuffer, m_current_cmd);
+			blit_to_backbuffer(frame, backbuffer, m_current_cmd, filter);
 			backbuffer_load_op = vk::AttachmentLoadOp::eLoad;
 		}
 
@@ -601,7 +512,7 @@ struct RenderDevice::Impl {
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		m_swapchain.present(m_queue, framebuffer_extent, *sync.present);
+		m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
 
 		m_frame_index = (m_frame_index + 1) % buffering_v;
@@ -676,13 +587,15 @@ struct RenderDevice::Impl {
 		using Type = vk::DebugUtilsMessageTypeFlagBitsEXT;
 		using Types = vk::DebugUtilsMessageTypeFlagsEXT;
 		using Data = vk::DebugUtilsMessengerCallbackDataEXT;
-		static constexpr auto severity_v = Severity::eError | Severity::eWarning;
+		auto severity_v = Severity::eError | Severity::eWarning;
+		if constexpr (klib::debug_v) { severity_v |= Severity::eInfo; }
 		static constexpr auto types_v = Type::eGeneral | Type::ePerformance | Type::eValidation | Type::eDeviceAddressBinding;
 		static auto const on_msg = [](Severity severity, Types /*unused*/, Data const* data, void* /*unused*/) -> vk::Bool32 {
 			static constexpr std::string_view tag_v{"validation"};
 			switch (severity) {
 			case Severity::eError: klib::log::error(tag_v, "{}", data->pMessage); break;
 			case Severity::eWarning: klib::log::warn(tag_v, "{}", data->pMessage); break;
+			case Severity::eInfo: klib::log::info(tag_v, "{}", data->pMessage); break;
 			default: break;
 			}
 			return vk::False;
@@ -801,7 +714,7 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan Allocator created");
 	}
 
-	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd) const {
+	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd, vk::Filter filter) const {
 		static auto const isr_v = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 		auto barrier = image_barrier();
 		barrier.setImage(frame.image)
@@ -826,7 +739,7 @@ struct RenderDevice::Impl {
 			.setDstImage(backbuffer.image)
 			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
 			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setFilter(vk::Filter::eLinear)
+			.setFilter(filter)
 			.setRegions(ib);
 		cmd.blitImage2(bii);
 
@@ -946,69 +859,131 @@ auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_imp
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
 auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
 
-auto RenderDevice::color_target_format() const -> vk::Format { return m_impl->render_image_format(); }
-auto RenderDevice::depth_target_format() const -> vk::Format { return m_impl->depth_image_format(); }
+auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
+auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 
-void RenderDevice::queue_submit(vk::SubmitInfo2 const& si) { m_impl->queue_submit(si); }
+void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
 
 auto RenderDevice::next_frame() -> vk::CommandBuffer { return m_impl->next_frame(); }
-void RenderDevice::render(RenderTarget const& frame) { m_impl->render(frame); }
+void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { m_impl->render(frame, filter); }
 } // namespace kvf
 
-// image
+// vma
 
-#include <kvf/image.hpp>
+#include <kvf/vma.hpp>
 
 namespace kvf::vma {
-void Image::Deleter::operator()(Resource<vk::Image> const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
+void Buffer::Deleter::operator()(Payload const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
 
-void Image::recreate(CreateInfo const& create_info) {
-	if (m_device == nullptr) { return; }
-	auto extent = create_info.extent;
-	sanitize_extent(extent.width, extent.height);
-	if (m_extent == extent) { return; }
-	m_extent = extent;
+Buffer::Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
+	: Resource<vk::Buffer>(render_device), m_info(create_info) {
+	if (m_info.type == BufferType::Device) { m_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
+	if (!resize(size)) { throw Error{"Failed to create Vulkan Buffer"}; }
+}
+
+auto Buffer::resize(vk::DeviceSize size) -> bool {
+	if (m_device == nullptr) { return false; }
+	ensure_positive(size);
+	if (m_capacity >= size) {
+		m_size = size;
+		return true;
+	}
+
+	auto vaci = VmaAllocationCreateInfo{};
+	vaci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+	if (m_info.type == BufferType::Device) {
+		vaci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+	} else {
+		vaci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
+		vaci.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
+	}
+
+	auto const bci = vk::BufferCreateInfo{{}, size, m_info.usage};
+	auto vbci = static_cast<VkBufferCreateInfo>(bci);
+
+	VmaAllocation allocation{};
+	VkBuffer buffer{};
+	auto alloc_info = VmaAllocationInfo{};
+	if (vmaCreateBuffer(m_device->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
+
+	m_size = m_capacity = size;
+	m_buffer = Payload{
+		.allocator = m_device->get_allocator(),
+		.allocation = allocation,
+		.resource = buffer,
+	};
+	m_mapped = alloc_info.pMappedData;
+	return true;
+}
+
+void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
+
+Image::Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
+	: Resource<vk::Image>(render_device), m_info(create_info) {
+	m_info.usage |= CreateInfo::implicit_usage_v;
+	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
+}
+
+auto Image::resize(vk::Extent2D extent) -> bool {
+	if (m_device == nullptr) { return false; }
+	ensure_positive(extent.width, extent.height);
+	if (m_extent == extent) { return true; }
 
 	auto const queue_family = m_device->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
-		.setFormat(create_info.format)
-		.setUsage(create_info.usage)
+		.setFormat(m_info.format)
+		.setUsage(m_info.usage)
 		.setImageType(vk::ImageType::e2D)
-		.setArrayLayers(create_info.layers)
-		.setMipLevels(create_info.mips)
-		.setSamples(create_info.samples)
+		.setArrayLayers(m_info.layers)
+		.setMipLevels(m_info.mips)
+		.setSamples(m_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
 		.setQueueFamilyIndices(queue_family);
 	auto const vici = static_cast<VkImageCreateInfo>(ici);
 	auto vaci = VmaAllocationCreateInfo{};
 	vaci.usage = VMA_MEMORY_USAGE_AUTO;
+	if ((m_info.flags & ImageFlag::DedicatedAlloc) == ImageFlag::DedicatedAlloc) {
+		vaci.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
+		vaci.priority = 1.0f;
+	}
 	VkImage image{};
 	VmaAllocation allocation{};
-	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) {
-		log::error("Failed to create Vulkan Image");
-		return;
-	}
+	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
-	m_image = Resource<vk::Image>{
+	m_extent = extent;
+	m_image = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
 		.resource = image,
 	};
-
 	auto const make_image_view = MakeImageView{
 		.image = m_image.get().resource,
 		.format = ici.format,
-		.subresource = vk::ImageSubresourceRange{create_info.aspect, 0, create_info.mips, 0, create_info.layers},
+		.subresource = subresource_range(),
 		.type = vk::ImageViewType::e2D,
 	};
 	m_view = make_image_view(m_device->get_device());
+	m_layout = vk::ImageLayout::eUndefined;
+
+	return true;
 }
+
+void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) {
+	barrier.setImage(get_image())
+		.setSrcQueueFamilyIndex(m_device->get_queue_family())
+		.setDstQueueFamilyIndex(barrier.srcQueueFamilyIndex)
+		.setSubresourceRange(subresource_range());
+	util::record_barrier(command_buffer, barrier);
+	m_layout = barrier.newLayout;
+}
+
+auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_info.mips, 0, m_info.layers}; }
 } // namespace kvf::vma
 
 // render_pass
@@ -1018,25 +993,119 @@ void Image::recreate(CreateInfo const& create_info) {
 namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
-void RenderPass::set_color_target() {
+void RenderPass::set_color_target(vk::Format format) {
+	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
+	auto const color_ici = vma::ImageCreateInfo{
+		.format = format,
+		.aspect = vk::ImageAspectFlagBits::eColor,
+		.usage = vk::ImageUsageFlagBits::eColorAttachment,
+		.samples = m_samples,
+		.flags = vma::ImageFlag::DedicatedAlloc,
+	};
+	auto const resolve_ici = [&] {
+		auto ret = color_ici;
+		ret.samples = vk::SampleCountFlagBits::e1;
+		return ret;
+	}();
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = vma::Image{m_device, color_image_info(m_samples)};
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, color_image_info(vk::SampleCountFlagBits::e1)}; }
+		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
 	}
 }
 
 void RenderPass::set_depth_target() {
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_image_info()}; }
+	auto const depth_ici = vma::ImageCreateInfo{
+		.format = m_device->get_depth_format(),
+		.aspect = vk::ImageAspectFlagBits::eDepth,
+		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
+		.samples = m_samples,
+		.flags = vma::ImageFlag::DedicatedAlloc,
+	};
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
+}
+
+auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
+	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
+	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
+	shader_stages[0].pName = shader_stages[1].pName = "main";
+
+	shader_stages[0].module = state.vertex_shader;
+	shader_stages[1].module = state.fragment_shader;
+
+	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+	auto pcbas = vk::PipelineColorBlendAttachmentState{};
+	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+	using CCF = vk::ColorComponentFlagBits;
+	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+		.setBlendEnable(alpha_blend ? vk::True : vk::False)
+		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+		.setColorBlendOp(vk::BlendOp::eAdd)
+		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+		.setAlphaBlendOp(vk::BlendOp::eAdd);
+	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+	pcbsci.setAttachments(pcbas);
+
+	auto const pdscis = std::array{
+		vk::DynamicState::eViewport,
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eLineWidth,
+	};
+	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+	pdsci.setDynamicStates(pdscis);
+
+	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+	pmsci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
+
+	auto prci = vk::PipelineRenderingCreateInfo{};
+	auto const& framebuffer = m_framebuffers.front();
+	auto const colour_format = framebuffer.color.get_info().format;
+	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
+	if (framebuffer.depth) { prci.setDepthAttachmentFormat(framebuffer.depth.get_info().format); }
+
+	auto gpci = vk::GraphicsPipelineCreateInfo{};
+	gpci.setPVertexInputState(&pvisci)
+		.setStages(shader_stages)
+		.setPRasterizationState(&prsci)
+		.setPDepthStencilState(&pdssci)
+		.setPInputAssemblyState(&piasci)
+		.setPColorBlendState(&pcbsci)
+		.setPDynamicState(&pdsci)
+		.setPViewportState(&pvsci)
+		.setPMultisampleState(&pmsci)
+		.setLayout(layout)
+		.setPNext(&prci);
+
+	auto const device = m_device->get_device();
+	auto ret = vk::Pipeline{};
+	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+	return vk::UniquePipeline{ret, device};
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
-	if (!m_framebuffers.front().has_color_target()) { return vk::Format::eUndefined; }
-	return m_device->color_target_format();
+	if (!has_color_target()) { return vk::Format::eUndefined; }
+	return m_device->get_swapchain_format();
 }
 
 auto RenderPass::get_depth_format() const -> vk::Format {
-	if (!m_framebuffers.front().has_depth_target()) { return vk::Format::eUndefined; }
-	return m_device->depth_target_format();
+	if (!has_depth_target()) { return vk::Format::eUndefined; }
+	return m_device->get_depth_format();
 }
 
 auto RenderPass::render_target() const -> RenderTarget const& {
@@ -1046,9 +1115,8 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 }
 
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
-	sanitize_extent(extent.width, extent.height);
+	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
-
 	m_command_buffer = command_buffer;
 
 	set_render_targets();
@@ -1151,40 +1219,270 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
-auto RenderPass::color_image_info(vk::SampleCountFlagBits const samples) const -> vma::ImageCreateInfo {
-	using Usage = vk::ImageUsageFlagBits;
-	static constexpr auto usage_v = Usage::eColorAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
-	return vma::ImageCreateInfo{
-		.extent = m_extent,
-		.format = m_device->color_target_format(),
-		.usage = usage_v,
-		.aspect = vk::ImageAspectFlagBits::eColor,
-		.samples = samples,
-	};
-}
-
-auto RenderPass::depth_image_info() const -> vma::ImageCreateInfo {
-	using Usage = vk::ImageUsageFlagBits;
-	static constexpr auto usage_v = Usage::eDepthStencilAttachment | Usage::eTransferSrc | Usage::eTransferDst | Usage::eSampled;
-	return vma::ImageCreateInfo{
-		.extent = m_extent,
-		.format = m_device->depth_target_format(),
-		.usage = usage_v,
-		.aspect = vk::ImageAspectFlagBits::eDepth,
-		.samples = m_samples,
-	};
-}
-
 void RenderPass::set_render_targets() {
 	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
-	if (framebuffer.has_color_target() && framebuffer.color.get_extent() != m_extent) {
-		framebuffer.color.recreate(color_image_info(m_samples));
-		if (framebuffer.has_resolve_target()) { framebuffer.resolve.recreate(color_image_info(vk::SampleCountFlagBits::e1)); }
+	if (framebuffer.color && framebuffer.color.get_extent() != m_extent) {
+		framebuffer.color.resize(m_extent);
+		if (framebuffer.resolve) { framebuffer.resolve.resize(m_extent); }
 	}
-	if (framebuffer.has_depth_target() && framebuffer.depth.get_extent() != m_extent) { framebuffer.depth.recreate(depth_image_info()); }
+	if (framebuffer.depth && framebuffer.depth.get_extent() != m_extent) { framebuffer.depth.resize(m_extent); }
 
 	m_targets.color = framebuffer.color.render_target();
 	m_targets.resolve = framebuffer.resolve.render_target();
 	m_targets.depth = framebuffer.depth.render_target();
+}
+} // namespace kvf
+
+// command_buffer
+
+#include <kvf/command_buffer.hpp>
+
+namespace kvf {
+CommandBuffer::CommandBuffer(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {
+	auto const device = render_device->get_device();
+	auto cpci = vk::CommandPoolCreateInfo{};
+	cpci.setQueueFamilyIndex(render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
+	m_pool = device.createCommandPoolUnique(cpci);
+	auto cbai = vk::CommandBufferAllocateInfo{};
+	cbai.setCommandPool(*m_pool).setCommandBufferCount(1);
+	if (device.allocateCommandBuffers(&cbai, &m_cmd) != vk::Result::eSuccess) { throw Error{"Failed to allocate Vulkan Command Buffer"}; }
+	m_cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+}
+
+auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool {
+	m_cmd.end();
+	auto const cbsi = vk::CommandBufferSubmitInfo{m_cmd};
+	auto si = vk::SubmitInfo2{};
+	si.setCommandBufferInfos(cbsi);
+	auto const fence = m_device->get_device().createFenceUnique({});
+	m_device->queue_submit(si, *fence);
+	return util::wait_for_fence(m_device->get_device(), *fence, timeout);
+}
+} // namespace kvf
+
+// util
+
+#include <stb/stb_image.h>
+
+namespace kvf {
+namespace {
+template <typename T>
+auto read_from_file(T& out, klib::CString path) -> IoResult {
+	using value_type = T::value_type;
+	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
+	if (!file.is_open()) { return IoResult::OpenFailed; }
+	auto const size = file.tellg();
+	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
+	file.seekg(0, std::ios::beg);
+	out.resize(std::size_t(size) / sizeof(value_type));
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
+	file.read(reinterpret_cast<char*>(out.data()), size);
+	return IoResult::Success;
+}
+
+struct MakeMipMaps {
+	// NOLINTNEXTLINE
+	vma::Image& out;
+
+	vk::CommandBuffer command_buffer;
+
+	vk::ImageMemoryBarrier2 barrier{};
+	vk::ImageAspectFlags aspect{};
+	std::uint32_t layer_count{};
+
+	auto blit_mips(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) const -> void {
+		auto ib = vk::ImageBlit2{};
+		ib.srcSubresource.setAspectMask(aspect).setMipLevel(src_level).setLayerCount(layer_count);
+		ib.dstSubresource.setAspectMask(aspect).setMipLevel(src_level + 1).setLayerCount(layer_count);
+		ib.srcOffsets[1] = src_offset;
+		ib.dstOffsets[1] = dst_offset;
+		auto bii = vk::BlitImageInfo2{};
+		bii.setSrcImage(barrier.image)
+			.setDstImage(barrier.image)
+			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
+			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
+			.setRegions(ib)
+			.setFilter(vk::Filter::eLinear);
+		command_buffer.blitImage2(bii);
+	}
+
+	auto blit_next_mip(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) -> void {
+		barrier.subresourceRange.setBaseMipLevel(src_level + 1);
+		barrier.setOldLayout(vk::ImageLayout::eUndefined).setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+		util::record_barrier(command_buffer, barrier);
+
+		blit_mips(src_level, src_offset, dst_offset);
+
+		barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal).setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		util::record_barrier(command_buffer, barrier);
+	}
+
+	auto operator()() -> void {
+		barrier = out.get_render_device()->image_barrier(out.get_info().aspect);
+		layer_count = out.get_info().layers;
+		aspect = out.get_info().aspect;
+
+		barrier.setImage(out.get_image())
+			.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+			.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+			.setDstAccessMask(barrier.srcAccessMask)
+			.setDstStageMask(barrier.srcStageMask)
+			.setOldLayout(out.get_layout())
+			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		barrier.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(layer_count);
+		util::record_barrier(command_buffer, barrier);
+
+		auto src_extent = vk::Extent3D{out.get_extent(), 1};
+		for (std::uint32_t mip = 0; mip + 1 < out.get_info().mips; ++mip) {
+			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
+			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
+			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
+			blit_next_mip(mip, src_offset, dst_offset);
+			src_extent = dst_extent;
+		}
+	}
+};
+} // namespace
+
+void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
+
+RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compressed); }
+
+auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
+	auto const* ptr = static_cast<void const*>(compressed.data());
+	auto x = int{};
+	auto y = int{};
+	auto in_channels = int{};
+	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
+	if (result == nullptr || x <= 0 || y <= 0) { return false; }
+
+	m_ptr = result;
+	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
+	m_size_bytes = std::size_t(m_extent.width * m_extent.height * channels_v);
+	return true;
+}
+
+auto RgbaImage::bitmap() const -> RgbaBitmap {
+	if (!is_loaded()) { return {}; }
+	return RgbaBitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .extent = m_extent};
+}
+
+auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
+	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
+}
+
+auto util::wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds const timeout) -> bool {
+	return device.waitForFences(fence, vk::True, std::uint64_t(timeout.count())) == vk::Result::eSuccess;
+}
+
+void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
+	auto di = vk::DependencyInfo{};
+	di.pImageMemoryBarriers = image_barriers.data();
+	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
+	command_buffer.pipelineBarrier2(di);
+}
+
+auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
+auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
+auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
+
+auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset) -> bool {
+	if (!dst) { return false; }
+
+	if (dst.get_size() < offset + bytes.size()) { return false; }
+	if (bytes.empty()) { return true; }
+
+	if (auto* ptr = dst.get_mapped()) {
+		auto const span = std::span{static_cast<std::byte*>(ptr), dst.get_size()}.subspan(offset);
+		std::memcpy(span.data(), bytes.data(), bytes.size());
+		return true;
+	}
+
+	if ((dst.get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
+	if (!overwrite(staging, bytes)) { return false; }
+
+	auto const bc = vk::BufferCopy2{offset, 0, staging.get_size()};
+	auto cbi = vk::CopyBufferInfo2{};
+	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
+	auto cmd = CommandBuffer{dst.get_render_device()};
+	cmd.get().copyBuffer2(cbi);
+	return cmd.submit_and_wait();
+}
+
+auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool {
+	if (!dst.resize(bytes.size())) { return false; }
+	return overwrite(dst, bytes);
+}
+
+auto util::write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool {
+	if (!dst || dst.get_info().layers != layers.size()) { return false; }
+	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
+	auto const extent = layers.front().extent;
+	auto const layer_size = vk::DeviceSize(extent.width * extent.height * RgbaBitmap::channels_v);
+	auto const total_size = layers.size() * layer_size;
+	auto const check = [extent, layer_size](RgbaBitmap const& b) { return b.extent == extent && b.bytes.size() == layer_size; };
+	if (!std::ranges::all_of(layers, check)) { return false; }
+
+	if (layer_size == 0) { return true; }
+	if (!dst.resize(extent)) { return false; }
+
+	auto const original_layout = dst.get_layout();
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, total_size};
+
+	auto cmd = CommandBuffer{dst.get_render_device()};
+	auto barrier = vk::ImageMemoryBarrier2{};
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+	dst.transition(cmd, barrier);
+
+	auto span = std::span{static_cast<std::byte*>(staging.get_mapped()), total_size};
+	auto buffer_offset = vk::DeviceSize{};
+	auto cbtii = vk::CopyBufferToImageInfo2{};
+	cbtii.setDstImage(dst.get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
+	for (auto const [index, layer] : std::ranges::enumerate_view(layers)) {
+		std::memcpy(span.data(), layer.bytes.data(), layer_size);
+
+		auto bic = vk::BufferImageCopy2{};
+		bic.setImageExtent({extent.width, extent.height, 1})
+			.setImageSubresource(vk::ImageSubresourceLayers{dst.get_info().aspect, 0, std::uint32_t(index), 1})
+			.setBufferOffset(buffer_offset);
+		cbtii.setRegions(bic);
+		cmd.get().copyBufferToImage2(cbtii);
+
+		span = span.subspan(layer_size);
+		buffer_offset += layer_size;
+	}
+
+	auto current_layout = dst.get_layout();
+	if (dst.get_info().mips > 1) {
+		MakeMipMaps{.out = dst, .command_buffer = cmd}();
+		current_layout = vk::ImageLayout::eTransferSrcOptimal;
+	}
+
+	auto const final_layout = original_layout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eShaderReadOnlyOptimal : original_layout;
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setOldLayout(current_layout)
+		.setNewLayout(final_layout);
+	dst.transition(cmd, barrier);
+
+	return cmd.submit_and_wait();
 }
 } // namespace kvf

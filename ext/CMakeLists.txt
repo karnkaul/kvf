@@ -31,3 +31,4 @@ add_subdirectory(src/glfw)
 add_library(glfw::glfw ALIAS glfw)
 
 add_subdirectory(src/dear_imgui)
+add_subdirectory(src/stb)

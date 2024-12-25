@@ -1,6 +1,6 @@
 include(FetchContent)
 
-add_executable(${PROJECT_NAME}-example WIN32)
+add_executable(${PROJECT_NAME}-example)
 
 target_link_libraries(${PROJECT_NAME}-example PRIVATE
   kvf::kvf

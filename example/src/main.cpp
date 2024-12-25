@@ -1,15 +1,16 @@
 #include <imgui.h>
 #include <klib/args/parse.hpp>
+#include <klib/assert.hpp>
 #include <klib/fixed_string.hpp>
 #include <klib/log.hpp>
 #include <klib/version_str.hpp>
 #include <kvf/build_version.hpp>
+#include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
 #include <kvf/render_pass.hpp>
 #include <kvf/util.hpp>
 #include <kvf/window.hpp>
 #include <filesystem>
-#include <fstream>
 #include <print>
 
 namespace {
@@ -22,24 +23,21 @@ struct ShaderLoader {
 
 	auto load(std::string_view const uri) -> vk::UniqueShaderModule {
 		auto const path = dir / uri;
-		if (!fs::is_regular_file(path)) { throw std::runtime_error{std::format("Invalid shader path: {}", path.generic_string())}; }
-		auto file = std::ifstream{path, std::ios::binary | std::ios::ate};
-		if (!file.is_open()) { throw std::runtime_error{std::format("Failed to open SPIR-V file: {}", uri)}; }
-		auto const size = file.tellg();
-		if (std::size_t(size) % sizeof(std::uint32_t) != 0) { throw std::runtime_error{std::format("Invalid SPIR-V: {}, size: {}B", uri, std::size_t(size))}; }
-		file.seekg(0, std::ios::beg);
-		spir_v.resize(std::size_t(size) / sizeof(std::uint32_t));
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-		file.read(reinterpret_cast<char*>(spir_v.data()), size);
-		return kvf::util::create_shader_module(device, spir_v);
+		auto const result = kvf::util::spirv_from_file(spir_v, path.string().c_str());
+		if (result != kvf::IoResult::Success) { throw std::runtime_error{std::format("Failed to load shader: {}", path.generic_string())}; }
+		auto smci = vk::ShaderModuleCreateInfo{};
+		smci.setCode(spir_v);
+		return device.createShaderModuleUnique(smci);
 	}
 };
 
 struct App {
 	explicit App(std::string_view const build_version, std::string_view const shader_dir)
-		: m_shader_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e4) {}
+		: m_assets_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
 
 	void run() {
+		m_device_blocker = m_device.get_device();
+
 		m_color_pass.set_color_target();
 		m_color_pass.set_depth_target();
 		m_color_pass.clear_color = vk::ClearColorValue{std::array{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -48,10 +46,12 @@ struct App {
 
 		while (glfwWindowShouldClose(m_window.get()) != GLFW_TRUE) {
 			auto command_buffer = m_device.next_frame();
+			KLIB_ASSERT(command_buffer);
 
 			ImGui::ShowDemoWindow();
 
-			auto const framebuffer_extent = m_device.get_framebuffer_extent();
+			static constexpr auto upscale_v = 2.0f;
+			auto const framebuffer_extent = kvf::util::scale_extent(m_device.get_framebuffer_extent(), upscale_v);
 			m_color_pass.begin_render(command_buffer, framebuffer_extent);
 
 			command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
@@ -60,12 +60,11 @@ struct App {
 			command_buffer.setViewport(0, viewport);
 			command_buffer.setScissor(0, scissor);
 			command_buffer.draw(3, 1, 0, 0);
+
 			m_color_pass.end_render();
 
 			m_device.render(m_color_pass.render_target());
 		}
-
-		m_device.get_device().waitIdle();
 	}
 
   private:
@@ -86,7 +85,7 @@ struct App {
 	void create_pipeline() {
 		auto loader = ShaderLoader{
 			.device = m_device.get_device(),
-			.dir = m_shader_dir,
+			.dir = m_assets_dir,
 		};
 		auto const vertex_shader = loader.load("shader.vert");
 		auto const fragment_shader = loader.load("shader.frag");
@@ -97,15 +96,12 @@ struct App {
 			.vertex_bindings = {},
 			.vertex_shader = *vertex_shader,
 			.fragment_shader = *fragment_shader,
-			.color_format = m_color_pass.get_color_format(),
-			.depth_format = m_color_pass.get_depth_format(),
-			.samples = m_color_pass.get_samples(),
 		};
-		m_pipeline = kvf::util::create_pipeline(m_device.get_device(), *m_pipeline_layout, pipeline_state);
+		m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 		if (!m_pipeline) { throw std::runtime_error{"Failed to create Vulkan Pipeline"}; }
 	}
 
-	std::string_view m_shader_dir{};
+	std::string_view m_assets_dir{};
 
 	kvf::UniqueWindow m_window{};
 	kvf::RenderDevice m_device;
@@ -114,22 +110,24 @@ struct App {
 
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
+
+	kvf::DeviceBlock m_device_blocker{};
 };
 } // namespace
 
 auto main(int argc, char** argv) -> int {
 	auto const log_file = klib::log::File{"kvf-example.log"};
 	try {
-		auto shader_dir = std::string_view{"."};
+		auto assets_dir = std::string_view{"."};
 		auto const args = std::array{
-			klib::args::positional(shader_dir, klib::args::ArgType::Optional, "SHADER_DIR"),
+			klib::args::option(assets_dir, "a,assets", "example assets directory"),
 		};
 		auto const build_version = klib::to_string(kvf::build_version_v);
 		auto const parse_info = klib::args::ParseInfo{.version = build_version};
 		auto const parse_result = klib::args::parse(parse_info, args, argc, argv);
 		if (parse_result.early_return()) { return parse_result.get_return_code(); }
-		auto app = App{build_version, shader_dir};
-		app.run();
+		klib::log::info("kvf", "Using assets directory: {}", assets_dir);
+		App{build_version, assets_dir}.run();
 	} catch (std::exception const& e) {
 		klib::log::error("PANIC", "{}", e.what());
 		return EXIT_FAILURE;
@@ -138,7 +136,3 @@ auto main(int argc, char** argv) -> int {
 		return EXIT_FAILURE;
 	}
 }
-
-#if defined(_WIN32)
-auto WinMain(int argc, char** argv) -> int { return main(argc, argv); }
-#endif
