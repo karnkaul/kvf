@@ -3,11 +3,14 @@
 #include <klib/unique.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
+#include <chrono>
 #include <cstddef>
 #include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
+
+using namespace std::chrono_literals;
 
 namespace kvf {
 enum class IoResult : int { Success, OpenFailed, SizeMismatch };
@@ -57,6 +60,8 @@ constexpr auto scale_extent(vk::Extent2D const extent, float const scale) -> vk:
 }
 
 auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
+
+auto wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds timeout = 5s) -> bool;
 
 void record_barriers(vk::CommandBuffer command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers);
 

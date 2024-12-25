@@ -46,9 +46,6 @@ constexpr void ensure_positive(T&... out) {
 
 namespace kvf {
 namespace {
-namespace chr = std::chrono;
-using namespace std::chrono_literals;
-
 constexpr auto srgb_formats_v = std::array{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb, vk::Format::eA8B8G8R8SrgbPack32};
 constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
 
@@ -136,139 +133,6 @@ struct GpuList {
 	}
 	return vk::SurfaceFormatKHR{};
 }
-
-struct MakeImageView {
-	vk::Image image;
-	vk::Format format;
-
-	vk::ImageSubresourceRange subresource{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
-	vk::ImageViewType type{vk::ImageViewType::e2D};
-
-	[[nodiscard]] auto operator()(vk::Device device) const -> vk::UniqueImageView {
-		auto ivci = vk::ImageViewCreateInfo{};
-		ivci.viewType = type;
-		ivci.format = format;
-		ivci.subresourceRange = subresource;
-		ivci.image = image;
-		return device.createImageViewUnique(ivci);
-	}
-};
-
-struct Swapchain {
-	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
-		m_device = device;
-		m_physical_device = physical_device;
-		m_info = info;
-		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
-		m_info.imageArrayLayers = 1u;
-
-		m_queue = queue;
-	}
-
-	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
-		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
-
-		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
-		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
-		if (present_mode) { m_info.presentMode = *present_mode; }
-		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
-		m_info.oldSwapchain = *m_swapchain;
-
-		m_device.waitIdle();
-		m_swapchain = m_device.createSwapchainKHRUnique(m_info);
-		if (!m_swapchain) { throw Error{"Failed to create Vulkan Swapchain"}; }
-
-		auto image_count = std::uint32_t{};
-		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, nullptr) != vk::Result::eSuccess) { throw Error{"Failed to get Swapchain Images"}; }
-		m_images.resize(image_count);
-		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, m_images.data()) != vk::Result::eSuccess) {
-			throw Error{"Failed to get Swapchain Images"};
-		}
-
-		m_image_views.clear();
-		m_image_views.reserve(m_images.size());
-		auto make_image_view = MakeImageView{
-			.image = vk::Image{},
-			.format = m_info.imageFormat,
-			.subresource = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
-			.type = vk::ImageViewType::e2D,
-		};
-		for (auto const image : m_images) {
-			make_image_view.image = image;
-			m_image_views.push_back(make_image_view(m_device));
-		}
-
-		m_image_index.reset();
-		m_layout = vk::ImageLayout::eUndefined;
-
-		auto const extent = m_info.imageExtent;
-		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
-		log::info("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
-	}
-
-	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
-
-	auto acquire_next_image(vk::Extent2D const framebuffer, vk::Semaphore const ssignal) -> std::optional<std::uint32_t> {
-		if (m_image_index) { return m_image_index; }
-
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-
-		auto image_index = std::uint32_t{};
-		auto const result = m_device.acquireNextImageKHR(*m_swapchain, timeout_v.count(), ssignal, {}, &image_index);
-		switch (result) {
-		case vk::Result::eErrorOutOfDateKHR:
-		case vk::Result::eSuboptimalKHR: recreate(framebuffer); return {};
-		case vk::Result::eSuccess: m_image_index = image_index; return m_image_index;
-		default: log::error("Failed to acquire Swapchain Image"); return {};
-		}
-	}
-
-	void present(vk::Queue queue, vk::Extent2D const framebuffer, vk::Semaphore const wait) {
-		if (!m_image_index) { return; }
-
-		auto pi = vk::PresentInfoKHR{};
-		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
-		auto const result = queue.presentKHR(&pi);
-		switch (result) {
-		case vk::Result::eErrorOutOfDateKHR:
-		case vk::Result::eSuboptimalKHR: recreate(framebuffer); break;
-		default: break;
-		}
-		m_image_index.reset();
-	}
-
-	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
-	[[nodiscard]] auto get_images() const -> std::span<vk::Image const> { return m_images; }
-	[[nodiscard]] auto get_image_views() const -> std::span<vk::UniqueImageView const> { return m_image_views; }
-
-  private:
-	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
-		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
-		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
-		auto const x = std::clamp(framebuffer.width, caps.minImageExtent.width, caps.maxImageExtent.width);
-		auto const y = std::clamp(framebuffer.height, caps.minImageExtent.height, caps.maxImageExtent.height);
-		return vk::Extent2D{x, y};
-	}
-
-	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
-		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
-		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
-	}
-
-	vk::PhysicalDevice m_physical_device{};
-	vk::Device m_device{};
-	std::vector<vk::PresentModeKHR> m_present_modes{};
-
-	vk::SwapchainCreateInfoKHR m_info{};
-	vk::UniqueSwapchainKHR m_swapchain{};
-	std::vector<vk::Image> m_images{};
-	std::vector<vk::UniqueImageView> m_image_views{};
-
-	std::optional<std::uint32_t> m_image_index{};
-	vk::ImageLayout m_layout{};
-
-	vk::Queue m_queue;
-};
 
 class DearImGui {
   public:
@@ -377,6 +241,141 @@ class DearImGui {
 	vk::UniqueDescriptorPool m_pool{};
 	State m_state{};
 };
+
+struct MakeImageView {
+	vk::Image image;
+	vk::Format format;
+
+	vk::ImageSubresourceRange subresource{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
+	vk::ImageViewType type{vk::ImageViewType::e2D};
+
+	[[nodiscard]] auto operator()(vk::Device device) const -> vk::UniqueImageView {
+		auto ivci = vk::ImageViewCreateInfo{};
+		ivci.viewType = type;
+		ivci.format = format;
+		ivci.subresourceRange = subresource;
+		ivci.image = image;
+		return device.createImageViewUnique(ivci);
+	}
+};
+
+struct Swapchain {
+	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
+		m_device = device;
+		m_physical_device = physical_device;
+		m_info = info;
+		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
+		m_info.imageArrayLayers = 1u;
+
+		m_queue = queue;
+	}
+
+	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
+		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
+
+		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
+		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
+		if (present_mode) { m_info.presentMode = *present_mode; }
+		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
+		m_info.oldSwapchain = *m_swapchain;
+
+		m_device.waitIdle();
+		m_swapchain = m_device.createSwapchainKHRUnique(m_info);
+		if (!m_swapchain) { throw Error{"Failed to create Vulkan Swapchain"}; }
+
+		auto image_count = std::uint32_t{};
+		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, nullptr) != vk::Result::eSuccess) { throw Error{"Failed to get Swapchain Images"}; }
+		m_images.resize(image_count);
+		if (m_device.getSwapchainImagesKHR(*m_swapchain, &image_count, m_images.data()) != vk::Result::eSuccess) {
+			throw Error{"Failed to get Swapchain Images"};
+		}
+
+		m_image_views.clear();
+		m_image_views.reserve(m_images.size());
+		auto make_image_view = MakeImageView{
+			.image = vk::Image{},
+			.format = m_info.imageFormat,
+			.subresource = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1},
+			.type = vk::ImageViewType::e2D,
+		};
+		for (auto const image : m_images) {
+			make_image_view.image = image;
+			m_image_views.push_back(make_image_view(m_device));
+		}
+
+		m_image_index.reset();
+		m_layout = vk::ImageLayout::eUndefined;
+
+		auto const extent = m_info.imageExtent;
+		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
+		log::info("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
+	}
+
+	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
+
+	auto acquire_next_image(vk::Semaphore const signal) -> bool {
+		if (m_image_index) { return true; }
+
+		static constexpr std::chrono::nanoseconds timeout_v = 5s;
+
+		auto image_index = std::uint32_t{};
+		auto const result = m_device.acquireNextImageKHR(*m_swapchain, timeout_v.count(), signal, {}, &image_index);
+		switch (result) {
+		case vk::Result::eErrorOutOfDateKHR: return false;
+		case vk::Result::eSuboptimalKHR:
+		case vk::Result::eSuccess: m_image_index = image_index; return true;
+		default: throw Error{"Failed to acquire Swapchain Image"};
+		}
+	}
+
+	auto present(vk::Queue queue, vk::Semaphore const wait) -> bool {
+		KLIB_ASSERT(m_image_index);
+
+		auto pi = vk::PresentInfoKHR{};
+		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
+		auto const result = queue.presentKHR(&pi);
+		m_image_index.reset();
+
+		switch (result) {
+		case vk::Result::eErrorOutOfDateKHR: return false;
+		case vk::Result::eSuboptimalKHR:
+		case vk::Result::eSuccess: return true;
+		default: throw Error{"Failed to present Swapchain Image"};
+		}
+	}
+
+	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
+	[[nodiscard]] auto get_image() const -> vk::Image { return m_image_index ? m_images[*m_image_index] : vk::Image{}; }
+	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
+
+  private:
+	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
+		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
+		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
+		auto const x = std::clamp(framebuffer.width, caps.minImageExtent.width, caps.maxImageExtent.width);
+		auto const y = std::clamp(framebuffer.height, caps.minImageExtent.height, caps.maxImageExtent.height);
+		return vk::Extent2D{x, y};
+	}
+
+	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
+		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
+		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
+	}
+
+	vk::PhysicalDevice m_physical_device{};
+	vk::Device m_device{};
+	std::vector<vk::PresentModeKHR> m_present_modes{};
+
+	vk::SwapchainCreateInfoKHR m_info{};
+	vk::UniqueSwapchainKHR m_swapchain{};
+	std::vector<vk::Image> m_images{};
+	std::vector<vk::UniqueImageView> m_image_views{};
+
+	std::optional<std::uint32_t> m_image_index{};
+	vk::ImageLayout m_layout{};
+
+	vk::Queue m_queue;
+};
 } // namespace
 
 struct RenderDevice::Impl {
@@ -437,12 +436,16 @@ struct RenderDevice::Impl {
 
 	auto next_frame() -> vk::CommandBuffer {
 		glfwPollEvents();
+
 		auto const drawn = *m_syncs.at(m_frame_index).drawn;
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-		if (m_device->waitForFences(drawn, vk::True, timeout_v.count()) != vk::Result::eSuccess) { throw Error{"Failed to wait for Render Fence"}; }
+		if (!util::wait_for_fence(*m_device, drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 		m_imgui.new_frame();
 
-		m_current_cmd = m_command_buffers.at(m_frame_index);
+		if (m_current_cmd) {	 // previous render() early returned
+			m_current_cmd.end(); // discard existing commands
+		} else {
+			m_current_cmd = m_command_buffers.at(m_frame_index);
+		}
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
 		return m_current_cmd;
 	}
@@ -459,22 +462,21 @@ struct RenderDevice::Impl {
 		}
 
 		auto const& sync = m_syncs.at(m_frame_index);
-
-		static constexpr auto timeout_v = chr::nanoseconds{5s};
-		if (m_device->waitForFences(*sync.drawn, vk::True, timeout_v.count()) != vk::Result::eSuccess) { throw Error{"Failed to wait for Render Fence"}; }
-		m_device->resetFences(*sync.drawn);
+		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 
 		auto lock = std::unique_lock{m_queue_mutex};
-		auto const image_index = m_swapchain.acquire_next_image(framebuffer_extent, *sync.draw);
-		if (!image_index) { return; }
+		if (!m_swapchain.acquire_next_image(*sync.draw)) { return; } // out of date
 		lock.unlock();
+
+		m_device->resetFences(*sync.drawn); // must submit after reset
 
 		m_backbuffer_layout = vk::ImageLayout::eUndefined;
 		auto const backbuffer = RenderTarget{
-			.image = m_swapchain.get_images()[*image_index],
-			.view = *m_swapchain.get_image_views()[*image_index],
+			.image = m_swapchain.get_image(),
+			.view = m_swapchain.get_image_view(),
 			.extent = m_swapchain.get_info().imageExtent,
 		};
+		KLIB_ASSERT(backbuffer.image && backbuffer.view);
 
 		auto barrier = vk::ImageMemoryBarrier2{};
 		auto backbuffer_load_op = vk::AttachmentLoadOp::eClear;
@@ -510,7 +512,7 @@ struct RenderDevice::Impl {
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		m_swapchain.present(m_queue, framebuffer_extent, *sync.present);
+		m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
 
 		m_frame_index = (m_frame_index + 1) % buffering_v;
@@ -1251,15 +1253,14 @@ CommandBuffer::CommandBuffer(gsl::not_null<RenderDevice*> render_device) : m_dev
 	m_cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
 }
 
-auto CommandBuffer::submit_and_wait(chr::seconds const timeout) -> bool {
+auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool {
 	m_cmd.end();
 	auto const cbsi = vk::CommandBufferSubmitInfo{m_cmd};
 	auto si = vk::SubmitInfo2{};
 	si.setCommandBufferInfos(cbsi);
 	auto const fence = m_device->get_device().createFenceUnique({});
 	m_device->queue_submit(si, *fence);
-	auto const timeout_ns = std::uint64_t(chr::nanoseconds{timeout}.count());
-	return m_device->get_device().waitForFences(*fence, vk::True, timeout_ns) == vk::Result::eSuccess;
+	return util::wait_for_fence(m_device->get_device(), *fence, timeout);
 }
 } // namespace kvf
 
@@ -1372,6 +1373,10 @@ auto RgbaImage::bitmap() const -> RgbaBitmap {
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
+}
+
+auto util::wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds const timeout) -> bool {
+	return device.waitForFences(fence, vk::True, std::uint64_t(timeout.count())) == vk::Result::eSuccess;
 }
 
 void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {

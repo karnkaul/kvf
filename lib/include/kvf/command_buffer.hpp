@@ -4,10 +4,12 @@
 #include <chrono>
 #include <gsl/pointers>
 
+using namespace std::chrono_literals;
+
 namespace kvf {
 class CommandBuffer {
   public:
-	static constexpr std::chrono::seconds timeout_v{5};
+	static constexpr auto timeout_v{5s};
 
 	explicit CommandBuffer(gsl::not_null<RenderDevice*> render_device);
 
