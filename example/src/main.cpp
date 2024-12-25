@@ -1,5 +1,6 @@
 #include <imgui.h>
 #include <klib/args/parse.hpp>
+#include <klib/assert.hpp>
 #include <klib/fixed_string.hpp>
 #include <klib/log.hpp>
 #include <klib/version_str.hpp>
@@ -45,6 +46,7 @@ struct App {
 
 		while (glfwWindowShouldClose(m_window.get()) != GLFW_TRUE) {
 			auto command_buffer = m_device.next_frame();
+			KLIB_ASSERT(command_buffer);
 
 			ImGui::ShowDemoWindow();
 
@@ -52,14 +54,12 @@ struct App {
 			auto const framebuffer_extent = kvf::util::scale_extent(m_device.get_framebuffer_extent(), upscale_v);
 			m_color_pass.begin_render(command_buffer, framebuffer_extent);
 
-			if (command_buffer) {
-				command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
-				auto const viewport = vk::Viewport{0.0f, float(framebuffer_extent.height), float(framebuffer_extent.width), -float(framebuffer_extent.height)};
-				auto const scissor = vk::Rect2D{{}, framebuffer_extent};
-				command_buffer.setViewport(0, viewport);
-				command_buffer.setScissor(0, scissor);
-				command_buffer.draw(3, 1, 0, 0);
-			}
+			command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, *m_pipeline);
+			auto const viewport = vk::Viewport{0.0f, float(framebuffer_extent.height), float(framebuffer_extent.width), -float(framebuffer_extent.height)};
+			auto const scissor = vk::Rect2D{{}, framebuffer_extent};
+			command_buffer.setViewport(0, viewport);
+			command_buffer.setScissor(0, scissor);
+			command_buffer.draw(3, 1, 0, 0);
 
 			m_color_pass.end_render();
 
