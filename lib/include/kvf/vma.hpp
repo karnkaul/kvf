@@ -83,10 +83,11 @@ struct ImageFlag {
 using ImageFlags = int;
 
 struct ImageCreateInfo {
+	static constexpr auto implicit_usage_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
 	vk::Format format;
 
 	vk::ImageAspectFlags aspect{vk::ImageAspectFlagBits::eColor};
-	vk::ImageUsageFlags usage{vk::ImageUsageFlagBits::eSampled}; // transfer is implied
+	vk::ImageUsageFlags usage{implicit_usage_v};
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
 	std::uint32_t layers{1};
 	std::uint32_t mips{1};

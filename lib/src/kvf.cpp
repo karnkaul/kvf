@@ -308,7 +308,7 @@ struct Swapchain {
 
 		auto const extent = m_info.imageExtent;
 		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
-		log::info("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
+		log::debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
 	}
 
 	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
@@ -924,9 +924,7 @@ void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestro
 
 Image::Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
 	: Resource<vk::Image>(render_device), m_info(create_info) {
-	static constexpr auto transfer_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst;
-	m_info.usage |= transfer_v;
-	if (m_info.usage == transfer_v) { m_info.usage |= vk::ImageUsageFlagBits::eSampled; }
+	m_info.usage |= CreateInfo::implicit_usage_v;
 	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
 }
 
@@ -997,11 +995,10 @@ RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCou
 
 void RenderPass::set_color_target(vk::Format format) {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
-	static constexpr auto usage_v = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eSampled;
 	auto const color_ici = vma::ImageCreateInfo{
 		.format = format,
 		.aspect = vk::ImageAspectFlagBits::eColor,
-		.usage = usage_v,
+		.usage = vk::ImageUsageFlagBits::eColorAttachment,
 		.samples = m_samples,
 		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
@@ -1017,11 +1014,10 @@ void RenderPass::set_color_target(vk::Format format) {
 }
 
 void RenderPass::set_depth_target() {
-	static constexpr auto usage_v = vk::ImageUsageFlagBits::eDepthStencilAttachment | vk::ImageUsageFlagBits::eSampled;
 	auto const depth_ici = vma::ImageCreateInfo{
 		.format = m_device->get_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
-		.usage = usage_v,
+		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
 		.samples = m_samples,
 		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
