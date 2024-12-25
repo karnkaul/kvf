@@ -585,13 +585,15 @@ struct RenderDevice::Impl {
 		using Type = vk::DebugUtilsMessageTypeFlagBitsEXT;
 		using Types = vk::DebugUtilsMessageTypeFlagsEXT;
 		using Data = vk::DebugUtilsMessengerCallbackDataEXT;
-		static constexpr auto severity_v = Severity::eError | Severity::eWarning;
+		auto severity_v = Severity::eError | Severity::eWarning;
+		if constexpr (klib::debug_v) { severity_v |= Severity::eInfo; }
 		static constexpr auto types_v = Type::eGeneral | Type::ePerformance | Type::eValidation | Type::eDeviceAddressBinding;
 		static auto const on_msg = [](Severity severity, Types /*unused*/, Data const* data, void* /*unused*/) -> vk::Bool32 {
 			static constexpr std::string_view tag_v{"validation"};
 			switch (severity) {
 			case Severity::eError: klib::log::error(tag_v, "{}", data->pMessage); break;
 			case Severity::eWarning: klib::log::warn(tag_v, "{}", data->pMessage); break;
+			case Severity::eInfo: klib::log::info(tag_v, "{}", data->pMessage); break;
 			default: break;
 			}
 			return vk::False;
