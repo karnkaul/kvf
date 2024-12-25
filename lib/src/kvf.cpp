@@ -58,7 +58,42 @@ auto srgb_to_linear(float const f) -> float {
 
 auto srgb_to_linear(ImVec4 const& in) -> ImVec4 { return ImVec4{srgb_to_linear(in.x), srgb_to_linear(in.y), srgb_to_linear(in.z), in.w}; }
 
-auto best_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
+[[nodiscard]] auto instance_extensions() -> std::span<char const* const> {
+	auto count = std::uint32_t{};
+	auto const* first = glfwGetRequiredInstanceExtensions(&count);
+	return {first, count};
+}
+
+[[nodiscard]] auto filter_modes(std::span<vk::PresentModeKHR const> all) -> std::vector<vk::PresentModeKHR> {
+	auto ret = std::vector<vk::PresentModeKHR>{};
+	ret.reserve(all.size());
+	for (auto const in : all) {
+		if (std::ranges::find(RenderDevice::present_modes_v, in) == RenderDevice::present_modes_v.end()) { continue; }
+		ret.push_back(in);
+	}
+	return ret;
+}
+
+[[nodiscard]] constexpr auto optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	for (auto const desired : desired_v) {
+		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
+	}
+	return vk::PresentModeKHR::eFifo;
+}
+
+[[nodiscard]] constexpr auto compatible_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
+	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
+	for (auto const srgb_format : desired) {
+		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
+			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
+		});
+		if (it != supported.end()) { return *it; }
+	}
+	return vk::SurfaceFormatKHR{};
+}
+
+auto optimal_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
 	static constexpr auto target_v{vk::Format::eD32Sfloat};
 	auto const props = gpu.getFormatProperties(target_v);
 	if (props.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) { return target_v; }
@@ -108,31 +143,6 @@ struct GpuList {
 		throw Error{"Invalid GPU"};
 	}
 };
-
-[[nodiscard]] auto get_instance_extensions() -> std::span<char const* const> {
-	auto count = std::uint32_t{};
-	auto const* first = glfwGetRequiredInstanceExtensions(&count);
-	return {first, count};
-}
-
-[[nodiscard]] constexpr auto get_optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
-	for (auto const desired : desired_v) {
-		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
-	}
-	return vk::PresentModeKHR::eFifo;
-}
-
-[[nodiscard]] constexpr auto get_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
-	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
-	for (auto const srgb_format : desired) {
-		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
-			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
-		});
-		if (it != supported.end()) { return *it; }
-	}
-	return vk::SurfaceFormatKHR{};
-}
 
 class DearImGui {
   public:
@@ -413,9 +423,9 @@ struct RenderDevice::Impl {
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR { return m_swapchain.get_info().presentMode; }
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_present_modes; }
 
-	auto request_present_mode(vk::PresentModeKHR desired) -> bool {
+	auto set_present_mode(vk::PresentModeKHR desired) -> bool {
 		if (std::ranges::find(m_present_modes, desired) == m_present_modes.end()) { return false; }
-		m_next_present_mode = desired;
+		m_swapchain.recreate(get_framebuffer_extent(), desired);
 		return true;
 	}
 
@@ -459,11 +469,7 @@ struct RenderDevice::Impl {
 		if (!m_current_cmd) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
-		if (m_next_present_mode || m_swapchain.get_info().imageExtent != framebuffer_extent) {
-			auto const present_mode = m_next_present_mode.value_or(m_swapchain.get_info().presentMode);
-			m_swapchain.recreate(framebuffer_extent, present_mode);
-			m_next_present_mode.reset();
-		}
+		if (m_swapchain.get_info().imageExtent != framebuffer_extent) { m_swapchain.recreate(framebuffer_extent); }
 
 		auto const& sync = m_syncs.at(m_frame_index);
 		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
@@ -552,7 +558,7 @@ struct RenderDevice::Impl {
 		app_info.apiVersion = VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch);
 		auto ici = vk::InstanceCreateInfo{};
 		ici.pApplicationInfo = &app_info;
-		auto const wsi_extensions = get_instance_extensions();
+		auto const wsi_extensions = instance_extensions();
 		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
 		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
 			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
@@ -623,7 +629,7 @@ struct RenderDevice::Impl {
 		auto const* selected = &selector.select(list.gpus);
 		m_queue_family = list.get_queue_family(selected);
 		m_gpu = *selected;
-		m_depth_format = best_depth_format(m_gpu.device);
+		m_depth_format = optimal_depth_format(m_gpu.device);
 		log::debug("Using GPU: {}, queue family: {}", m_gpu.properties.deviceName.data(), m_queue_family);
 	}
 
@@ -662,11 +668,11 @@ struct RenderDevice::Impl {
 
 	void create_swapchain() {
 		auto const linear_backbuffer = (m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer;
-		auto const surface_format = get_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
-		m_present_modes = m_gpu.device.getSurfacePresentModesKHR(*m_surface);
+		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
+		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
 		sci.surface = *m_surface;
-		sci.presentMode = get_optimal_present_mode(m_present_modes);
+		sci.presentMode = optimal_present_mode(m_present_modes);
 		sci.imageFormat = surface_format.format;
 		sci.queueFamilyIndexCount = 1u;
 		sci.pQueueFamilyIndices = &m_queue_family;
@@ -832,8 +838,6 @@ struct RenderDevice::Impl {
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
 
-	std::optional<vk::PresentModeKHR> m_next_present_mode{};
-
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
 	vk::CommandBuffer m_current_cmd{};
@@ -861,7 +865,7 @@ auto RenderDevice::get_allocator() const -> VmaAllocator { return m_impl->get_al
 auto RenderDevice::get_framebuffer_extent() const -> vk::Extent2D { return m_impl->get_framebuffer_extent(); }
 auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_impl->get_present_mode(); }
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
-auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
+auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->set_present_mode(desired); }
 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }

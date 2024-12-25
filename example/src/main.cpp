@@ -69,10 +69,11 @@ struct App {
 		auto ret = kvf::create_window(title.c_str(), 1280, 720);
 		glfwSetWindowUserPointer(ret.get(), this);
 		glfwSetKeyCallback(ret.get(), [](GLFWwindow* w, int const key, int const /*scancode*/, int action, int const mods) {
-			if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && mods == 0) { glfwSetWindowShouldClose(w, GLFW_TRUE); }
-			if (key == GLFW_KEY_I && action == GLFW_RELEASE && mods == 0) {
-				auto& self = *static_cast<App*>(glfwGetWindowUserPointer(w));
-				self.m_device.set_render_imgui(!self.m_device.get_render_imgui());
+			auto& self = *static_cast<App*>(glfwGetWindowUserPointer(w));
+			if (action == GLFW_RELEASE && mods == 0) {
+				if (key == GLFW_KEY_ESCAPE) { self.m_device.set_window_closing(true); }
+				if (key == GLFW_KEY_I) { self.m_device.set_render_imgui(!self.m_device.get_render_imgui()); }
+				if (key == GLFW_KEY_P) { self.switch_present_mode(); }
 			}
 		});
 		return ret;
@@ -95,6 +96,16 @@ struct App {
 		};
 		m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 		if (!m_pipeline) { throw std::runtime_error{"Failed to create Vulkan Pipeline"}; }
+	}
+
+	void switch_present_mode() {
+		auto const modes = m_device.get_supported_present_modes();
+		auto const current = m_device.get_present_mode();
+		auto it = std::ranges::find(modes, current);
+		KLIB_ASSERT(it != modes.end());
+		std::advance(it, 1);
+		if (it == modes.end()) { it = modes.begin(); }
+		m_device.set_present_mode(*it);
 	}
 
 	std::string_view m_assets_dir{};
