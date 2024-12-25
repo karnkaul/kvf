@@ -44,7 +44,7 @@ struct App {
 
 		create_pipeline();
 
-		while (glfwWindowShouldClose(m_window.get()) != GLFW_TRUE) {
+		while (!m_device.is_window_closing()) {
 			auto command_buffer = m_device.next_frame();
 			KLIB_ASSERT(command_buffer);
 

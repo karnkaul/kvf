@@ -434,6 +434,10 @@ struct RenderDevice::Impl {
 		m_queue.submit2(si, fence);
 	}
 
+	[[nodiscard]] auto is_window_closing() const -> bool { return glfwWindowShouldClose(m_window) == GLFW_TRUE; }
+
+	void set_window_closing(bool const value) const { glfwSetWindowShouldClose(m_window, value ? GLFW_TRUE : GLFW_FALSE); }
+
 	auto next_frame() -> vk::CommandBuffer {
 		glfwPollEvents();
 
@@ -867,6 +871,9 @@ void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
+
+auto RenderDevice::is_window_closing() const -> bool { return m_impl->is_window_closing(); }
+void RenderDevice::set_window_closing(bool const value) const { m_impl->set_window_closing(value); }
 
 auto RenderDevice::next_frame() -> vk::CommandBuffer { return m_impl->next_frame(); }
 void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { m_impl->render(frame, filter); }
