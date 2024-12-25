@@ -1,3 +1,4 @@
+#include <kvf/error.hpp>
 #include <kvf/util.hpp>
 #include <scenes/triangle.hpp>
 #include <shader_loader.hpp>
@@ -35,6 +36,6 @@ void Triangle::create_pipeline() {
 		.fragment_shader = *fragment_shader,
 	};
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw std::runtime_error{"Failed to create Vulkan Pipeline"}; }
+	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
 }
 } // namespace kvf::example
