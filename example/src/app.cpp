@@ -8,10 +8,15 @@
 #include <scenes/triangle.hpp>
 
 namespace kvf::example {
-App::App(std::string_view const build_version) : m_window(make_window(build_version)), m_device(m_window.get()) {
-	m_factories.push_back(Factory{.name = "Standalone", .create = [this] { return std::make_unique<Standalone>(&m_device, m_assets_dir); }});
-	m_factories.push_back(Factory{.name = "Image Viewer", .create = [this] { return std::make_unique<ImageViewer>(&m_device, m_assets_dir); }});
-	m_factories.push_back(Factory{.name = "Triangle", .create = [this] { return std::make_unique<Triangle>(&m_device, m_assets_dir); }});
+App::App(std::string_view const build_version) : m_window(make_window(build_version)), m_device(m_window.get()), m_blocker(m_device.get_device()) {
+	add_factory<Standalone>("Standalone");
+	add_factory<ImageViewer>("Image Viewer");
+	add_factory<Triangle>("Triangle");
+}
+
+template <std::derived_from<Scene> T>
+void App::add_factory(klib::CString name) {
+	m_factories.push_back(Factory{.name = name, .create = [this] { return std::make_unique<T>(&m_device, m_assets_dir); }});
 }
 
 void App::run(std::string_view const assets_dir) {
@@ -59,7 +64,9 @@ void App::draw_menu() {
 
 		if (new_factory != m_current_factory) {
 			try {
-				m_scene = new_factory->create();
+				auto new_scene = new_factory->create();
+				m_device.get_device().waitIdle();
+				m_scene = std::move(new_scene);
 				m_current_factory = new_factory;
 			} catch (Error const& e) {
 				auto const message = std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());

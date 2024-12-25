@@ -3,7 +3,7 @@
 #include <scenes/standalone.hpp>
 
 namespace kvf::example {
-Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir), m_blocker(device->get_device()) {
+Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
 	auto const image_bytes = std::array{
 		std::byte{0xff}, std::byte{},	  std::byte{},	   std::byte{0xff},
 

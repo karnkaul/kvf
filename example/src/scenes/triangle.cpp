@@ -4,7 +4,7 @@
 
 namespace kvf::example {
 Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_blocker(device->get_device()) {
+	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2) {
 	m_color_pass.set_color_target().set_depth_target();
 	create_pipeline();
 }

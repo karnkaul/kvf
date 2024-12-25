@@ -1,5 +1,4 @@
 #pragma once
-#include <kvf/device_block.hpp>
 #include <kvf/vma.hpp>
 #include <scene.hpp>
 
@@ -13,7 +12,5 @@ class Standalone : public Scene {
 	[[nodiscard]] auto get_render_target() const -> RenderTarget final;
 
 	vma::Image m_image;
-
-	DeviceBlock m_blocker;
 };
 } // namespace kvf::example

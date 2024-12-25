@@ -1,5 +1,4 @@
 #pragma once
-#include <kvf/device_block.hpp>
 #include <kvf/render_pass.hpp>
 #include <scene.hpp>
 
@@ -18,7 +17,5 @@ class Triangle : public Scene {
 
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
-
-	DeviceBlock m_blocker;
 };
 } // namespace kvf::example

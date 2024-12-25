@@ -1,6 +1,5 @@
 #pragma once
 #include <klib/c_string.hpp>
-#include <kvf/device_block.hpp>
 #include <kvf/vma.hpp>
 #include <scene.hpp>
 
@@ -18,7 +17,5 @@ class ImageViewer : public Scene {
 	void try_load(klib::CString path);
 
 	vma::Image m_image;
-
-	DeviceBlock m_blocker;
 };
 } // namespace kvf::example

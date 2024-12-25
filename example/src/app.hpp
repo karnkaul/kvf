@@ -1,5 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
+#include <kvf/device_block.hpp>
 #include <kvf/render_device.hpp>
 #include <kvf/window.hpp>
 #include <scene.hpp>
@@ -26,6 +27,9 @@ class App {
 
 	auto make_window(std::string_view build_version) -> kvf::UniqueWindow;
 
+	template <std::derived_from<Scene> T>
+	void add_factory(klib::CString name);
+
 	void draw_menu();
 	void draw_error_modal() const;
 
@@ -37,5 +41,7 @@ class App {
 	Modal m_modal{};
 
 	std::unique_ptr<Scene> m_scene;
+
+	DeviceBlock m_blocker;
 };
 } // namespace kvf::example

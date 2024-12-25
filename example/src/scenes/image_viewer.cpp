@@ -23,7 +23,7 @@ namespace fs = std::filesystem;
 }
 } // namespace
 
-ImageViewer::ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir), m_blocker(device->get_device()) {
+ImageViewer::ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
 	auto const ici = vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = RgbaBitmap{.bytes = image_bytes_v, .extent = {1, 1}};
