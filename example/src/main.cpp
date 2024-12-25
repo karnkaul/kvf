@@ -32,8 +32,8 @@ struct ShaderLoader {
 };
 
 struct App {
-	explicit App(std::string_view const build_version, std::string_view const shader_dir)
-		: m_assets_dir(shader_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
+	explicit App(std::string_view const build_version, std::string_view const assets_dir)
+		: m_assets_dir(assets_dir), m_window(make_window(build_version)), m_device(m_window.get()), m_color_pass(&m_device, vk::SampleCountFlagBits::e2) {}
 
 	void run() {
 		m_device_blocker = m_device.get_device();
