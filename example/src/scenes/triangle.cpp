@@ -8,10 +8,12 @@ namespace kvf::example {
 Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2) {
 	m_color_pass.set_color_target().set_depth_target();
+	m_color_pass.clear_color = vk::ClearColorValue{std::array{0.05f, 0.05f, 0.05f, 1.0f}};
 	create_pipeline();
 }
 
 void Triangle::update(vk::CommandBuffer const command_buffer) {
+	ImGui::SetNextWindowSize({150.0f, 80.0f}, ImGuiCond_Once);
 	if (ImGui::Begin("Controls")) { draw_controls(); }
 	ImGui::End();
 
@@ -42,5 +44,8 @@ void Triangle::create_pipeline() {
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
 }
 
-void Triangle::draw_controls() { ImGui::SliderFloat("framebuffer scale", &m_framebuffer_scale, 0.25f, 2.0f, "%.2f"); }
+void Triangle::draw_controls() {
+	ImGui::TextUnformatted("framebuffer scale");
+	ImGui::SliderFloat("##fb_scale", &m_framebuffer_scale, 0.25f, 2.0f, "%.2f");
+}
 } // namespace kvf::example
