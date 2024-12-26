@@ -10,6 +10,7 @@ target_compile_definitions(${PROJECT_NAME} PUBLIC
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
   ms::gsl
+  glm::glm
   klib::klib
   glfw::glfw
   vma::vma

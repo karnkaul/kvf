@@ -1,4 +1,6 @@
 #include <vk_mem_alloc.h>
+#include <glm/gtc/color_space.hpp>
+#include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
 #include <klib/flex_array.hpp>
@@ -50,13 +52,6 @@ constexpr auto srgb_formats_v = std::array{vk::Format::eR8G8B8A8Srgb, vk::Format
 constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
 
 constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
-
-auto srgb_to_linear(float const f) -> float {
-	if (f < 0.04045f) { return f / 12.92f; }
-	return std::pow((f + 0.055f) / 1.055f, 2.4f);
-}
-
-auto srgb_to_linear(ImVec4 const& in) -> ImVec4 { return ImVec4{srgb_to_linear(in.x), srgb_to_linear(in.y), srgb_to_linear(in.z), in.w}; }
 
 [[nodiscard]] auto instance_extensions() -> std::span<char const* const> {
 	auto count = std::uint32_t{};
@@ -187,8 +182,11 @@ class DearImGui {
 		ImGui::StyleColorsDark();
 		if (create_info.srgb_target) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-			for (auto& colour : ImGui::GetStyle().Colors) { colour = srgb_to_linear(colour); }
-			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.98f; // more opaque
+			for (auto& colour : ImGui::GetStyle().Colors) {
+				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+			}
+			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
 		}
 
 		auto load_vk_func = +[](char const* name, void* user_data) {

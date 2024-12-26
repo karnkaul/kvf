@@ -1,4 +1,5 @@
 #pragma once
+#include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
 #include <klib/unique.hpp>
 #include <kvf/vma_fwd.hpp>
@@ -53,6 +54,16 @@ constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view
 	case vk::PresentModeKHR::eImmediate: return "Immediate";
 	default: return "Unsupported";
 	}
+}
+
+template <typename Type = float>
+constexpr auto to_glm_vec(vk::Extent2D const in) -> glm::vec<2, Type> {
+	return glm::vec<2, Type>{in.width, in.height};
+}
+
+template <typename Type>
+constexpr auto to_vk_extent(glm::vec<2, Type> const in) -> vk::Extent2D {
+	return {std::uint32_t(in.x), std::uint32_t(in.y)};
 }
 
 constexpr auto scale_extent(vk::Extent2D const extent, float const scale) -> vk::Extent2D {
