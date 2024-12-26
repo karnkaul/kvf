@@ -1,3 +1,4 @@
+#include <imgui.h>
 #include <kvf/error.hpp>
 #include <kvf/util.hpp>
 #include <scenes/triangle.hpp>
@@ -11,9 +12,11 @@ Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_
 }
 
 void Triangle::update(vk::CommandBuffer const command_buffer) {
-	static constexpr auto upscale_v = 2.0f;
-	auto const framebuffer_extent = kvf::util::scale_extent(get_device().get_framebuffer_extent(), upscale_v);
-	m_color_pass.begin_render(command_buffer, framebuffer_extent);
+	if (ImGui::Begin("Controls")) { draw_controls(); }
+	ImGui::End();
+
+	auto const extent = kvf::util::scale_extent(get_device().get_framebuffer_extent(), m_framebuffer_scale);
+	m_color_pass.begin_render(command_buffer, extent);
 
 	m_color_pass.bind_pipeline(*m_pipeline);
 	command_buffer.draw(3, 1, 0, 0);
@@ -38,4 +41,6 @@ void Triangle::create_pipeline() {
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
 }
+
+void Triangle::draw_controls() { ImGui::SliderFloat("framebuffer scale", &m_framebuffer_scale, 0.25f, 2.0f, "%.2f"); }
 } // namespace kvf::example

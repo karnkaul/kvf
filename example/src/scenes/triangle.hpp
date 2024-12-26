@@ -13,7 +13,10 @@ class Triangle : public Scene {
 
 	void create_pipeline();
 
+	void draw_controls();
+
 	kvf::RenderPass m_color_pass;
+	float m_framebuffer_scale{2.0f};
 
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
