@@ -1,7 +1,6 @@
 #pragma once
 #include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
-#include <klib/unique.hpp>
 #include <kvf/bitmap.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
@@ -9,35 +8,12 @@
 #include <cstddef>
 #include <cstdint>
 #include <string>
-#include <string_view>
 #include <vector>
 
 using namespace std::chrono_literals;
 
 namespace kvf {
 enum class IoResult : int { Success, OpenFailed, SizeMismatch };
-
-class RgbaImage {
-  public:
-	static constexpr auto channels_v{Bitmap::channels_v};
-
-	RgbaImage() = default;
-
-	explicit RgbaImage(std::span<std::byte const> compressed);
-
-	auto decompress(std::span<std::byte const> compressed) -> bool;
-
-	[[nodiscard]] auto is_loaded() const -> bool { return !m_ptr.is_identity(); }
-	[[nodiscard]] auto bitmap() const -> Bitmap;
-
-  private:
-	struct Deleter {
-		void operator()(void* ptr) const noexcept;
-	};
-	klib::Unique<void*, Deleter> m_ptr{};
-	std::size_t m_size_bytes{};
-	glm::ivec2 m_size{};
-};
 
 namespace util {
 constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view {

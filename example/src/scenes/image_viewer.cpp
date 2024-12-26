@@ -1,5 +1,6 @@
 #include <klib/assert.hpp>
 #include <kvf/error.hpp>
+#include <kvf/image_bitmap.hpp>
 #include <kvf/util.hpp>
 #include <log.hpp>
 #include <scenes/image_viewer.hpp>
@@ -60,7 +61,7 @@ void ImageViewer::try_load(klib::CString const path) {
 		open_error_modal(std::format("Failed to load image file: {}", filename()));
 		return;
 	}
-	auto const rgba_image = RgbaImage{bytes};
+	auto const rgba_image = ImageBitmap{bytes};
 	if (!rgba_image.is_loaded()) {
 		open_error_modal(std::format("Failed to create RgbaImage from file: {}", filename()));
 		return;

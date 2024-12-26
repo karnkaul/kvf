@@ -1284,9 +1284,36 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 }
 } // namespace kvf
 
-// util
+// image_bitmap
 
 #include <stb/stb_image.h>
+#include <kvf/image_bitmap.hpp>
+
+namespace kvf {
+void ImageBitmap::Deleter::operator()(Bitmap const& bitmap) const noexcept {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	stbi_image_free(const_cast<std::byte*>(bitmap.bytes.data()));
+}
+
+ImageBitmap::ImageBitmap(std::span<std::byte const> compressed) { decompress(compressed); }
+
+auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
+	auto const* ptr = static_cast<void const*>(compressed.data());
+	auto size = glm::ivec2{};
+	auto in_channels = int{};
+	void* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
+	if (result == nullptr || size.x <= 0 || size.y <= 0) { return false; }
+
+	m_bitmap = Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(result), std::size_t(size.x * size.y * int(channels_v))},
+		.size = size,
+	};
+
+	return true;
+}
+} // namespace kvf
+
+// util
 
 namespace kvf {
 namespace {
@@ -1367,28 +1394,6 @@ struct MakeMipMaps {
 	}
 };
 } // namespace
-
-void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
-
-RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compressed); }
-
-auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
-	auto const* ptr = static_cast<void const*>(compressed.data());
-	auto size = glm::ivec2{};
-	auto in_channels = int{};
-	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
-	if (result == nullptr || size.x <= 0 || size.y <= 0) { return false; }
-
-	m_ptr = result;
-	m_size = size;
-	m_size_bytes = std::size_t(m_size.x * m_size.y * std::int32_t(channels_v));
-	return true;
-}
-
-auto RgbaImage::bitmap() const -> Bitmap {
-	if (!is_loaded()) { return {}; }
-	return Bitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .size = m_size};
-}
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
