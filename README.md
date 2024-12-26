@@ -4,4 +4,4 @@
 
 **Vulkan Framework**
 
-![Screenshot_20241224_110510](https://github.com/user-attachments/assets/eaf3fe8d-aa39-4450-b966-97c400d127a0)
+![Screenshot_20241225_221416](https://github.com/user-attachments/assets/202251cb-11a8-4e73-9dce-6c1ceebf5cf3)
