@@ -1374,21 +1374,20 @@ RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compres
 
 auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
 	auto const* ptr = static_cast<void const*>(compressed.data());
-	auto x = int{};
-	auto y = int{};
+	auto size = glm::ivec2{};
 	auto in_channels = int{};
-	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
-	if (result == nullptr || x <= 0 || y <= 0) { return false; }
+	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
+	if (result == nullptr || size.x <= 0 || size.y <= 0) { return false; }
 
 	m_ptr = result;
-	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
-	m_size_bytes = std::size_t(m_extent.width * m_extent.height * channels_v);
+	m_size = size;
+	m_size_bytes = std::size_t(m_size.x * m_size.y * std::int32_t(channels_v));
 	return true;
 }
 
-auto RgbaImage::bitmap() const -> RgbaBitmap {
+auto RgbaImage::bitmap() const -> Bitmap {
 	if (!is_loaded()) { return {}; }
-	return RgbaBitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .extent = m_extent};
+	return Bitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .size = m_size};
 }
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
@@ -1444,16 +1443,17 @@ auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool 
 	return overwrite(dst, bytes);
 }
 
-auto util::write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool {
+auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 	if (!dst || dst.get_info().layers != layers.size()) { return false; }
 	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
-	auto const extent = layers.front().extent;
-	auto const layer_size = vk::DeviceSize(extent.width * extent.height * RgbaBitmap::channels_v);
+	auto const size = layers.front().size;
+	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
 	auto const total_size = layers.size() * layer_size;
-	auto const check = [extent, layer_size](RgbaBitmap const& b) { return b.extent == extent && b.bytes.size() == layer_size; };
+	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
 	if (layer_size == 0) { return true; }
+	auto const extent = to_vk_extent(size);
 	if (!dst.resize(extent)) { return false; }
 
 	auto const original_layout = dst.get_layout();

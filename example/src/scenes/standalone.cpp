@@ -13,11 +13,11 @@ Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view ass
 
 		std::byte{0xff}, std::byte{0xff}, std::byte{},	   std::byte{0xff},
 	};
-	auto const bitmap = RgbaBitmap{.bytes = image_bytes, .extent = {2, 2}};
+	auto const bitmap = Bitmap{.bytes = image_bytes, .size = {2, 2}};
 	auto const ici = vma::ImageCreateInfo{
 		.format = vk::Format::eR8G8B8A8Unorm,
 	};
-	m_image = vma::Image{device, ici, bitmap.extent};
+	m_image = vma::Image{device, ici, util::to_vk_extent(bitmap.size)};
 	if (!util::write_to(m_image, bitmap)) { throw Error{"Failed to write to Image"}; }
 }
 

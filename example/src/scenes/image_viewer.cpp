@@ -26,8 +26,8 @@ namespace fs = std::filesystem;
 ImageViewer::ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
 	auto const ici = vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
-	auto const bitmap = RgbaBitmap{.bytes = image_bytes_v, .extent = {1, 1}};
-	m_image = vma::Image{device, ici, bitmap.extent};
+	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
+	m_image = vma::Image{device, ici, util::to_vk_extent(bitmap.size)};
 	if (!util::write_to(m_image, bitmap)) { throw Error{"Failed to write to Image"}; }
 	resize_window();
 }

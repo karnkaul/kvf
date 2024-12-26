@@ -2,6 +2,7 @@
 #include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
 #include <klib/unique.hpp>
+#include <kvf/bitmap.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
@@ -16,16 +17,9 @@ using namespace std::chrono_literals;
 namespace kvf {
 enum class IoResult : int { Success, OpenFailed, SizeMismatch };
 
-struct RgbaBitmap {
-	static constexpr std::uint32_t channels_v{4};
-
-	std::span<std::byte const> bytes{};
-	vk::Extent2D extent{};
-};
-
 class RgbaImage {
   public:
-	static constexpr auto channels_v{RgbaBitmap::channels_v};
+	static constexpr auto channels_v{Bitmap::channels_v};
 
 	RgbaImage() = default;
 
@@ -34,7 +28,7 @@ class RgbaImage {
 	auto decompress(std::span<std::byte const> compressed) -> bool;
 
 	[[nodiscard]] auto is_loaded() const -> bool { return !m_ptr.is_identity(); }
-	[[nodiscard]] auto bitmap() const -> RgbaBitmap;
+	[[nodiscard]] auto bitmap() const -> Bitmap;
 
   private:
 	struct Deleter {
@@ -42,7 +36,7 @@ class RgbaImage {
 	};
 	klib::Unique<void*, Deleter> m_ptr{};
 	std::size_t m_size_bytes{};
-	vk::Extent2D m_extent{};
+	glm::ivec2 m_size{};
 };
 
 namespace util {
@@ -87,7 +81,7 @@ auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -
 auto overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
 auto write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool;
 
-auto write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool;
-inline auto write_to(vma::Image& dst, RgbaBitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
+auto write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool;
+inline auto write_to(vma::Image& dst, Bitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
 } // namespace util
 } // namespace kvf
