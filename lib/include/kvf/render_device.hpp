@@ -40,6 +40,7 @@ class GpuSelector : public klib::Polymorphic {
 class RenderDevice {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
+	static constexpr auto aniso_v = 8.0f;
 
 	static constexpr auto present_modes_v = std::array{
 		vk::PresentModeKHR::eFifo,
@@ -79,6 +80,7 @@ class RenderDevice {
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
 

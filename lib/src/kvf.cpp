@@ -438,6 +438,22 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
+		auto ret = vk::SamplerCreateInfo{};
+		ret.setAddressModeU(wrap)
+			.setAddressModeV(wrap)
+			.setAddressModeW(wrap)
+			.setAnisotropyEnable(aniso > 0.0f ? vk::True : vk::False)
+			.setMaxAnisotropy(aniso)
+			.setMinFilter(filter)
+			.setMagFilter(filter)
+			.setMaxLod(VK_LOD_CLAMP_NONE)
+			.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+			.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+		return ret;
+	}
+
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
@@ -869,6 +885,9 @@ auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
+auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+	return m_impl->sampler_info(wrap, filter, aniso);
+}
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
 
