@@ -29,6 +29,7 @@ void App::run(std::string_view const assets_dir) {
 	while (!m_device.is_window_closing()) {
 		auto command_buffer = m_device.next_frame();
 		draw_menu();
+		m_scene->m_dt = m_delta_time.tick();
 		m_scene->update(command_buffer);
 		draw_error_modal();
 		m_device.render(m_scene->get_render_target(), m_scene->get_render_filter());
@@ -70,6 +71,7 @@ void App::draw_menu() {
 				m_device.get_device().waitIdle();
 				m_scene = std::move(new_scene);
 				m_current_factory = new_factory;
+				m_delta_time.reset();
 			} catch (Error const& e) {
 				auto const message = std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());
 				m_scene->open_error_modal(message);

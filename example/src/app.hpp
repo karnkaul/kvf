@@ -41,6 +41,7 @@ class App {
 	Modal m_modal{};
 
 	std::unique_ptr<Scene> m_scene;
+	DeltaTime m_delta_time{};
 
 	DeviceBlock m_blocker;
 };

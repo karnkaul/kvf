@@ -2,13 +2,17 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <kvf/error.hpp>
+#include <kvf/image_bitmap.hpp>
 #include <kvf/util.hpp>
 #include <log.hpp>
 #include <scenes/sprite.hpp>
 #include <shader_loader.hpp>
+#include <filesystem>
 #include <ranges>
 
 namespace kvf::example {
+namespace fs = std::filesystem;
+
 namespace {
 struct Vertex {
 	glm::vec2 position{};
@@ -36,47 +40,49 @@ struct Quad {
 	}
 };
 
-[[nodiscard]] auto vbo_info() {
+[[nodiscard]] constexpr auto buffer_info(vk::BufferUsageFlags const usage) {
 	return vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
+		.usage = usage,
 		.type = vma::BufferType::Device,
 	};
 }
 
-[[nodiscard]] auto ubo_info() {
-	return vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eUniformBuffer,
-		.type = vma::BufferType::Host,
-	};
-}
+[[nodiscard]] constexpr auto vbo_info() { return buffer_info(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer); }
+[[nodiscard]] constexpr auto ubo_info() { return buffer_info(vk::BufferUsageFlagBits::eUniformBuffer); }
+[[nodiscard]] constexpr auto ssbo_info() { return buffer_info(vk::BufferUsageFlagBits::eStorageBuffer); }
 
-[[nodiscard]] auto ssbo_info() {
-	return vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eStorageBuffer,
-		.type = vma::BufferType::Host,
-	};
+[[nodiscard]] auto texture_info(vk::Extent2D const extent) {
+	return vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .mips = util::compute_mip_levels(extent)};
 }
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)),
-	  m_ubo(device, ubo_info(), sizeof(glm::mat4)), m_ssbo(device, ssbo_info()) {
+	  m_ubo(device, ubo_info(), sizeof(glm::mat4)), m_ssbo(device, ssbo_info()), m_texture(device, texture_info({})) {
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = vk::ClearColorValue{std::array{0.05f, 0.05f, 0.05f, 1.0f}};
 
 	create_set_layouts();
 	create_pipeline_layout();
 	create_pipeline();
-
 	create_descriptor_pools();
+	create_texture();
 
 	write_vbo();
 
+	auto instance = RenderInstance{};
+	for (int row = -1; row <= 1; ++row) {
+		for (int col = -1; col <= 1; ++col) {
+			instance.position = {float(row) * 200.0f, float(col) * 200.0f};
+			//
+			m_instances.push_back(instance);
+		}
+	}
 	m_instances.push_back({});
 }
 
 void Sprite::update(vk::CommandBuffer const command_buffer) {
-	m_instances.front().rotation += 1.0f;
+	for (auto& instance : m_instances) { instance.rotation += instance.degrees_per_sec * get_dt().count(); }
 
 	auto const extent = get_device().get_framebuffer_extent();
 
@@ -91,7 +97,7 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 
 		command_buffer.bindVertexBuffers(0, m_vbo.get_buffer(), vk::DeviceSize{0});
 		command_buffer.bindIndexBuffer(m_vbo.get_buffer(), m_index_offset, vk::IndexType::eUint32);
-		command_buffer.drawIndexed(Quad::index_count_v, 1, 0, 0, 0);
+		command_buffer.drawIndexed(Quad::index_count_v, std::uint32_t(m_instances.size()), 0, 0, 0);
 	}
 
 	m_color_pass.end_render();
@@ -146,11 +152,12 @@ void Sprite::create_pipeline() {
 	attributes[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
 	attributes[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
 
-	auto const pipeline_state = kvf::PipelineState{
+	auto const pipeline_state = PipelineState{
 		.vertex_bindings = bindings,
 		.vertex_attributes = attributes,
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
+		.flags = PipelineState::AlphaBlend,
 	};
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
@@ -166,9 +173,24 @@ void Sprite::create_descriptor_pools() {
 	for (auto& descriptor_pool : m_descriptor_pools) { descriptor_pool = get_device().get_device().createDescriptorPoolUnique(dpci); }
 }
 
+void Sprite::create_texture() {
+	auto bytes = std::vector<std::byte>{};
+	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
+	if (util::bytes_from_file(bytes, path.c_str()) != IoResult::Success) { throw Error{std::format("Failed to load image: {}", path)}; }
+	auto const image = ImageBitmap{bytes};
+	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
+	auto const bitmap = image.bitmap();
+	auto const extent = util::to_vk_extent(bitmap.size);
+	m_texture = vma::Image{&get_device(), texture_info(extent), extent};
+	if (!util::write_to(m_texture, image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
+
+	auto const sci = get_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
+	m_sampler = get_device().get_device().createSamplerUnique(sci);
+}
+
 void Sprite::write_vbo() {
 	auto quad = Quad{};
-	quad.resize(glm::vec2{200.0f});
+	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
 	auto buffer_write = BufferWrite{.ptr = vertices.data(), .size = vertices.size_bytes()};
@@ -197,7 +219,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
 	if (!util::write_to(m_ubo, {&projection, sizeof(projection)})) { throw Error{"Failed to write to Uniform Buffer"}; }
 
-	auto wds = std::array<vk::WriteDescriptorSet, 2>{};
+	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto view_dbi = vk::DescriptorBufferInfo{};
 	view_dbi.setBuffer(m_ubo.get_buffer()).setRange(m_ubo.get_size());
 	wds[0].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setBufferInfo(view_dbi).setDstSet(sets[0]).setDstBinding(0);
@@ -213,6 +235,10 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto instances_dbi = vk::DescriptorBufferInfo{};
 	instances_dbi.setBuffer(m_ssbo.get_buffer()).setRange(m_ssbo.get_size());
 	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
+
+	auto texture_dii = vk::DescriptorImageInfo{};
+	texture_dii.setImageView(m_texture.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	wds[2].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eCombinedImageSampler).setImageInfo(texture_dii).setDstSet(sets[1]).setDstBinding(1);
 
 	get_device().get_device().updateDescriptorSets(wds, {});
 }

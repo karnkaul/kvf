@@ -1,6 +1,7 @@
 #pragma once
 #include <klib/polymorphic.hpp>
 #include <kvf/render_device.hpp>
+#include <kvf/time.hpp>
 
 namespace kvf::example {
 class Scene : public klib::Polymorphic {
@@ -16,6 +17,7 @@ class Scene : public klib::Polymorphic {
 
 	[[nodiscard]] auto get_device() const -> RenderDevice& { return *m_device; }
 	[[nodiscard]] auto get_assets_dir() const -> std::string_view { return m_assets_dir; }
+	[[nodiscard]] auto get_dt() const -> Seconds { return m_dt; }
 
 	virtual void on_key([[maybe_unused]] KeyInput const& input) {}
 	virtual void on_drop([[maybe_unused]] std::span<char const* const> paths) {}
@@ -34,6 +36,7 @@ class Scene : public klib::Polymorphic {
 	gsl::not_null<RenderDevice*> m_device;
 	std::string_view m_assets_dir{};
 
+	Seconds m_dt{};
 	Modal m_modal{};
 
 	friend class App;

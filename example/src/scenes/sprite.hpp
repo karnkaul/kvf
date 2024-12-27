@@ -14,6 +14,7 @@ class Sprite : public Scene {
 	struct RenderInstance {
 		glm::vec2 position{};
 		float rotation{};
+		float degrees_per_sec{90.0f};
 		Color tint{white_v};
 	};
 
@@ -28,8 +29,8 @@ class Sprite : public Scene {
 	void create_set_layouts();
 	void create_pipeline_layout();
 	void create_pipeline();
-
 	void create_descriptor_pools();
+	void create_texture();
 
 	void write_vbo();
 
@@ -51,6 +52,9 @@ class Sprite : public Scene {
 	vma::Buffer m_ubo;
 	vma::Buffer m_ssbo;
 	std::vector<Std430Instance> m_instance_buffer{};
+
+	vma::Image m_texture;
+	vk::UniqueSampler m_sampler{};
 
 	std::vector<RenderInstance> m_instances{};
 };
