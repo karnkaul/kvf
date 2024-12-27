@@ -1063,12 +1063,12 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
 		.setBlendEnable(alpha_blend ? vk::True : vk::False)
 		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+		.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
 		.setColorBlendOp(vk::BlendOp::eAdd)
 		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
 		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
 		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+	auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
 	pcbsci.setAttachments(pcbas);
 
 	auto const pdscis = std::array{
