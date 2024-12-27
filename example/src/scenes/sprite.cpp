@@ -71,20 +71,12 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	create_descriptor_pools();
 
 	write_vbo();
+
+	m_instances.push_back({});
 }
 
 void Sprite::update(vk::CommandBuffer const command_buffer) {
-	auto const frame_index = std::size_t(get_device().get_frame_index());
-	auto const descriptor_pool = *m_descriptor_pools.at(frame_index);
-	get_device().get_device().resetDescriptorPool(descriptor_pool);
-	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
-	auto dsai = vk::DescriptorSetAllocateInfo{};
-	dsai.setDescriptorPool(descriptor_pool).setSetLayouts(m_set_layouts).setDescriptorSetCount(2);
-	auto const result = get_device().get_device().allocateDescriptorSets(&dsai, descriptor_sets.data());
-	if (result != vk::Result::eSuccess) {
-		log::warn("Failed to allocate Descriptor Sets");
-		return;
-	}
+	m_instances.front().rotation += 1.0f;
 
 	auto const extent = get_device().get_framebuffer_extent();
 
@@ -92,12 +84,15 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 
 	m_color_pass.bind_pipeline(*m_pipeline);
 
-	write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
-	command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
+	auto const descriptor_sets = allocate_sets();
+	if (descriptor_sets[0] && descriptor_sets[1]) {
+		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
+		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
 
-	command_buffer.bindVertexBuffers(0, m_vbo.get_buffer(), vk::DeviceSize{0});
-	command_buffer.bindIndexBuffer(m_vbo.get_buffer(), m_index_offset, vk::IndexType::eUint32);
-	command_buffer.drawIndexed(Quad::index_count_v, 1, 0, 0, 0);
+		command_buffer.bindVertexBuffers(0, m_vbo.get_buffer(), vk::DeviceSize{0});
+		command_buffer.bindIndexBuffer(m_vbo.get_buffer(), m_index_offset, vk::IndexType::eUint32);
+		command_buffer.drawIndexed(Quad::index_count_v, 1, 0, 0, 0);
+	}
 
 	m_color_pass.end_render();
 }
@@ -119,7 +114,7 @@ void Sprite::create_set_layouts() {
 	set_1_bindings[0]
 		.setBinding(0)
 		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
+		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
 		.setStageFlags(vk::ShaderStageFlagBits::eAllGraphics);
 	set_1_bindings[1]
 		.setBinding(1)
@@ -185,15 +180,39 @@ void Sprite::write_vbo() {
 	if (!util::overwrite(m_vbo, buffer_write, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
 }
 
+auto Sprite::allocate_sets() const -> std::array<vk::DescriptorSet, 2> {
+	auto const frame_index = std::size_t(get_device().get_frame_index());
+	auto const descriptor_pool = *m_descriptor_pools.at(frame_index);
+	get_device().get_device().resetDescriptorPool(descriptor_pool);
+	auto ret = std::array<vk::DescriptorSet, 2>{};
+	auto dsai = vk::DescriptorSetAllocateInfo{};
+	dsai.setDescriptorPool(descriptor_pool).setSetLayouts(m_set_layouts);
+	auto const result = get_device().get_device().allocateDescriptorSets(&dsai, ret.data());
+	if (result != vk::Result::eSuccess) { log::warn("Failed to allocate Descriptor Sets"); }
+	return ret;
+}
+
 void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 const extent) {
 	auto const half_extent = 0.5f * extent;
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
 	if (!util::write_to(m_ubo, {&projection, sizeof(projection)})) { throw Error{"Failed to write to Uniform Buffer"}; }
 
-	auto wds = std::array<vk::WriteDescriptorSet, 1>{};
-	auto dbi = vk::DescriptorBufferInfo{};
-	dbi.setBuffer(m_ubo.get_buffer()).setRange(m_ubo.get_size());
-	wds[0].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setBufferInfo(dbi).setDstSet(sets[0]).setDstBinding(0);
+	auto wds = std::array<vk::WriteDescriptorSet, 2>{};
+	auto view_dbi = vk::DescriptorBufferInfo{};
+	view_dbi.setBuffer(m_ubo.get_buffer()).setRange(m_ubo.get_size());
+	wds[0].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setBufferInfo(view_dbi).setDstSet(sets[0]).setDstBinding(0);
+
+	m_instance_buffer.clear();
+	m_instance_buffer.reserve(m_instances.size());
+	for (auto const& instance : m_instances) {
+		auto const t = glm::translate(glm::mat4{1.0f}, glm::vec3{instance.position, 0.0f});
+		auto const r = glm::rotate(glm::mat4{1.0f}, glm::radians(instance.rotation), glm::vec3{0.0f, 0.0f, 1.0f});
+		m_instance_buffer.push_back(Std430Instance{.mat_world = t * r, .tint = instance.tint.to_vec4()});
+	}
+	util::write_to(m_ssbo, {m_instance_buffer.data(), std::span{m_instance_buffer}.size_bytes()});
+	auto instances_dbi = vk::DescriptorBufferInfo{};
+	instances_dbi.setBuffer(m_ssbo.get_buffer()).setRange(m_ssbo.get_size());
+	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
 
 	get_device().get_device().updateDescriptorSets(wds, {});
 }

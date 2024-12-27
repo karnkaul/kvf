@@ -1,5 +1,7 @@
 #pragma once
+#include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
+#include <kvf/color.hpp>
 #include <kvf/render_pass.hpp>
 #include <scene.hpp>
 
@@ -9,6 +11,17 @@ class Sprite : public Scene {
 	explicit Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir);
 
   private:
+	struct RenderInstance {
+		glm::vec2 position{};
+		float rotation{};
+		Color tint{white_v};
+	};
+
+	struct Std430Instance {
+		glm::mat4 mat_world;
+		glm::vec4 tint;
+	};
+
 	void update(vk::CommandBuffer command_buffer) final;
 	[[nodiscard]] auto get_render_target() const -> RenderTarget final;
 
@@ -19,6 +32,8 @@ class Sprite : public Scene {
 	void create_descriptor_pools();
 
 	void write_vbo();
+
+	[[nodiscard]] auto allocate_sets() const -> std::array<vk::DescriptorSet, 2>;
 	void write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 extent);
 
 	kvf::RenderPass m_color_pass;
@@ -35,5 +50,8 @@ class Sprite : public Scene {
 
 	vma::Buffer m_ubo;
 	vma::Buffer m_ssbo;
+	std::vector<Std430Instance> m_instance_buffer{};
+
+	std::vector<RenderInstance> m_instances{};
 };
 } // namespace kvf::example
