@@ -2,6 +2,7 @@
 #include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
 #include <kvf/bitmap.hpp>
+#include <kvf/color.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
@@ -39,6 +40,9 @@ constexpr auto to_vk_extent(glm::vec<2, Type> const in) -> vk::Extent2D {
 constexpr auto scale_extent(vk::Extent2D const extent, float const scale) -> vk::Extent2D {
 	return vk::Extent2D{std::uint32_t(float(extent.width) * scale), std::uint32_t(float(extent.height) * scale)};
 }
+
+[[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
+[[nodiscard]] auto to_hex_string(Color const& color) -> std::string;
 
 auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
 

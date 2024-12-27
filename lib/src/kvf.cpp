@@ -11,6 +11,7 @@
 #include <kvf/error.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -1394,6 +1395,21 @@ struct MakeMipMaps {
 	}
 };
 } // namespace
+
+auto util::color_from_hex(std::string_view hex) -> Color {
+	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
+	hex = hex.substr(1);
+	auto const next = [&](std::uint8_t& out) {
+		auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + 2, out, 16);
+		hex = hex.substr(2);
+		return ec == std::errc{} && ptr == hex.data();
+	};
+	auto ret = Color{};
+	if (!next(ret.x) || !next(ret.y) || !next(ret.z) || !next(ret.w)) { return {}; }
+	return ret;
+}
+
+auto util::to_hex_string(Color const& color) -> std::string { return std::format("#{:02x}{:02x}{:02x}{:02x}", color.x, color.y, color.z, color.w); }
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
