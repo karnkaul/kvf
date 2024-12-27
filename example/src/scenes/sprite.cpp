@@ -50,15 +50,12 @@ struct Quad {
 [[nodiscard]] constexpr auto vbo_info() { return buffer_info(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer); }
 [[nodiscard]] constexpr auto ubo_info() { return buffer_info(vk::BufferUsageFlagBits::eUniformBuffer); }
 [[nodiscard]] constexpr auto ssbo_info() { return buffer_info(vk::BufferUsageFlagBits::eStorageBuffer); }
-
-[[nodiscard]] auto texture_info(vk::Extent2D const extent) {
-	return vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .mips = util::compute_mip_levels(extent)};
-}
+[[nodiscard]] constexpr auto texture_info() { return vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .flags = vma::ImageFlag::MipMapped}; }
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)),
-	  m_ubo(device, ubo_info(), sizeof(glm::mat4)), m_ssbo(device, ssbo_info()), m_texture(device, texture_info({})) {
+	  m_ubo(device, ubo_info(), sizeof(glm::mat4)), m_ssbo(device, ssbo_info()), m_texture(device, texture_info()) {
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = vk::ClearColorValue{std::array{0.05f, 0.05f, 0.05f, 1.0f}};
 
@@ -179,9 +176,6 @@ void Sprite::create_texture() {
 	if (util::bytes_from_file(bytes, path.c_str()) != IoResult::Success) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	auto const bitmap = image.bitmap();
-	auto const extent = util::to_vk_extent(bitmap.size);
-	m_texture = vma::Image{&get_device(), texture_info(extent), extent};
 	if (!util::write_to(m_texture, image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
 
 	auto const sci = get_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);

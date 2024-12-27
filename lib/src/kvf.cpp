@@ -962,6 +962,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	ensure_positive(extent.width, extent.height);
 	if (m_extent == extent) { return true; }
 
+	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
 	auto const queue_family = m_device->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
@@ -969,7 +970,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 		.setUsage(m_info.usage)
 		.setImageType(vk::ImageType::e2D)
 		.setArrayLayers(m_info.layers)
-		.setMipLevels(m_info.mips)
+		.setMipLevels(mip_mapped ? util::compute_mip_levels(extent) : 1)
 		.setSamples(m_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
@@ -986,6 +987,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
+	m_mip_levels = ici.mipLevels;
 	m_image = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
@@ -1012,7 +1014,7 @@ void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2
 	m_layout = barrier.newLayout;
 }
 
-auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_info.mips, 0, m_info.layers}; }
+auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 } // namespace kvf::vma
 
 // render_pass
@@ -1435,7 +1437,7 @@ struct MakeMipMaps {
 		util::record_barrier(command_buffer, barrier);
 
 		auto src_extent = vk::Extent3D{out.get_extent(), 1};
-		for (std::uint32_t mip = 0; mip + 1 < out.get_info().mips; ++mip) {
+		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
 			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
 			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
 			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
@@ -1564,7 +1566,7 @@ auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 	}
 
 	auto current_layout = dst.get_layout();
-	if (dst.get_info().mips > 1) {
+	if (dst.get_mip_levels() > 1) {
 		MakeMipMaps{.out = dst, .command_buffer = cmd}();
 		current_layout = vk::ImageLayout::eTransferSrcOptimal;
 	}
