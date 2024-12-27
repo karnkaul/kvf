@@ -41,6 +41,13 @@ class RenderDevice {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
 
+	static constexpr auto present_modes_v = std::array{
+		vk::PresentModeKHR::eFifo,
+		vk::PresentModeKHR::eFifoRelaxed,
+		vk::PresentModeKHR::eMailbox,
+		vk::PresentModeKHR::eImmediate,
+	};
+
 	using Flag = RenderDeviceFlag;
 	using Flags = RenderDeviceFlags;
 
@@ -67,7 +74,7 @@ class RenderDevice {
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D;
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR;
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const>;
-	auto request_present_mode(vk::PresentModeKHR desired) -> bool;
+	auto set_present_mode(vk::PresentModeKHR desired) -> bool;
 
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
@@ -77,6 +84,9 @@ class RenderDevice {
 
 	[[nodiscard]] auto get_render_imgui() const -> bool;
 	void set_render_imgui(bool should_render);
+
+	[[nodiscard]] auto is_window_closing() const -> bool;
+	void set_window_closing(bool value) const;
 
 	[[nodiscard]] auto next_frame() -> vk::CommandBuffer;
 	void render(RenderTarget const& frame, vk::Filter filter = vk::Filter::eLinear);

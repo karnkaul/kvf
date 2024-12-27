@@ -1,4 +1,6 @@
 #include <vk_mem_alloc.h>
+#include <glm/gtc/color_space.hpp>
+#include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
 #include <klib/flex_array.hpp>
@@ -9,6 +11,7 @@
 #include <kvf/error.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -51,14 +54,42 @@ constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::For
 
 constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
 
-auto srgb_to_linear(float const f) -> float {
-	if (f < 0.04045f) { return f / 12.92f; }
-	return std::pow((f + 0.055f) / 1.055f, 2.4f);
+[[nodiscard]] auto instance_extensions() -> std::span<char const* const> {
+	auto count = std::uint32_t{};
+	auto const* first = glfwGetRequiredInstanceExtensions(&count);
+	return {first, count};
 }
 
-auto srgb_to_linear(ImVec4 const& in) -> ImVec4 { return ImVec4{srgb_to_linear(in.x), srgb_to_linear(in.y), srgb_to_linear(in.z), in.w}; }
+[[nodiscard]] auto filter_modes(std::span<vk::PresentModeKHR const> all) -> std::vector<vk::PresentModeKHR> {
+	auto ret = std::vector<vk::PresentModeKHR>{};
+	ret.reserve(all.size());
+	for (auto const in : all) {
+		if (std::ranges::find(RenderDevice::present_modes_v, in) == RenderDevice::present_modes_v.end()) { continue; }
+		ret.push_back(in);
+	}
+	return ret;
+}
 
-auto best_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
+[[nodiscard]] constexpr auto optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	for (auto const desired : desired_v) {
+		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
+	}
+	return vk::PresentModeKHR::eFifo;
+}
+
+[[nodiscard]] constexpr auto compatible_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
+	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
+	for (auto const srgb_format : desired) {
+		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
+			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
+		});
+		if (it != supported.end()) { return *it; }
+	}
+	return vk::SurfaceFormatKHR{};
+}
+
+auto optimal_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
 	static constexpr auto target_v{vk::Format::eD32Sfloat};
 	auto const props = gpu.getFormatProperties(target_v);
 	if (props.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) { return target_v; }
@@ -109,31 +140,6 @@ struct GpuList {
 	}
 };
 
-[[nodiscard]] auto get_instance_extensions() -> std::span<char const* const> {
-	auto count = std::uint32_t{};
-	auto const* first = glfwGetRequiredInstanceExtensions(&count);
-	return {first, count};
-}
-
-[[nodiscard]] constexpr auto get_optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
-	for (auto const desired : desired_v) {
-		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
-	}
-	return vk::PresentModeKHR::eFifo;
-}
-
-[[nodiscard]] constexpr auto get_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
-	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
-	for (auto const srgb_format : desired) {
-		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
-			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
-		});
-		if (it != supported.end()) { return *it; }
-	}
-	return vk::SurfaceFormatKHR{};
-}
-
 class DearImGui {
   public:
 	struct CreateInfo { // NOLINT(cppcoreguidelines-pro-type-member-init)
@@ -177,8 +183,11 @@ class DearImGui {
 		ImGui::StyleColorsDark();
 		if (create_info.srgb_target) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-			for (auto& colour : ImGui::GetStyle().Colors) { colour = srgb_to_linear(colour); }
-			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.98f; // more opaque
+			for (auto& colour : ImGui::GetStyle().Colors) {
+				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+			}
+			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
 		}
 
 		auto load_vk_func = +[](char const* name, void* user_data) {
@@ -413,9 +422,9 @@ struct RenderDevice::Impl {
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR { return m_swapchain.get_info().presentMode; }
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_present_modes; }
 
-	auto request_present_mode(vk::PresentModeKHR desired) -> bool {
+	auto set_present_mode(vk::PresentModeKHR desired) -> bool {
 		if (std::ranges::find(m_present_modes, desired) == m_present_modes.end()) { return false; }
-		m_next_present_mode = desired;
+		m_swapchain.recreate(get_framebuffer_extent(), desired);
 		return true;
 	}
 
@@ -434,11 +443,15 @@ struct RenderDevice::Impl {
 		m_queue.submit2(si, fence);
 	}
 
-	auto next_frame() -> vk::CommandBuffer {
-		glfwPollEvents();
+	[[nodiscard]] auto is_window_closing() const -> bool { return glfwWindowShouldClose(m_window) == GLFW_TRUE; }
 
+	void set_window_closing(bool const value) const { glfwSetWindowShouldClose(m_window, value ? GLFW_TRUE : GLFW_FALSE); }
+
+	auto next_frame() -> vk::CommandBuffer {
 		auto const drawn = *m_syncs.at(m_frame_index).drawn;
 		if (!util::wait_for_fence(*m_device, drawn)) { throw Error{"Failed to wait for Render Fence"}; }
+
+		glfwPollEvents();
 		m_imgui.new_frame();
 
 		if (m_current_cmd) {	 // previous render() early returned
@@ -455,11 +468,7 @@ struct RenderDevice::Impl {
 		if (!m_current_cmd) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
-		if (m_next_present_mode || m_swapchain.get_info().imageExtent != framebuffer_extent) {
-			auto const present_mode = m_next_present_mode.value_or(m_swapchain.get_info().presentMode);
-			m_swapchain.recreate(framebuffer_extent, present_mode);
-			m_next_present_mode.reset();
-		}
+		if (m_swapchain.get_info().imageExtent != framebuffer_extent) { m_swapchain.recreate(framebuffer_extent); }
 
 		auto const& sync = m_syncs.at(m_frame_index);
 		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
@@ -548,7 +557,7 @@ struct RenderDevice::Impl {
 		app_info.apiVersion = VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch);
 		auto ici = vk::InstanceCreateInfo{};
 		ici.pApplicationInfo = &app_info;
-		auto const wsi_extensions = get_instance_extensions();
+		auto const wsi_extensions = instance_extensions();
 		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
 		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
 			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
@@ -619,7 +628,7 @@ struct RenderDevice::Impl {
 		auto const* selected = &selector.select(list.gpus);
 		m_queue_family = list.get_queue_family(selected);
 		m_gpu = *selected;
-		m_depth_format = best_depth_format(m_gpu.device);
+		m_depth_format = optimal_depth_format(m_gpu.device);
 		log::debug("Using GPU: {}, queue family: {}", m_gpu.properties.deviceName.data(), m_queue_family);
 	}
 
@@ -658,11 +667,11 @@ struct RenderDevice::Impl {
 
 	void create_swapchain() {
 		auto const linear_backbuffer = (m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer;
-		auto const surface_format = get_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
-		m_present_modes = m_gpu.device.getSurfacePresentModesKHR(*m_surface);
+		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
+		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
 		sci.surface = *m_surface;
-		sci.presentMode = get_optimal_present_mode(m_present_modes);
+		sci.presentMode = optimal_present_mode(m_present_modes);
 		sci.imageFormat = surface_format.format;
 		sci.queueFamilyIndexCount = 1u;
 		sci.pQueueFamilyIndices = &m_queue_family;
@@ -828,8 +837,6 @@ struct RenderDevice::Impl {
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
 
-	std::optional<vk::PresentModeKHR> m_next_present_mode{};
-
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
 	vk::CommandBuffer m_current_cmd{};
@@ -857,7 +864,7 @@ auto RenderDevice::get_allocator() const -> VmaAllocator { return m_impl->get_al
 auto RenderDevice::get_framebuffer_extent() const -> vk::Extent2D { return m_impl->get_framebuffer_extent(); }
 auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_impl->get_present_mode(); }
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
-auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
+auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->set_present_mode(desired); }
 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
@@ -867,6 +874,9 @@ void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
+
+auto RenderDevice::is_window_closing() const -> bool { return m_impl->is_window_closing(); }
+void RenderDevice::set_window_closing(bool const value) const { m_impl->set_window_closing(value); }
 
 auto RenderDevice::next_frame() -> vk::CommandBuffer { return m_impl->next_frame(); }
 void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { m_impl->render(frame, filter); }
@@ -993,7 +1003,7 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
-void RenderPass::set_color_target(vk::Format format) {
+auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
 	auto const color_ici = vma::ImageCreateInfo{
 		.format = format,
@@ -1011,9 +1021,10 @@ void RenderPass::set_color_target(vk::Format format) {
 		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
 	}
+	return *this;
 }
 
-void RenderPass::set_depth_target() {
+auto RenderPass::set_depth_target() -> RenderPass& {
 	auto const depth_ici = vma::ImageCreateInfo{
 		.format = m_device->get_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
@@ -1022,6 +1033,7 @@ void RenderPass::set_depth_target() {
 		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
+	return *this;
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
@@ -1115,6 +1127,8 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 }
 
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
+	if (!has_color_target() && !has_depth_target()) { return; }
+
 	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
 	m_command_buffer = command_buffer;
@@ -1219,6 +1233,17 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
+auto RenderPass::viewport() const -> vk::Viewport { return vk::Viewport{0.0f, float(m_extent.height), float(m_extent.width), -float(m_extent.height)}; }
+
+auto RenderPass::scissor() const -> vk::Rect2D { return {{}, m_extent}; }
+
+void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
+	if (!m_command_buffer) { return; }
+	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	m_command_buffer.setViewport(0, viewport());
+	m_command_buffer.setScissor(0, scissor());
+}
+
 void RenderPass::set_render_targets() {
 	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
 	if (framebuffer.color && framebuffer.color.get_extent() != m_extent) {
@@ -1260,9 +1285,67 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 }
 } // namespace kvf
 
-// util
+// image_bitmap
 
 #include <stb/stb_image.h>
+#include <kvf/image_bitmap.hpp>
+
+namespace kvf {
+void ImageBitmap::Deleter::operator()(Bitmap const& bitmap) const noexcept {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	stbi_image_free(const_cast<std::byte*>(bitmap.bytes.data()));
+}
+
+ImageBitmap::ImageBitmap(std::span<std::byte const> compressed) { decompress(compressed); }
+
+auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
+	auto const* ptr = static_cast<void const*>(compressed.data());
+	auto size = glm::ivec2{};
+	auto in_channels = int{};
+	void* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
+	if (result == nullptr || size.x <= 0 || size.y <= 0) { return false; }
+
+	m_bitmap = Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(result), std::size_t(size.x * size.y * int(channels_v))},
+		.size = size,
+	};
+
+	return true;
+}
+} // namespace kvf
+
+// color_bitmap
+
+#include <kvf/color_bitmap.hpp>
+
+namespace kvf {
+void ColorBitmap::resize(glm::ivec2 size) {
+	if (size.x < 0 || size.y < 0) { return; }
+	m_size = size;
+	m_bitmap.resize(std::size_t(m_size.x * m_size.y));
+}
+
+auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) const -> Color const& {
+	auto const index = y * m_size.x + x;
+	return m_bitmap.at(std::size_t(index));
+}
+
+auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) -> Color& {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	return const_cast<Color&>(std::as_const(*this).at(x, y));
+}
+
+auto ColorBitmap::bitmap() const -> Bitmap {
+	static_assert(sizeof(Color) == Bitmap::channels_v);
+	void const* first = m_bitmap.data();
+	return Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(first), sizeof(Color) * m_bitmap.size()},
+		.size = m_size,
+	};
+}
+} // namespace kvf
+
+// util
 
 namespace kvf {
 namespace {
@@ -1275,8 +1358,8 @@ auto read_from_file(T& out, klib::CString path) -> IoResult {
 	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
 	file.seekg(0, std::ios::beg);
 	out.resize(std::size_t(size) / sizeof(value_type));
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-	file.read(reinterpret_cast<char*>(out.data()), size);
+	void* first = out.data();
+	file.read(static_cast<char*>(first), size);
 	return IoResult::Success;
 }
 
@@ -1344,28 +1427,20 @@ struct MakeMipMaps {
 };
 } // namespace
 
-void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
-
-RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compressed); }
-
-auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
-	auto const* ptr = static_cast<void const*>(compressed.data());
-	auto x = int{};
-	auto y = int{};
-	auto in_channels = int{};
-	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
-	if (result == nullptr || x <= 0 || y <= 0) { return false; }
-
-	m_ptr = result;
-	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
-	m_size_bytes = std::size_t(m_extent.width * m_extent.height * channels_v);
-	return true;
+auto util::color_from_hex(std::string_view hex) -> Color {
+	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
+	hex = hex.substr(1);
+	auto const next = [&](std::uint8_t& out) {
+		auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + 2, out, 16);
+		hex = hex.substr(2);
+		return ec == std::errc{} && ptr == hex.data();
+	};
+	auto ret = Color{};
+	if (!next(ret.x) || !next(ret.y) || !next(ret.z) || !next(ret.w)) { return {}; }
+	return ret;
 }
 
-auto RgbaImage::bitmap() const -> RgbaBitmap {
-	if (!is_loaded()) { return {}; }
-	return RgbaBitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .extent = m_extent};
-}
+auto util::to_hex_string(Color const& color) -> std::string { return std::format("#{:02x}{:02x}{:02x}{:02x}", color.x, color.y, color.z, color.w); }
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
@@ -1420,16 +1495,17 @@ auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool 
 	return overwrite(dst, bytes);
 }
 
-auto util::write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool {
+auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 	if (!dst || dst.get_info().layers != layers.size()) { return false; }
 	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
-	auto const extent = layers.front().extent;
-	auto const layer_size = vk::DeviceSize(extent.width * extent.height * RgbaBitmap::channels_v);
+	auto const size = layers.front().size;
+	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
 	auto const total_size = layers.size() * layer_size;
-	auto const check = [extent, layer_size](RgbaBitmap const& b) { return b.extent == extent && b.bytes.size() == layer_size; };
+	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
 	if (layer_size == 0) { return true; }
+	auto const extent = to_vk_extent(size);
 	if (!dst.resize(extent)) { return false; }
 
 	auto const original_layout = dst.get_layout();
