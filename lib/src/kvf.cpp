@@ -1461,15 +1461,15 @@ auto util::string_from_file(std::string& out_string, klib::CString path) -> IoRe
 auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
 auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
 
-auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset) -> bool {
+auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }
 
-	if (dst.get_size() < offset + bytes.size()) { return false; }
-	if (bytes.empty()) { return true; }
+	if (dst.get_size() < offset + bytes.size) { return false; }
+	if (bytes.size == 0) { return true; }
 
-	if (auto* ptr = dst.get_mapped()) {
-		auto const span = std::span{static_cast<std::byte*>(ptr), dst.get_size()}.subspan(offset);
-		std::memcpy(span.data(), bytes.data(), bytes.size());
+	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		std::memcpy(ptr + offset, bytes.ptr, bytes.size);
 		return true;
 	}
 
@@ -1479,10 +1479,10 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size};
 	if (!overwrite(staging, bytes)) { return false; }
 
-	auto const bc = vk::BufferCopy2{offset, 0, staging.get_size()};
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
 	auto cbi = vk::CopyBufferInfo2{};
 	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
 	auto cmd = CommandBuffer{dst.get_render_device()};
@@ -1490,8 +1490,8 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 	return cmd.submit_and_wait();
 }
 
-auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool {
-	if (!dst.resize(bytes.size())) { return false; }
+auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
+	if (!dst.resize(bytes.size)) { return false; }
 	return overwrite(dst, bytes);
 }
 

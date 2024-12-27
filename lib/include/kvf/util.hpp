@@ -16,6 +16,11 @@ using namespace std::chrono_literals;
 namespace kvf {
 enum class IoResult : int { Success, OpenFailed, SizeMismatch };
 
+struct BufferWrite {
+	void const* ptr;
+	vk::DeviceSize size;
+};
+
 namespace util {
 constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view {
 	switch (present_mode) {
@@ -58,8 +63,8 @@ auto string_from_file(std::string& out_string, klib::CString path) -> IoResult;
 auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult;
 auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult;
 
-auto overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset = 0) -> bool;
-auto write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool;
+auto overwrite(vma::Buffer& dst, BufferWrite bytes, vk::DeviceSize offset = 0) -> bool;
+auto write_to(vma::Buffer& dst, BufferWrite bytes) -> bool;
 
 auto write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool;
 inline auto write_to(vma::Image& dst, Bitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
