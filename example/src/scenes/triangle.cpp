@@ -35,8 +35,8 @@ void Triangle::create_pipeline() {
 
 	m_pipeline_layout = get_device().get_device().createPipelineLayoutUnique({});
 	auto const pipeline_state = kvf::PipelineState{
-		.vertex_attributes = {},
 		.vertex_bindings = {},
+		.vertex_attributes = {},
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
 	};
