@@ -1314,6 +1314,37 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 }
 } // namespace kvf
 
+// color_bitmap
+
+#include <kvf/color_bitmap.hpp>
+
+namespace kvf {
+void ColorBitmap::resize(glm::ivec2 size) {
+	if (size.x < 0 || size.y < 0) { return; }
+	m_size = size;
+	m_bitmap.resize(std::size_t(m_size.x * m_size.y));
+}
+
+auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) const -> Color const& {
+	auto const index = y * m_size.x + x;
+	return m_bitmap.at(std::size_t(index));
+}
+
+auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) -> Color& {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	return const_cast<Color&>(std::as_const(*this).at(x, y));
+}
+
+auto ColorBitmap::bitmap() const -> Bitmap {
+	static_assert(sizeof(Color) == Bitmap::channels_v);
+	void const* first = m_bitmap.data();
+	return Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(first), sizeof(Color) * m_bitmap.size()},
+		.size = m_size,
+	};
+}
+} // namespace kvf
+
 // util
 
 namespace kvf {
@@ -1327,8 +1358,8 @@ auto read_from_file(T& out, klib::CString path) -> IoResult {
 	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
 	file.seekg(0, std::ios::beg);
 	out.resize(std::size_t(size) / sizeof(value_type));
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-	file.read(reinterpret_cast<char*>(out.data()), size);
+	void* first = out.data();
+	file.read(static_cast<char*>(first), size);
 	return IoResult::Success;
 }
 

@@ -1,19 +1,16 @@
+#include <kvf/color_bitmap.hpp>
 #include <kvf/error.hpp>
 #include <kvf/util.hpp>
 #include <scenes/standalone.hpp>
 
 namespace kvf::example {
 Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
-	auto const image_bytes = std::array{
-		std::byte{0xff}, std::byte{},	  std::byte{},	   std::byte{0xff},
-
-		std::byte{},	 std::byte{0xff}, std::byte{},	   std::byte{0xff},
-
-		std::byte{},	 std::byte{},	  std::byte{0xff}, std::byte{0xff},
-
-		std::byte{0xff}, std::byte{0xff}, std::byte{},	   std::byte{0xff},
-	};
-	auto const bitmap = Bitmap{.bytes = image_bytes, .size = {2, 2}};
+	auto pixels = ColorBitmap{glm::ivec2{2, 2}};
+	pixels[0, 0] = red_v;
+	pixels[0, 1] = green_v;
+	pixels[1, 0] = blue_v;
+	pixels[1, 1] = yellow_v;
+	auto const bitmap = pixels.bitmap();
 	auto const ici = vma::ImageCreateInfo{
 		.format = vk::Format::eR8G8B8A8Unorm,
 	};
