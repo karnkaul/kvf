@@ -1,6 +1,7 @@
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
+#include <klib/random.hpp>
 #include <kvf/error.hpp>
 #include <kvf/image_bitmap.hpp>
 #include <kvf/util.hpp>
@@ -67,15 +68,7 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 
 	write_vbo();
 
-	auto instance = RenderInstance{};
-	for (int row = -1; row <= 1; ++row) {
-		for (int col = -1; col <= 1; ++col) {
-			instance.position = {float(row) * 200.0f, float(col) * 200.0f};
-			//
-			m_instances.push_back(instance);
-		}
-	}
-	m_instances.push_back({});
+	create_instances();
 }
 
 void Sprite::update(vk::CommandBuffer const command_buffer) {
@@ -194,6 +187,20 @@ void Sprite::write_vbo() {
 	auto const indices = std::span{quad.indices};
 	buffer_write = BufferWrite{.ptr = indices.data(), .size = indices.size_bytes()};
 	if (!util::overwrite(m_vbo, buffer_write, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
+}
+
+void Sprite::create_instances() {
+	static constexpr auto tints_v = std::array{white_v, red_v, green_v};
+	auto random_gen = std::mt19937{std::random_device{}()};
+	for (int row = -1; row <= 1; ++row) {
+		for (int col = -1; col <= 1; ++col) {
+			m_instances.push_back(RenderInstance{
+				.position = {float(row) * 200.0f, float(col) * 200.0f},
+				.degrees_per_sec = klib::random_float(random_gen, -360.0f, 360.0f),
+				.tint = tints_v.at(klib::random_index(random_gen, tints_v.size())),
+			});
+		}
+	}
 }
 
 auto Sprite::allocate_sets() const -> std::array<vk::DescriptorSet, 2> {

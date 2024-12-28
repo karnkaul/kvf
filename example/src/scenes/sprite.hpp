@@ -33,6 +33,7 @@ class Sprite : public Scene {
 	void create_texture();
 
 	void write_vbo();
+	void create_instances();
 
 	[[nodiscard]] auto allocate_sets() const -> std::array<vk::DescriptorSet, 2>;
 	void write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 extent);
