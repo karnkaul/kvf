@@ -73,13 +73,13 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 void Sprite::update(vk::CommandBuffer const command_buffer) {
 	for (auto& instance : m_instances) { instance.rotation += instance.degrees_per_sec * get_dt().count(); }
 
-	auto const extent = get_device().get_framebuffer_extent();
+	auto const extent = get_render_device().get_framebuffer_extent();
 
 	m_color_pass.begin_render(command_buffer, extent);
 
 	m_color_pass.bind_pipeline(*m_pipeline);
 
-	auto& descriptor_allocator = get_device().get_descriptor_allocator();
+	auto& descriptor_allocator = get_render_device().get_descriptor_allocator();
 	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
 	if (descriptor_allocator.allocate(descriptor_sets, m_set_layouts)) {
 		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
@@ -104,7 +104,7 @@ void Sprite::create_set_layouts() {
 		.setStageFlags(vk::ShaderStageFlagBits::eAllGraphics);
 	auto dslci = vk::DescriptorSetLayoutCreateInfo{};
 	dslci.setBindings(set_0_bindings);
-	m_set_layout_storage[0] = get_device().get_device().createDescriptorSetLayoutUnique(dslci);
+	m_set_layout_storage[0] = get_render_device().get_device().createDescriptorSetLayoutUnique(dslci);
 
 	auto set_1_bindings = std::array<vk::DescriptorSetLayoutBinding, 2>{};
 	set_1_bindings[0]
@@ -118,7 +118,7 @@ void Sprite::create_set_layouts() {
 		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
 		.setStageFlags(set_1_bindings[0].stageFlags);
 	dslci.setBindings(set_1_bindings);
-	m_set_layout_storage[1] = get_device().get_device().createDescriptorSetLayoutUnique(dslci);
+	m_set_layout_storage[1] = get_render_device().get_device().createDescriptorSetLayoutUnique(dslci);
 
 	for (auto [storage, set_layout] : std::ranges::zip_view(m_set_layout_storage, m_set_layouts)) { set_layout = *storage; }
 }
@@ -127,11 +127,11 @@ void Sprite::create_pipeline_layout() {
 	auto const set_layouts = std::array{*m_set_layout_storage[0], *m_set_layout_storage[1]};
 	auto plci = vk::PipelineLayoutCreateInfo{};
 	plci.setSetLayouts(set_layouts);
-	m_pipeline_layout = get_device().get_device().createPipelineLayoutUnique(plci);
+	m_pipeline_layout = get_render_device().get_device().createPipelineLayoutUnique(plci);
 }
 
 void Sprite::create_pipeline() {
-	auto loader = ShaderLoader{get_device().get_device(), get_assets_dir()};
+	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
 	auto const vertex_shader = loader.load("sprite.vert");
 	auto const fragment_shader = loader.load("sprite.frag");
 
@@ -161,8 +161,8 @@ void Sprite::create_texture() {
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
 	if (!util::write_to(m_texture, image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
 
-	auto const sci = get_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
-	m_sampler = get_device().get_device().createSamplerUnique(sci);
+	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
+	m_sampler = get_render_device().get_device().createSamplerUnique(sci);
 }
 
 void Sprite::write_vbo() {
@@ -219,6 +219,6 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	texture_dii.setImageView(m_texture.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
 	wds[2].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eCombinedImageSampler).setImageInfo(texture_dii).setDstSet(sets[1]).setDstBinding(1);
 
-	get_device().get_device().updateDescriptorSets(wds, {});
+	get_render_device().get_device().updateDescriptorSets(wds, {});
 }
 } // namespace kvf::example

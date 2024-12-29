@@ -15,7 +15,7 @@ class Scene : public klib::Polymorphic {
 		int mods{};
 	};
 
-	[[nodiscard]] auto get_device() const -> RenderDevice& { return *m_device; }
+	[[nodiscard]] auto get_render_device() const -> RenderDevice& { return *m_device; }
 	[[nodiscard]] auto get_assets_dir() const -> std::string_view { return m_assets_dir; }
 	[[nodiscard]] auto get_dt() const -> Seconds { return m_dt; }
 
