@@ -385,17 +385,65 @@ struct Swapchain {
 
 	vk::Queue m_queue;
 };
+
+struct DescriptorAllocator : IDescriptorAllocator {
+	void reset() {
+		for (auto& pool : m_pools) { device.resetDescriptorPool(*pool); }
+		m_index = 0;
+	}
+
+	vk::Device device{};
+	std::span<vk::DescriptorPoolSize const> pool_sizes{};
+	std::uint32_t sets_per_pool{};
+
+  private:
+	auto allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool final {
+		KLIB_ASSERT(device && !pool_sizes.empty() && sets_per_pool > 0);
+		if (layouts.empty() || out_sets.size() != layouts.size()) { return false; }
+		auto result = try_allocate(out_sets, layouts);
+		switch (result) {
+		case vk::Result::eSuccess: return true;
+		case vk::Result::eErrorOutOfPoolMemory: ++m_index; return try_allocate(out_sets, layouts) == vk::Result::eSuccess;
+		default: return false;
+		}
+	}
+
+	auto get_pool() -> vk::DescriptorPool {
+		while (m_index >= m_pools.size()) {
+			auto dpci = vk::DescriptorPoolCreateInfo{};
+			dpci.setPoolSizes(pool_sizes).setMaxSets(sets_per_pool);
+			m_pools.push_back(device.createDescriptorPoolUnique(dpci));
+		}
+		return *m_pools.at(m_index);
+	}
+
+	auto try_allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> vk::Result {
+		auto const pool = get_pool();
+		auto dsai = vk::DescriptorSetAllocateInfo{};
+		dsai.setDescriptorPool(pool).setSetLayouts(layouts);
+		return device.allocateDescriptorSets(&dsai, out_sets.data());
+	}
+
+	std::vector<vk::UniqueDescriptorPool> m_pools{};
+	std::size_t m_index{};
+};
 } // namespace
 
 struct RenderDevice::Impl {
-	Impl(GLFWwindow* window, Flags const flags, GpuSelector const& gpu_selector) : m_window(window), m_flags(flags) {
+	using Flag = RenderDeviceFlag;
+	using Flags = RenderDeviceFlags;
+
+	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
+		static auto const default_gpu_selector = GpuSelector{};
+		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
 		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
-		select_gpu(gpu_selector);
+		select_gpu(*create_info.gpu_selector);
 		create_device();
 		create_swapchain();
 		create_allocator();
+		init_set_allocators(create_info.sets_per_pool);
 
 		m_imgui.new_frame();
 	}
@@ -411,6 +459,7 @@ struct RenderDevice::Impl {
 	[[nodiscard]] auto get_device() const -> vk::Device { return *m_device; }
 	[[nodiscard]] auto get_queue_family() const -> std::uint32_t { return m_queue_family; }
 	[[nodiscard]] auto get_allocator() const -> VmaAllocator { return m_allocator.get(); }
+	[[nodiscard]] auto get_descriptor_allocator() -> DescriptorAllocator& { return m_set_allocators.at(m_frame_index); }
 
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D {
 		auto width = int{};
@@ -469,6 +518,7 @@ struct RenderDevice::Impl {
 
 		glfwPollEvents();
 		m_imgui.new_frame();
+		m_set_allocators.at(m_frame_index).reset();
 
 		if (m_current_cmd) {	 // previous render() early returned
 			m_current_cmd.end(); // discard existing commands
@@ -739,6 +789,22 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan Allocator created");
 	}
 
+	void init_set_allocators(std::uint32_t const sets_per_pool) {
+		if (m_pool_sizes.empty()) {
+			static constexpr auto descriptors_per_type_v{8};
+			m_pool_sizes = {
+				vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, descriptors_per_type_v},
+			};
+		}
+		for (auto& allocator : m_set_allocators) {
+			allocator.device = *m_device;
+			allocator.pool_sizes = m_pool_sizes;
+			allocator.sets_per_pool = sets_per_pool;
+		}
+	}
+
 	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd, vk::Filter filter) const {
 		static auto const isr_v = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 		auto barrier = image_barrier();
@@ -852,6 +918,8 @@ struct RenderDevice::Impl {
 	DearImGui m_imgui{};
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
+	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
+	Buffered<DescriptorAllocator> m_set_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
@@ -862,11 +930,10 @@ struct RenderDevice::Impl {
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, Flags const flags, GpuSelector const& gpu_selector)
-	: m_impl(new Impl(window, flags, gpu_selector)) {}
+RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
-auto RenderDevice::get_flags() const -> Flags { return m_impl->get_flags(); }
+auto RenderDevice::get_flags() const -> RenderDeviceFlags { return m_impl->get_flags(); }
 auto RenderDevice::get_frame_index() const -> FrameIndex { return m_impl->get_frame_index(); }
 
 auto RenderDevice::get_loader_api_version() const -> klib::Version { return m_impl->get_loader_api_version(); }
@@ -876,6 +943,7 @@ auto RenderDevice::get_gpu() const -> Gpu const& { return m_impl->get_gpu(); }
 auto RenderDevice::get_device() const -> vk::Device { return m_impl->get_device(); }
 auto RenderDevice::get_queue_family() const -> std::uint32_t { return m_impl->get_queue_family(); }
 auto RenderDevice::get_allocator() const -> VmaAllocator { return m_impl->get_allocator(); }
+auto RenderDevice::get_descriptor_allocator() const -> IDescriptorAllocator& { return m_impl->get_descriptor_allocator(); }
 
 auto RenderDevice::get_framebuffer_extent() const -> vk::Extent2D { return m_impl->get_framebuffer_extent(); }
 auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_impl->get_present_mode(); }

@@ -63,7 +63,6 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	create_set_layouts();
 	create_pipeline_layout();
 	create_pipeline();
-	create_descriptor_pools();
 	create_texture();
 
 	write_vbo();
@@ -80,8 +79,9 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 
 	m_color_pass.bind_pipeline(*m_pipeline);
 
-	auto const descriptor_sets = allocate_sets();
-	if (descriptor_sets[0] && descriptor_sets[1]) {
+	auto& descriptor_allocator = get_device().get_descriptor_allocator();
+	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
+	if (descriptor_allocator.allocate(descriptor_sets, m_set_layouts)) {
 		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
 		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
 
@@ -153,16 +153,6 @@ void Sprite::create_pipeline() {
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
 }
 
-void Sprite::create_descriptor_pools() {
-	auto const pool_sizes = std::array{
-		vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, 2},
-		vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, 1},
-	};
-	auto dpci = vk::DescriptorPoolCreateInfo{};
-	dpci.setPoolSizes(pool_sizes).setMaxSets(buffering_v * pool_sizes.size());
-	for (auto& descriptor_pool : m_descriptor_pools) { descriptor_pool = get_device().get_device().createDescriptorPoolUnique(dpci); }
-}
-
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
@@ -201,18 +191,6 @@ void Sprite::create_instances() {
 			});
 		}
 	}
-}
-
-auto Sprite::allocate_sets() const -> std::array<vk::DescriptorSet, 2> {
-	auto const frame_index = std::size_t(get_device().get_frame_index());
-	auto const descriptor_pool = *m_descriptor_pools.at(frame_index);
-	get_device().get_device().resetDescriptorPool(descriptor_pool);
-	auto ret = std::array<vk::DescriptorSet, 2>{};
-	auto dsai = vk::DescriptorSetAllocateInfo{};
-	dsai.setDescriptorPool(descriptor_pool).setSetLayouts(m_set_layouts);
-	auto const result = get_device().get_device().allocateDescriptorSets(&dsai, ret.data());
-	if (result != vk::Result::eSuccess) { log::warn("Failed to allocate Descriptor Sets"); }
-	return ret;
 }
 
 void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 const extent) {

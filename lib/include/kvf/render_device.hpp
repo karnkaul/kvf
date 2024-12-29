@@ -5,6 +5,7 @@
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
+#include <kvf/descriptor_allocator.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
 #include <gsl/pointers>
@@ -37,6 +38,21 @@ class GpuSelector : public klib::Polymorphic {
 	}
 };
 
+struct RenderDeviceCreateInfo {
+	static constexpr auto sets_per_pool_v{64};
+
+	static constexpr auto default_flags() -> RenderDeviceFlags {
+		auto ret = RenderDeviceFlags{};
+		if constexpr (klib::debug_v) { ret |= RenderDeviceFlag::ValidationLayers; }
+		return ret;
+	}
+
+	RenderDeviceFlags flags{default_flags()};
+	std::vector<vk::DescriptorPoolSize> custom_pool_sizes{};
+	std::uint32_t sets_per_pool{sets_per_pool_v};
+	GpuSelector const* gpu_selector{nullptr};
+};
+
 class RenderDevice {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
@@ -49,19 +65,12 @@ class RenderDevice {
 		vk::PresentModeKHR::eImmediate,
 	};
 
-	using Flag = RenderDeviceFlag;
-	using Flags = RenderDeviceFlags;
+	using CreateInfo = RenderDeviceCreateInfo;
 
-	static constexpr auto default_flags() -> Flags {
-		auto ret = Flags{};
-		if constexpr (klib::debug_v) { ret |= Flag::ValidationLayers; }
-		return ret;
-	}
-
-	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, Flags flags = default_flags(), GpuSelector const& gpu_selector = {});
+	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info = {});
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow*;
-	[[nodiscard]] auto get_flags() const -> Flags;
+	[[nodiscard]] auto get_flags() const -> RenderDeviceFlags;
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex;
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version;
@@ -71,6 +80,7 @@ class RenderDevice {
 	[[nodiscard]] auto get_device() const -> vk::Device;
 	[[nodiscard]] auto get_queue_family() const -> std::uint32_t;
 	[[nodiscard]] auto get_allocator() const -> VmaAllocator;
+	[[nodiscard]] auto get_descriptor_allocator() const -> IDescriptorAllocator&;
 
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D;
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR;

@@ -29,13 +29,11 @@ class Sprite : public Scene {
 	void create_set_layouts();
 	void create_pipeline_layout();
 	void create_pipeline();
-	void create_descriptor_pools();
 	void create_texture();
 
 	void write_vbo();
 	void create_instances();
 
-	[[nodiscard]] auto allocate_sets() const -> std::array<vk::DescriptorSet, 2>;
 	void write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 extent);
 
 	kvf::RenderPass m_color_pass;
@@ -44,8 +42,6 @@ class Sprite : public Scene {
 	std::array<vk::DescriptorSetLayout, 2> m_set_layouts{};
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
-
-	Buffered<vk::UniqueDescriptorPool> m_descriptor_pools{};
 
 	vma::Buffer m_vbo;
 	vk::DeviceSize m_index_offset{};
