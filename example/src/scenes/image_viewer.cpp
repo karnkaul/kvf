@@ -50,8 +50,8 @@ void ImageViewer::resize_window() {
 	static constexpr std::uint32_t max_height_v{900};
 	extent.height = std::clamp(extent.height, min_height_v, max_height_v);
 	extent.width = std::uint32_t(float(extent.height) * aspect_ratio);
-	glfwSetWindowSize(get_device().get_window(), int(extent.width), int(extent.height));
-	glfwSetWindowAspectRatio(get_device().get_window(), int(extent.width), int(extent.height));
+	glfwSetWindowSize(get_render_device().get_window(), int(extent.width), int(extent.height));
+	glfwSetWindowAspectRatio(get_render_device().get_window(), int(extent.width), int(extent.height));
 }
 
 void ImageViewer::try_load(klib::CString const path) {
@@ -66,7 +66,7 @@ void ImageViewer::try_load(klib::CString const path) {
 		open_error_modal(std::format("Failed to create RgbaImage from file: {}", filename()));
 		return;
 	}
-	get_device().get_device().waitIdle();
+	get_render_device().get_device().waitIdle();
 	if (!util::write_to(m_image, rgba_image.bitmap())) {
 		open_error_modal(std::format("Failed to write to Vulkan Image: {}", filename()));
 		return;

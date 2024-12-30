@@ -37,9 +37,25 @@ class GpuSelector : public klib::Polymorphic {
 	}
 };
 
+struct RenderDeviceCreateInfo {
+	static constexpr auto sets_per_pool_v{64};
+
+	static constexpr auto default_flags() -> RenderDeviceFlags {
+		auto ret = RenderDeviceFlags{};
+		if constexpr (klib::debug_v) { ret |= RenderDeviceFlag::ValidationLayers; }
+		return ret;
+	}
+
+	RenderDeviceFlags flags{default_flags()};
+	std::vector<vk::DescriptorPoolSize> custom_pool_sizes{};
+	std::uint32_t sets_per_pool{sets_per_pool_v};
+	GpuSelector const* gpu_selector{nullptr};
+};
+
 class RenderDevice {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
+	static constexpr auto aniso_v = 8.0f;
 
 	static constexpr auto present_modes_v = std::array{
 		vk::PresentModeKHR::eFifo,
@@ -48,19 +64,12 @@ class RenderDevice {
 		vk::PresentModeKHR::eImmediate,
 	};
 
-	using Flag = RenderDeviceFlag;
-	using Flags = RenderDeviceFlags;
+	using CreateInfo = RenderDeviceCreateInfo;
 
-	static constexpr auto default_flags() -> Flags {
-		auto ret = Flags{};
-		if constexpr (klib::debug_v) { ret |= Flag::ValidationLayers; }
-		return ret;
-	}
-
-	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, Flags flags = default_flags(), GpuSelector const& gpu_selector = {});
+	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info = {});
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow*;
-	[[nodiscard]] auto get_flags() const -> Flags;
+	[[nodiscard]] auto get_flags() const -> RenderDeviceFlags;
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex;
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version;
@@ -79,6 +88,9 @@ class RenderDevice {
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
+
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
 

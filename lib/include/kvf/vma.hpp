@@ -78,6 +78,7 @@ struct ImageFlag {
 	enum : int {
 		None = 0,
 		DedicatedAlloc = 1 << 0,
+		MipMapped = 1 << 1,
 	};
 };
 using ImageFlags = int;
@@ -90,7 +91,6 @@ struct ImageCreateInfo {
 	vk::ImageUsageFlags usage{implicit_usage_v};
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
 	std::uint32_t layers{1};
-	std::uint32_t mips{1};
 	vk::ImageViewType view_type{vk::ImageViewType::e2D};
 	ImageFlags flags{};
 };
@@ -114,6 +114,7 @@ class Image : public Resource<vk::Image> {
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_extent; }
 	[[nodiscard]] auto get_layout() const -> vk::ImageLayout { return m_layout; }
 	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_info; }
+	[[nodiscard]] auto get_mip_levels() const -> std::uint32_t { return m_mip_levels; }
 	[[nodiscard]] auto subresource_range() const -> vk::ImageSubresourceRange;
 
 	[[nodiscard]] auto render_target() const -> RenderTarget { return RenderTarget{.image = get_image(), .view = get_view(), .extent = get_extent()}; }
@@ -124,6 +125,7 @@ class Image : public Resource<vk::Image> {
 	};
 
 	CreateInfo m_info{};
+	std::uint32_t m_mip_levels{1};
 	klib::Unique<Payload, Deleter> m_image{};
 	vk::UniqueImageView m_view{};
 	vk::Extent2D m_extent{};

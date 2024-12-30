@@ -385,17 +385,65 @@ struct Swapchain {
 
 	vk::Queue m_queue;
 };
+
+struct DescriptorAllocator {
+	void reset() {
+		for (auto& pool : m_pools) { device.resetDescriptorPool(*pool); }
+		m_index = 0;
+	}
+
+	auto allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		KLIB_ASSERT(device && !pool_sizes.empty() && sets_per_pool > 0);
+		if (layouts.empty() || out_sets.size() != layouts.size()) { return false; }
+		auto result = try_allocate(out_sets, layouts);
+		switch (result) {
+		case vk::Result::eSuccess: return true;
+		case vk::Result::eErrorOutOfPoolMemory: ++m_index; return try_allocate(out_sets, layouts) == vk::Result::eSuccess;
+		default: return false;
+		}
+	}
+
+	vk::Device device{};
+	std::span<vk::DescriptorPoolSize const> pool_sizes{};
+	std::uint32_t sets_per_pool{};
+
+  private:
+	auto get_pool() -> vk::DescriptorPool {
+		while (m_index >= m_pools.size()) {
+			auto dpci = vk::DescriptorPoolCreateInfo{};
+			dpci.setPoolSizes(pool_sizes).setMaxSets(sets_per_pool);
+			m_pools.push_back(device.createDescriptorPoolUnique(dpci));
+		}
+		return *m_pools.at(m_index);
+	}
+
+	auto try_allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> vk::Result {
+		auto const pool = get_pool();
+		auto dsai = vk::DescriptorSetAllocateInfo{};
+		dsai.setDescriptorPool(pool).setSetLayouts(layouts);
+		return device.allocateDescriptorSets(&dsai, out_sets.data());
+	}
+
+	std::vector<vk::UniqueDescriptorPool> m_pools{};
+	std::size_t m_index{};
+};
 } // namespace
 
 struct RenderDevice::Impl {
-	Impl(GLFWwindow* window, Flags const flags, GpuSelector const& gpu_selector) : m_window(window), m_flags(flags) {
+	using Flag = RenderDeviceFlag;
+	using Flags = RenderDeviceFlags;
+
+	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
+		static auto const default_gpu_selector = GpuSelector{};
+		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
 		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
-		select_gpu(gpu_selector);
+		select_gpu(*create_info.gpu_selector);
 		create_device();
 		create_swapchain();
 		create_allocator();
+		init_set_allocators(create_info.sets_per_pool);
 
 		m_imgui.new_frame();
 	}
@@ -438,6 +486,26 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
+		auto ret = vk::SamplerCreateInfo{};
+		ret.setAddressModeU(wrap)
+			.setAddressModeV(wrap)
+			.setAddressModeW(wrap)
+			.setAnisotropyEnable(aniso > 0.0f ? vk::True : vk::False)
+			.setMaxAnisotropy(aniso)
+			.setMinFilter(filter)
+			.setMagFilter(filter)
+			.setMaxLod(VK_LOD_CLAMP_NONE)
+			.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+			.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+		return ret;
+	}
+
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
+	}
+
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
@@ -453,6 +521,7 @@ struct RenderDevice::Impl {
 
 		glfwPollEvents();
 		m_imgui.new_frame();
+		m_set_allocators.at(m_frame_index).reset();
 
 		if (m_current_cmd) {	 // previous render() early returned
 			m_current_cmd.end(); // discard existing commands
@@ -723,6 +792,22 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan Allocator created");
 	}
 
+	void init_set_allocators(std::uint32_t const sets_per_pool) {
+		if (m_pool_sizes.empty()) {
+			static constexpr auto descriptors_per_type_v{8};
+			m_pool_sizes = {
+				vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, descriptors_per_type_v},
+			};
+		}
+		for (auto& allocator : m_set_allocators) {
+			allocator.device = *m_device;
+			allocator.pool_sizes = m_pool_sizes;
+			allocator.sets_per_pool = sets_per_pool;
+		}
+	}
+
 	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd, vk::Filter filter) const {
 		static auto const isr_v = vk::ImageSubresourceRange{vk::ImageAspectFlagBits::eColor, 0, 1, 0, 1};
 		auto barrier = image_barrier();
@@ -836,6 +921,8 @@ struct RenderDevice::Impl {
 	DearImGui m_imgui{};
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
+	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
+	Buffered<DescriptorAllocator> m_set_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
@@ -846,11 +933,10 @@ struct RenderDevice::Impl {
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, Flags const flags, GpuSelector const& gpu_selector)
-	: m_impl(new Impl(window, flags, gpu_selector)) {}
+RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
-auto RenderDevice::get_flags() const -> Flags { return m_impl->get_flags(); }
+auto RenderDevice::get_flags() const -> RenderDeviceFlags { return m_impl->get_flags(); }
 auto RenderDevice::get_frame_index() const -> FrameIndex { return m_impl->get_frame_index(); }
 
 auto RenderDevice::get_loader_api_version() const -> klib::Version { return m_impl->get_loader_api_version(); }
@@ -869,6 +955,13 @@ auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
+auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+	return m_impl->sampler_info(wrap, filter, aniso);
+}
+
+auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+	return m_impl->allocate_sets(out_sets, layouts);
+}
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
 
@@ -943,6 +1036,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	ensure_positive(extent.width, extent.height);
 	if (m_extent == extent) { return true; }
 
+	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
 	auto const queue_family = m_device->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
@@ -950,7 +1044,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 		.setUsage(m_info.usage)
 		.setImageType(vk::ImageType::e2D)
 		.setArrayLayers(m_info.layers)
-		.setMipLevels(m_info.mips)
+		.setMipLevels(mip_mapped ? util::compute_mip_levels(extent) : 1)
 		.setSamples(m_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
@@ -967,6 +1061,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
+	m_mip_levels = ici.mipLevels;
 	m_image = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
@@ -993,7 +1088,7 @@ void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2
 	m_layout = barrier.newLayout;
 }
 
-auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_info.mips, 0, m_info.layers}; }
+auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 } // namespace kvf::vma
 
 // render_pass
@@ -1063,12 +1158,12 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
 		.setBlendEnable(alpha_blend ? vk::True : vk::False)
 		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+		.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
 		.setColorBlendOp(vk::BlendOp::eAdd)
 		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
 		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
 		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
+	auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
 	pcbsci.setAttachments(pcbas);
 
 	auto const pdscis = std::array{
@@ -1416,7 +1511,7 @@ struct MakeMipMaps {
 		util::record_barrier(command_buffer, barrier);
 
 		auto src_extent = vk::Extent3D{out.get_extent(), 1};
-		for (std::uint32_t mip = 0; mip + 1 < out.get_info().mips; ++mip) {
+		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
 			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
 			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
 			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
@@ -1461,15 +1556,15 @@ auto util::string_from_file(std::string& out_string, klib::CString path) -> IoRe
 auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
 auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
 
-auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset) -> bool {
+auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }
 
-	if (dst.get_size() < offset + bytes.size()) { return false; }
-	if (bytes.empty()) { return true; }
+	if (dst.get_size() < offset + bytes.size) { return false; }
+	if (bytes.size == 0) { return true; }
 
-	if (auto* ptr = dst.get_mapped()) {
-		auto const span = std::span{static_cast<std::byte*>(ptr), dst.get_size()}.subspan(offset);
-		std::memcpy(span.data(), bytes.data(), bytes.size());
+	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		std::memcpy(ptr + offset, bytes.ptr, bytes.size);
 		return true;
 	}
 
@@ -1479,10 +1574,10 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size};
 	if (!overwrite(staging, bytes)) { return false; }
 
-	auto const bc = vk::BufferCopy2{offset, 0, staging.get_size()};
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
 	auto cbi = vk::CopyBufferInfo2{};
 	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
 	auto cmd = CommandBuffer{dst.get_render_device()};
@@ -1490,8 +1585,8 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 	return cmd.submit_and_wait();
 }
 
-auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool {
-	if (!dst.resize(bytes.size())) { return false; }
+auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
+	if (!dst.resize(bytes.size)) { return false; }
 	return overwrite(dst, bytes);
 }
 
@@ -1545,7 +1640,7 @@ auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 	}
 
 	auto current_layout = dst.get_layout();
-	if (dst.get_info().mips > 1) {
+	if (dst.get_mip_levels() > 1) {
 		MakeMipMaps{.out = dst, .command_buffer = cmd}();
 		current_layout = vk::ImageLayout::eTransferSrcOptimal;
 	}

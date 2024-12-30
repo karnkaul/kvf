@@ -15,8 +15,8 @@ struct PipelineState {
 
 	[[nodiscard]] static constexpr auto default_flags() -> Flags { return AlphaBlend | DepthTest; }
 
-	std::span<vk::VertexInputAttributeDescription const> vertex_attributes;
 	std::span<vk::VertexInputBindingDescription const> vertex_bindings;
+	std::span<vk::VertexInputAttributeDescription const> vertex_attributes;
 	vk::ShaderModule vertex_shader;
 	vk::ShaderModule fragment_shader;
 

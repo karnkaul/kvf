@@ -17,7 +17,7 @@ void Triangle::update(vk::CommandBuffer const command_buffer) {
 	if (ImGui::Begin("Controls")) { draw_controls(); }
 	ImGui::End();
 
-	auto const extent = kvf::util::scale_extent(get_device().get_framebuffer_extent(), m_framebuffer_scale);
+	auto const extent = kvf::util::scale_extent(get_render_device().get_framebuffer_extent(), m_framebuffer_scale);
 	m_color_pass.begin_render(command_buffer, extent);
 
 	m_color_pass.bind_pipeline(*m_pipeline);
@@ -29,14 +29,14 @@ void Triangle::update(vk::CommandBuffer const command_buffer) {
 auto Triangle::get_render_target() const -> RenderTarget { return m_color_pass.render_target(); }
 
 void Triangle::create_pipeline() {
-	auto loader = ShaderLoader{get_device().get_device(), get_assets_dir()};
+	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
 	auto const vertex_shader = loader.load("triangle.vert");
 	auto const fragment_shader = loader.load("triangle.frag");
 
-	m_pipeline_layout = get_device().get_device().createPipelineLayoutUnique({});
+	m_pipeline_layout = get_render_device().get_device().createPipelineLayoutUnique({});
 	auto const pipeline_state = kvf::PipelineState{
-		.vertex_attributes = {},
 		.vertex_bindings = {},
+		.vertex_attributes = {},
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
 	};
