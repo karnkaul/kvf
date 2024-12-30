@@ -5,7 +5,6 @@
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffering.hpp>
-#include <kvf/descriptor_allocator.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
 #include <gsl/pointers>
@@ -80,7 +79,6 @@ class RenderDevice {
 	[[nodiscard]] auto get_device() const -> vk::Device;
 	[[nodiscard]] auto get_queue_family() const -> std::uint32_t;
 	[[nodiscard]] auto get_allocator() const -> VmaAllocator;
-	[[nodiscard]] auto get_descriptor_allocator() const -> IDescriptorAllocator&;
 
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D;
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR;
@@ -91,6 +89,8 @@ class RenderDevice {
 	[[nodiscard]] auto get_depth_format() const -> vk::Format;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
+
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
 

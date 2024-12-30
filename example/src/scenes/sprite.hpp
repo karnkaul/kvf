@@ -46,8 +46,8 @@ class Sprite : public Scene {
 	vma::Buffer m_vbo;
 	vk::DeviceSize m_index_offset{};
 
-	vma::Buffer m_ubo;
-	vma::Buffer m_ssbo;
+	Buffered<vma::Buffer> m_ubos;
+	Buffered<vma::Buffer> m_ssbos;
 	std::vector<Std430Instance> m_instance_buffer{};
 
 	vma::Image m_texture;

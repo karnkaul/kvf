@@ -55,8 +55,10 @@ struct Quad {
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)),
-	  m_ubo(device, ubo_info(), sizeof(glm::mat4)), m_ssbo(device, ssbo_info()), m_texture(device, texture_info()) {
+	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)), m_texture(device, texture_info()) {
+	for (auto& ubo : m_ubos) { ubo = vma::Buffer{device, ubo_info(), sizeof(glm::mat4)}; }
+	for (auto& ssbo : m_ssbos) { ssbo = vma::Buffer{device, ssbo_info()}; }
+
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = vk::ClearColorValue{std::array{0.05f, 0.05f, 0.05f, 1.0f}};
 
@@ -79,9 +81,8 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 
 	m_color_pass.bind_pipeline(*m_pipeline);
 
-	auto& descriptor_allocator = get_render_device().get_descriptor_allocator();
 	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
-	if (descriptor_allocator.allocate(descriptor_sets, m_set_layouts)) {
+	if (get_render_device().allocate_sets(descriptor_sets, m_set_layouts)) {
 		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
 		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
 
@@ -96,37 +97,25 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 auto Sprite::get_render_target() const -> RenderTarget { return m_color_pass.render_target(); }
 
 void Sprite::create_set_layouts() {
-	auto set_0_bindings = std::array<vk::DescriptorSetLayoutBinding, 1>{};
-	set_0_bindings[0]
-		.setBinding(0)
-		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eUniformBuffer)
-		.setStageFlags(vk::ShaderStageFlagBits::eAllGraphics);
+	static constexpr auto stages_v = vk::ShaderStageFlagBits::eAllGraphics;
+	auto const set_0 = vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eUniformBuffer, 1, stages_v};
 	auto dslci = vk::DescriptorSetLayoutCreateInfo{};
-	dslci.setBindings(set_0_bindings);
+	dslci.setBindings(set_0);
 	m_set_layout_storage[0] = get_render_device().get_device().createDescriptorSetLayoutUnique(dslci);
 
-	auto set_1_bindings = std::array<vk::DescriptorSetLayoutBinding, 2>{};
-	set_1_bindings[0]
-		.setBinding(0)
-		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eStorageBuffer)
-		.setStageFlags(vk::ShaderStageFlagBits::eAllGraphics);
-	set_1_bindings[1]
-		.setBinding(1)
-		.setDescriptorCount(1)
-		.setDescriptorType(vk::DescriptorType::eCombinedImageSampler)
-		.setStageFlags(set_1_bindings[0].stageFlags);
-	dslci.setBindings(set_1_bindings);
+	auto const set_1 = std::array{
+		vk::DescriptorSetLayoutBinding{0, vk::DescriptorType::eStorageBuffer, 1, stages_v},
+		vk::DescriptorSetLayoutBinding{1, vk::DescriptorType::eCombinedImageSampler, 1, stages_v},
+	};
+	dslci.setBindings(set_1);
 	m_set_layout_storage[1] = get_render_device().get_device().createDescriptorSetLayoutUnique(dslci);
 
 	for (auto [storage, set_layout] : std::ranges::zip_view(m_set_layout_storage, m_set_layouts)) { set_layout = *storage; }
 }
 
 void Sprite::create_pipeline_layout() {
-	auto const set_layouts = std::array{*m_set_layout_storage[0], *m_set_layout_storage[1]};
 	auto plci = vk::PipelineLayoutCreateInfo{};
-	plci.setSetLayouts(set_layouts);
+	plci.setSetLayouts(m_set_layouts);
 	m_pipeline_layout = get_render_device().get_device().createPipelineLayoutUnique(plci);
 }
 
@@ -196,11 +185,12 @@ void Sprite::create_instances() {
 void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 const extent) {
 	auto const half_extent = 0.5f * extent;
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
-	if (!util::write_to(m_ubo, {&projection, sizeof(projection)})) { throw Error{"Failed to write to Uniform Buffer"}; }
+	auto& ubo = m_ubos.at(std::size_t(get_render_device().get_frame_index()));
+	if (!util::write_to(ubo, {&projection, sizeof(projection)})) { throw Error{"Failed to write to Uniform Buffer"}; }
 
 	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto view_dbi = vk::DescriptorBufferInfo{};
-	view_dbi.setBuffer(m_ubo.get_buffer()).setRange(m_ubo.get_size());
+	view_dbi.setBuffer(ubo.get_buffer()).setRange(ubo.get_size());
 	wds[0].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setBufferInfo(view_dbi).setDstSet(sets[0]).setDstBinding(0);
 
 	m_instance_buffer.clear();
@@ -210,9 +200,10 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 		auto const r = glm::rotate(glm::mat4{1.0f}, glm::radians(instance.rotation), glm::vec3{0.0f, 0.0f, 1.0f});
 		m_instance_buffer.push_back(Std430Instance{.mat_world = t * r, .tint = instance.tint.to_vec4()});
 	}
-	util::write_to(m_ssbo, {m_instance_buffer.data(), std::span{m_instance_buffer}.size_bytes()});
+	auto& ssbo = m_ssbos.at(std::size_t(get_render_device().get_frame_index()));
+	util::write_to(ssbo, {m_instance_buffer.data(), std::span{m_instance_buffer}.size_bytes()});
 	auto instances_dbi = vk::DescriptorBufferInfo{};
-	instances_dbi.setBuffer(m_ssbo.get_buffer()).setRange(m_ssbo.get_size());
+	instances_dbi.setBuffer(ssbo.get_buffer()).setRange(ssbo.get_size());
 	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
 
 	auto texture_dii = vk::DescriptorImageInfo{};

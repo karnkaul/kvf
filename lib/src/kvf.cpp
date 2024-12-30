@@ -386,18 +386,13 @@ struct Swapchain {
 	vk::Queue m_queue;
 };
 
-struct DescriptorAllocator : IDescriptorAllocator {
+struct DescriptorAllocator {
 	void reset() {
 		for (auto& pool : m_pools) { device.resetDescriptorPool(*pool); }
 		m_index = 0;
 	}
 
-	vk::Device device{};
-	std::span<vk::DescriptorPoolSize const> pool_sizes{};
-	std::uint32_t sets_per_pool{};
-
-  private:
-	auto allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool final {
+	auto allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 		KLIB_ASSERT(device && !pool_sizes.empty() && sets_per_pool > 0);
 		if (layouts.empty() || out_sets.size() != layouts.size()) { return false; }
 		auto result = try_allocate(out_sets, layouts);
@@ -408,6 +403,11 @@ struct DescriptorAllocator : IDescriptorAllocator {
 		}
 	}
 
+	vk::Device device{};
+	std::span<vk::DescriptorPoolSize const> pool_sizes{};
+	std::uint32_t sets_per_pool{};
+
+  private:
 	auto get_pool() -> vk::DescriptorPool {
 		while (m_index >= m_pools.size()) {
 			auto dpci = vk::DescriptorPoolCreateInfo{};
@@ -459,7 +459,6 @@ struct RenderDevice::Impl {
 	[[nodiscard]] auto get_device() const -> vk::Device { return *m_device; }
 	[[nodiscard]] auto get_queue_family() const -> std::uint32_t { return m_queue_family; }
 	[[nodiscard]] auto get_allocator() const -> VmaAllocator { return m_allocator.get(); }
-	[[nodiscard]] auto get_descriptor_allocator() -> DescriptorAllocator& { return m_set_allocators.at(m_frame_index); }
 
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D {
 		auto width = int{};
@@ -501,6 +500,10 @@ struct RenderDevice::Impl {
 			.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
 			.setMipmapMode(vk::SamplerMipmapMode::eNearest);
 		return ret;
+	}
+
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
 	}
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
@@ -943,7 +946,6 @@ auto RenderDevice::get_gpu() const -> Gpu const& { return m_impl->get_gpu(); }
 auto RenderDevice::get_device() const -> vk::Device { return m_impl->get_device(); }
 auto RenderDevice::get_queue_family() const -> std::uint32_t { return m_impl->get_queue_family(); }
 auto RenderDevice::get_allocator() const -> VmaAllocator { return m_impl->get_allocator(); }
-auto RenderDevice::get_descriptor_allocator() const -> IDescriptorAllocator& { return m_impl->get_descriptor_allocator(); }
 
 auto RenderDevice::get_framebuffer_extent() const -> vk::Extent2D { return m_impl->get_framebuffer_extent(); }
 auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_impl->get_present_mode(); }
@@ -955,6 +957,10 @@ auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_d
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
 	return m_impl->sampler_info(wrap, filter, aniso);
+}
+
+auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+	return m_impl->allocate_sets(out_sets, layouts);
 }
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
