@@ -207,7 +207,7 @@ class DearImGui {
 		init_info.DescriptorPool = *m_pool;
 		init_info.Subpass = 0;
 		init_info.MinImageCount = 2;
-		init_info.ImageCount = buffering_v + 1;
+		init_info.ImageCount = resource_buffering_v;
 		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
 		init_info.UseDynamicRendering = true;
 		init_info.PipelineRenderingCreateInfo = create_info.prci;
@@ -593,7 +593,7 @@ struct RenderDevice::Impl {
 		m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
 
-		m_frame_index = (m_frame_index + 1) % buffering_v;
+		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
 		m_current_cmd = vk::CommandBuffer{};
 	}
 
@@ -750,7 +750,7 @@ struct RenderDevice::Impl {
 
 		auto const cpci = vk::CommandPoolCreateInfo{vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_family};
 		m_command_pool = m_device->createCommandPoolUnique(cpci);
-		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(buffering_v)};
+		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(resource_buffering_v)};
 		if (m_device->allocateCommandBuffers(&cbai, m_command_buffers.data()) != vk::Result::eSuccess) {
 			throw Error{"Failed to allocate render CommandBuffer(s)"};
 		}

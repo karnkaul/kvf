@@ -3,9 +3,16 @@ add_library(${PROJECT_NAME}::${PROJECT_NAME} ALIAS ${PROJECT_NAME})
 
 target_compile_features(${PROJECT_NAME} PUBLIC cxx_std_23)
 
+set(freetype_val 0)
+
+if(KVF_USE_FREETYPE)
+  set(freetype_val 1)
+endif()
+
 target_compile_definitions(${PROJECT_NAME} PUBLIC
   GLFW_INCLUDE_VULKAN
   KVF_RESOURCE_BUFFERING=${KVF_RESOURCE_BUFFERING}
+  KVF_USE_FREETYPE=${freetype_val}
 )
 
 target_link_libraries(${PROJECT_NAME} PUBLIC
@@ -22,6 +29,7 @@ target_link_libraries(${PROJECT_NAME} PRIVATE
   klib::klib-ndwerror
   klib::klib-msbuild-mp
   stb-image::stb-image
+  $<$<BOOL:${KVF_USE_FREETYPE}>:freetype::freetype>
 )
 
 target_include_directories(${PROJECT_NAME} PRIVATE

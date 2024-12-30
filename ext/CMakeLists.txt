@@ -43,3 +43,13 @@ if(NOT TARGET glm)
     GLM_EXT_INCLUDED
   )
 endif()
+
+if(KVF_USE_FREETYPE)
+  if(NOT TARGET freetype)
+    add_subdirectory(src/freetype)
+  endif()
+
+  if(NOT TARGET freetype::freetype)
+    add_library(freetype::freetype ALIAS freetype)
+  endif()
+endif()
