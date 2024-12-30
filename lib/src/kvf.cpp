@@ -1266,11 +1266,12 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	auto dai = vk::RenderingAttachmentInfo{};
 
 	if (m_targets.color.view) {
+		auto const cc = clear_color.to_vec4();
 		cai.setImageView(m_targets.color.view)
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(vk::AttachmentStoreOp::eStore)
-			.setClearValue(clear_color);
+			.setClearValue(vk::ClearColorValue{cc.x, cc.y, cc.z, cc.w});
 	}
 	if (m_targets.resolve.view) {
 		cai.setResolveImageView(m_targets.resolve.view)
@@ -1414,6 +1415,9 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 #include <kvf/color_bitmap.hpp>
 
 namespace kvf {
+auto Color::to_srgb() const -> Color { return glm::convertLinearToSRGB(to_vec4()); }
+auto Color::to_linear() const -> Color { return glm::convertSRGBToLinear(to_vec4()); }
+
 void ColorBitmap::resize(glm::ivec2 size) {
 	if (size.x < 0 || size.y < 0) { return; }
 	m_size = size;

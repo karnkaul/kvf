@@ -60,7 +60,7 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	for (auto& ssbo : m_ssbos) { ssbo = vma::Buffer{device, ssbo_info()}; }
 
 	m_color_pass.set_color_target().set_depth_target();
-	m_color_pass.clear_color = vk::ClearColorValue{std::array{0.05f, 0.05f, 0.05f, 1.0f}};
+	m_color_pass.clear_color = glm::vec4{0.05f, 0.05f, 0.05f, 1.0f};
 
 	create_set_layouts();
 	create_pipeline_layout();

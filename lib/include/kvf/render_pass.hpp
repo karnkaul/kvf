@@ -1,5 +1,6 @@
 #pragma once
 #include <kvf/buffering.hpp>
+#include <kvf/color.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/vma.hpp>
 #include <span>
@@ -56,7 +57,7 @@ class RenderPass {
 	[[nodiscard]] auto scissor() const -> vk::Rect2D;
 	void bind_pipeline(vk::Pipeline pipeline) const;
 
-	vk::ClearColorValue clear_color{};
+	Color clear_color{black_v};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};
 
