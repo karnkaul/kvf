@@ -12,11 +12,11 @@ class ColorBitmap {
 
 	void resize(glm::ivec2 size);
 
-	[[nodiscard]] auto at(std::int32_t x, std::int32_t y) const -> Color const&;
-	[[nodiscard]] auto at(std::int32_t x, std::int32_t y) -> Color&;
+	[[nodiscard]] auto at(int x, int y) const -> Color const&;
+	[[nodiscard]] auto at(int x, int y) -> Color&;
 
-	auto operator[](std::int32_t x, std::int32_t y) const -> Color const& { return at(x, y); }
-	auto operator[](std::int32_t x, std::int32_t y) -> Color& { return at(x, y); }
+	auto operator[](int x, int y) const -> Color const& { return at(x, y); }
+	auto operator[](int x, int y) -> Color& { return at(x, y); }
 
 	[[nodiscard]] auto bitmap() const -> Bitmap;
 

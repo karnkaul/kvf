@@ -1424,12 +1424,12 @@ void ColorBitmap::resize(glm::ivec2 size) {
 	m_bitmap.resize(std::size_t(m_size.x * m_size.y));
 }
 
-auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) const -> Color const& {
+auto ColorBitmap::at(int const x, int const y) const -> Color const& {
 	auto const index = y * m_size.x + x;
 	return m_bitmap.at(std::size_t(index));
 }
 
-auto ColorBitmap::at(std::int32_t const x, std::int32_t const y) -> Color& {
+auto ColorBitmap::at(int const x, int const y) -> Color& {
 	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
 	return const_cast<Color&>(std::as_const(*this).at(x, y));
 }
