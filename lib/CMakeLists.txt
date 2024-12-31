@@ -49,4 +49,5 @@ target_sources(${PROJECT_NAME} PUBLIC FILE_SET HEADERS BASE_DIRS "${CMAKE_CURREN
 target_sources(${PROJECT_NAME} PRIVATE
   src/kvf.cpp
   src/log.hpp
+  src/ttf.cpp
 )
