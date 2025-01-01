@@ -1,10 +1,10 @@
 #pragma once
-#include <glm/vec2.hpp>
+#include <kvf/color_bitmap.hpp>
+#include <kvf/rect.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <span>
-#include <vector>
 
 namespace kvf::ttf {
 enum struct Codepoint : std::uint32_t {
@@ -27,6 +27,22 @@ struct Slot {
 	}
 };
 
+struct Glyph {
+	glm::vec2 size{};
+	glm::vec2 left_top{};
+	glm::vec2 advance{};
+	UvRect uv_rect{};
+
+	[[nodiscard]] constexpr auto rect(glm::vec2 baseline, float const scale = 1.0f) const -> Rect<> {
+		return {.lt = baseline + scale * left_top, .rb = baseline + scale * (left_top + glm::vec2{size.x, -size.y})};
+	}
+};
+
+struct Atlas {
+	ColorBitmap bitmap{};
+	std::vector<Glyph> glyphs{};
+};
+
 class Typeface {
   public:
 	Typeface();
@@ -38,6 +54,8 @@ class Typeface {
 
 	auto set_height(std::uint32_t height) -> bool;
 	auto load_slot(Slot& out, Codepoint codepoint) -> bool;
+
+	[[nodiscard]] auto build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 glyph_padding = glm::ivec2{2}) -> Atlas;
 
 	explicit operator bool() const { return is_loaded(); }
 
