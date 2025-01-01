@@ -4,7 +4,7 @@
 #include <klib/constants.hpp>
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
-#include <kvf/buffering.hpp>
+#include <kvf/buffered.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
 #include <gsl/pointers>

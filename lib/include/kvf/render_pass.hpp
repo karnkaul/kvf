@@ -1,5 +1,5 @@
 #pragma once
-#include <kvf/buffering.hpp>
+#include <kvf/buffered.hpp>
 #include <kvf/color.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/vma.hpp>

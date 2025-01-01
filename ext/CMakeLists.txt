@@ -31,6 +31,10 @@ add_subdirectory(src/dear_imgui)
 
 add_subdirectory(src/stb)
 
+if(CMAKE_C_COMPILER_ID STREQUAL GNU)
+  target_compile_options(stb-image PRIVATE -w)
+endif()
+
 if(NOT TARGET glm)
   set(GLM_ENABLE_CXX_20 ON)
   add_subdirectory(src/glm)
@@ -42,4 +46,14 @@ if(NOT TARGET glm)
     GLM_ENABLE_EXPERIMENTAL
     GLM_EXT_INCLUDED
   )
+endif()
+
+if(KVF_USE_FREETYPE)
+  if(NOT TARGET freetype)
+    add_subdirectory(src/freetype)
+  endif()
+
+  if(NOT TARGET freetype::freetype)
+    add_library(freetype::freetype ALIAS freetype)
+  endif()
 endif()
