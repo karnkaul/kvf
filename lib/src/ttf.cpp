@@ -119,17 +119,21 @@ auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool {
 namespace {
 constexpr auto pot(int const in) {
 	auto ret = int{1};
-	while (ret < in) { ret <<= 1; }
+	while (ret < in && ret < std::numeric_limits<int>::max()) { ret <<= 1; }
 	return ret;
 }
 
 struct BuildAtlas {
+	static constexpr int max_size_v{8 * 1024};
+
 	auto operator()(Typeface& face, std::span<Codepoint const> codepoints, glm::ivec2 const pad) -> Atlas {
 		if (!face.is_loaded()) { return {}; }
 
 		m_pad = pad;
 		load_entries(face, codepoints);
-		write_pixels();
+		store_pixels();
+		if (m_atlas_size.x > max_size_v || m_atlas_size.y > max_size_v) { return {}; }
+
 		return finalize();
 	}
 
@@ -174,7 +178,7 @@ struct BuildAtlas {
 		m_atlas_size.x = pot(((m_max_glyph_width + m_pad.x) * columns) + m_pad.x);
 	}
 
-	void write_pixels() {
+	void store_pixels() {
 		m_cursor = m_pad;
 		for (auto& entry : m_entries) {
 			if (entry.alpha.count == 0) { continue; }
