@@ -7,6 +7,7 @@
 #include <kvf/buffered.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
+#include <cstdint>
 #include <gsl/pointers>
 #include <memory>
 #include <span>
@@ -19,7 +20,7 @@ struct Gpu {
 };
 
 struct RenderDeviceFlag {
-	enum : int {
+	enum : std::int8_t {
 		None = 0,
 		ValidationLayers = 1 << 0,
 		LinearBackbuffer = 1 << 1,

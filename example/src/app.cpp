@@ -38,7 +38,7 @@ void App::run(std::string_view const assets_dir) {
 
 auto App::make_window(std::string_view const build_version) -> kvf::UniqueWindow {
 	auto const title = klib::FixedString{"kvf example [{}]", build_version};
-	auto ret = kvf::create_window(title.c_str(), 800, 600);
+	auto ret = kvf::create_window({800, 600}, title.c_str());
 	glfwSetWindowUserPointer(ret.get(), this);
 	glfwSetKeyCallback(ret.get(), [](GLFWwindow* w, int const key, int const /*scancode*/, int action, int const mods) {
 		auto& self = *static_cast<App*>(glfwGetWindowUserPointer(w));
