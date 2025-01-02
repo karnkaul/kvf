@@ -502,6 +502,74 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+		auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+		shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+		shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
+
+		auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+		pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+		auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+		auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+		auto pcbas = vk::PipelineColorBlendAttachmentState{};
+		auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+		using CCF = vk::ColorComponentFlagBits;
+		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+			.setBlendEnable(alpha_blend ? vk::True : vk::False)
+			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setAlphaBlendOp(vk::BlendOp::eAdd);
+		auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
+		pcbsci.setAttachments(pcbas);
+
+		auto const pdscis = std::array{
+			vk::DynamicState::eViewport,
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eLineWidth,
+		};
+		auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+		pdsci.setDynamicStates(pdscis);
+
+		auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+		auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+		pmsci.setRasterizationSamples(format.samples).setSampleShadingEnable(vk::False);
+
+		auto prci = vk::PipelineRenderingCreateInfo{};
+		if (format.color != vk::Format::eUndefined) { prci.setColorAttachmentFormats(format.color); }
+		prci.setDepthAttachmentFormat(format.depth);
+
+		auto gpci = vk::GraphicsPipelineCreateInfo{};
+		gpci.setPVertexInputState(&pvisci)
+			.setStages(shader_stages)
+			.setPRasterizationState(&prsci)
+			.setPDepthStencilState(&pdssci)
+			.setPInputAssemblyState(&piasci)
+			.setPColorBlendState(&pcbsci)
+			.setPDynamicState(&pdsci)
+			.setPViewportState(&pvsci)
+			.setPMultisampleState(&pmsci)
+			.setLayout(layout)
+			.setPNext(&prci);
+
+		auto const device = get_device();
+		auto ret = vk::Pipeline{};
+		if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+		return vk::UniquePipeline{ret, device};
+	}
+
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
 	}
@@ -959,6 +1027,10 @@ auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, 
 	return m_impl->sampler_info(wrap, filter, aniso);
 }
 
+auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+	return m_impl->create_pipeline(layout, state, format);
+}
+
 auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 	return m_impl->allocate_sets(out_sets, layouts);
 }
@@ -1132,77 +1204,12 @@ auto RenderPass::set_depth_target() -> RenderPass& {
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-	shader_stages[0].pName = shader_stages[1].pName = "main";
-
-	shader_stages[0].module = state.vertex_shader;
-	shader_stages[1].module = state.fragment_shader;
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbas = vk::PipelineColorBlendAttachmentState{};
-	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-	using CCF = vk::ColorComponentFlagBits;
-	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-		.setColorBlendOp(vk::BlendOp::eAdd)
-		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
-	pcbsci.setAttachments(pcbas);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
+	auto const format = PipelineFormat{
+		.samples = m_samples,
+		.color = get_color_format(),
+		.depth = get_depth_format(),
 	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	auto const& framebuffer = m_framebuffers.front();
-	auto const colour_format = framebuffer.color.get_info().format;
-	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
-	if (framebuffer.depth) { prci.setDepthAttachmentFormat(framebuffer.depth.get_info().format); }
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto const device = m_device->get_device();
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
+	return m_device->create_pipeline(layout, state, format);
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {

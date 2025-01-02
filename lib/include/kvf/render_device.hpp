@@ -5,6 +5,7 @@
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffered.hpp>
+#include <kvf/pipeline_state.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
 #include <cstdint>
@@ -91,6 +92,7 @@ class RenderDevice {
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
 
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
