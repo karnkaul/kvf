@@ -591,11 +591,7 @@ struct RenderDevice::Impl {
 		m_imgui.new_frame();
 		m_set_allocators.at(m_frame_index).reset();
 
-		if (m_current_cmd) {	 // previous render() early returned
-			m_current_cmd.end(); // discard existing commands
-		} else {
-			m_current_cmd = m_command_buffers.at(m_frame_index);
-		}
+		m_current_cmd = m_command_buffers.at(m_frame_index);
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
 		return m_current_cmd;
 	}
