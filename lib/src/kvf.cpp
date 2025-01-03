@@ -243,7 +243,7 @@ class DearImGui {
 		if (auto* data = ImGui::GetDrawData()) { ImGui_ImplVulkan_RenderDrawData(data, command_buffer); }
 	}
 
-	enum class State { eNewFrame, eEndFrame };
+	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
 	vk::Device m_device{};
 
@@ -1428,7 +1428,7 @@ void ColorBitmap::resize(glm::ivec2 size) {
 }
 
 auto ColorBitmap::at(int const x, int const y) const -> Color const& {
-	auto const index = y * m_size.x + x;
+	auto const index = (y * m_size.x) + x;
 	return m_bitmap.at(std::size_t(index));
 }
 
@@ -1566,12 +1566,12 @@ auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString p
 auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }
 
-	if (dst.get_size() < offset + bytes.size) { return false; }
-	if (bytes.size == 0) { return true; }
+	if (dst.get_size() < offset + bytes.size()) { return false; }
+	if (bytes.is_empty()) { return true; }
 
 	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		std::memcpy(ptr + offset, bytes.ptr, bytes.size);
+		std::memcpy(ptr + offset, bytes.data(), bytes.size());
 		return true;
 	}
 
@@ -1581,7 +1581,7 @@ auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize o
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
 	if (!overwrite(staging, bytes)) { return false; }
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
@@ -1593,7 +1593,7 @@ auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize o
 }
 
 auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
-	if (!dst.resize(bytes.size)) { return false; }
+	if (!dst.resize(bytes.size())) { return false; }
 	return overwrite(dst, bytes);
 }
 
