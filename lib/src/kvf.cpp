@@ -601,13 +601,19 @@ struct RenderDevice::Impl {
 		if (!m_current_cmd) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
+		if (framebuffer_extent.width == 0 || framebuffer_extent.height == 0) { return; }
+
 		if (m_swapchain.get_info().imageExtent != framebuffer_extent) { m_swapchain.recreate(framebuffer_extent); }
 
 		auto const& sync = m_syncs.at(m_frame_index);
 		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 
 		auto lock = std::unique_lock{m_queue_mutex};
-		if (!m_swapchain.acquire_next_image(*sync.draw)) { return; } // out of date
+		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
+			lock.unlock();
+			m_swapchain.recreate(framebuffer_extent);
+			return;
+		}
 		lock.unlock();
 
 		m_device->resetFences(*sync.drawn); // must submit after reset
