@@ -514,13 +514,13 @@ struct RenderDevice::Impl {
 		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
 
 		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-		auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
+		auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
 		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
 
 		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
 
 		auto pcbas = vk::PipelineColorBlendAttachmentState{};
-		auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
+		auto const alpha_blend = (state.flags & PipelineFlag::AlphaBlend) == PipelineFlag::AlphaBlend;
 		using CCF = vk::ColorComponentFlagBits;
 		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
 			.setBlendEnable(alpha_blend ? vk::True : vk::False)
@@ -705,7 +705,7 @@ struct RenderDevice::Impl {
 			auto const it = std::ranges::find_if(props, pred);
 			if (it == props.end()) {
 				log::warn("Validation layers requested but {} is not available", validation_layer_v);
-				m_flags &= ~Flag::ValidationLayers;
+				m_flags &= ~Flags{Flag::ValidationLayers};
 			} else {
 				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 				ici.setPEnabledLayerNames(validation_layer_v);

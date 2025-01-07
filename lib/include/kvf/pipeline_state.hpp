@@ -1,18 +1,22 @@
 #pragma once
+#include <klib/enum_flags.hpp>
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 #include <span>
 
 namespace kvf {
-struct PipelineState {
-	enum : std::int8_t {
-		None = 0,
-		AlphaBlend = 1 << 0,
-		DepthTest = 1 << 1,
-	};
-	using Flags = int;
+enum class PipelineFlag : std::int8_t {
+	None = 0,
+	AlphaBlend = 1 << 0,
+	DepthTest = 1 << 1,
+};
+using PipelineFlags = klib::EnumFlags<PipelineFlag>;
 
-	[[nodiscard]] static constexpr auto default_flags() -> Flags { return AlphaBlend | DepthTest; }
+struct PipelineState {
+	using Flag = PipelineFlag;
+	using Flags = PipelineFlags;
+
+	[[nodiscard]] static constexpr auto default_flags() -> Flags { return Flags{Flag::AlphaBlend, Flag::DepthTest}; }
 
 	std::span<vk::VertexInputBindingDescription const> vertex_bindings;
 	std::span<vk::VertexInputAttributeDescription const> vertex_attributes;

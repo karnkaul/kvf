@@ -20,14 +20,12 @@ struct Gpu {
 	vk::PhysicalDeviceFeatures features{};
 };
 
-struct RenderDeviceFlag {
-	enum : std::int8_t {
-		None = 0,
-		ValidationLayers = 1 << 0,
-		LinearBackbuffer = 1 << 1,
-	};
+enum class RenderDeviceFlag : std::int8_t {
+	None = 0,
+	ValidationLayers = 1 << 0,
+	LinearBackbuffer = 1 << 1,
 };
-using RenderDeviceFlags = std::underlying_type_t<decltype(RenderDeviceFlag::None)>;
+using RenderDeviceFlags = klib::EnumFlags<RenderDeviceFlag>;
 
 class GpuSelector : public klib::Polymorphic {
   public:

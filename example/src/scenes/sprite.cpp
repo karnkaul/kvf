@@ -136,7 +136,7 @@ void Sprite::create_pipeline() {
 		.vertex_attributes = attributes,
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
-		.flags = PipelineState::AlphaBlend,
+		.flags = PipelineFlag::AlphaBlend,
 	};
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
