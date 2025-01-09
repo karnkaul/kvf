@@ -20,7 +20,7 @@ struct Rect {
 
 	/// \brief Construct from size and center.
 	/// \param size Total size of rect.
-	/// \param center Centre of rect.
+	/// \param center Center of rect.
 	/// \returns Rect.
 	static constexpr auto from_size(glm::tvec2<Type> size, glm::tvec2<Type> center = {}) -> Rect {
 		if (size.x == Type{} && size.y == Type{}) { return {.lt = center, .rb = center}; }
