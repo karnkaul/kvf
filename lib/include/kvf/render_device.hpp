@@ -14,6 +14,15 @@
 #include <span>
 
 namespace kvf {
+enum class RenderDeviceFlag : std::int8_t;
+}
+
+namespace klib {
+template <>
+inline constexpr auto enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
+}
+
+namespace kvf {
 struct Gpu {
 	vk::PhysicalDevice device{};
 	vk::PhysicalDeviceProperties properties{};
@@ -25,7 +34,6 @@ enum class RenderDeviceFlag : std::int8_t {
 	ValidationLayers = 1 << 0,
 	LinearBackbuffer = 1 << 1,
 };
-using RenderDeviceFlags = klib::EnumFlags<RenderDeviceFlag>;
 
 class GpuSelector : public klib::Polymorphic {
   public:
@@ -40,13 +48,13 @@ class GpuSelector : public klib::Polymorphic {
 struct RenderDeviceCreateInfo {
 	static constexpr auto sets_per_pool_v{64};
 
-	static constexpr auto default_flags() -> RenderDeviceFlags {
-		auto ret = RenderDeviceFlags{};
+	static constexpr auto default_flags() -> RenderDeviceFlag {
+		auto ret = RenderDeviceFlag{};
 		if constexpr (klib::debug_v) { ret |= RenderDeviceFlag::ValidationLayers; }
 		return ret;
 	}
 
-	RenderDeviceFlags flags{default_flags()};
+	RenderDeviceFlag flags{default_flags()};
 	std::vector<vk::DescriptorPoolSize> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	GpuSelector const* gpu_selector{nullptr};
@@ -69,7 +77,7 @@ class RenderDevice {
 	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info = {});
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow*;
-	[[nodiscard]] auto get_flags() const -> RenderDeviceFlags;
+	[[nodiscard]] auto get_flags() const -> RenderDeviceFlag;
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex;
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version;

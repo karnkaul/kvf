@@ -432,7 +432,6 @@ struct DescriptorAllocator {
 
 struct RenderDevice::Impl {
 	using Flag = RenderDeviceFlag;
-	using Flags = RenderDeviceFlags;
 
 	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
 		static auto const default_gpu_selector = GpuSelector{};
@@ -450,7 +449,7 @@ struct RenderDevice::Impl {
 	}
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow* { return m_window; }
-	[[nodiscard]] auto get_flags() const -> Flags { return m_flags; }
+	[[nodiscard]] auto get_flags() const -> Flag { return m_flags; }
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex { return FrameIndex{m_frame_index}; }
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version { return m_loader_version; }
@@ -706,7 +705,7 @@ struct RenderDevice::Impl {
 			auto const it = std::ranges::find_if(props, pred);
 			if (it == props.end()) {
 				log::warn("Validation layers requested but {} is not available", validation_layer_v);
-				m_flags &= ~Flags{Flag::ValidationLayers};
+				m_flags &= ~Flag::ValidationLayers;
 			} else {
 				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 				ici.setPEnabledLayerNames(validation_layer_v);
@@ -969,7 +968,7 @@ struct RenderDevice::Impl {
 	}
 
 	GLFWwindow* m_window{};
-	Flags m_flags{};
+	Flag m_flags{};
 
 	klib::Version m_loader_version{};
 
@@ -1007,7 +1006,7 @@ void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_
 RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
-auto RenderDevice::get_flags() const -> RenderDeviceFlags { return m_impl->get_flags(); }
+auto RenderDevice::get_flags() const -> RenderDeviceFlag { return m_impl->get_flags(); }
 auto RenderDevice::get_frame_index() const -> FrameIndex { return m_impl->get_frame_index(); }
 
 auto RenderDevice::get_loader_api_version() const -> klib::Version { return m_impl->get_loader_api_version(); }

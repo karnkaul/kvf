@@ -1,8 +1,17 @@
 #pragma once
-#include <klib/enum_flags.hpp>
+#include <klib/enum_ops.hpp>
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 #include <span>
+
+namespace kvf {
+enum class PipelineFlag : std::int8_t;
+}
+
+namespace klib {
+template <>
+inline constexpr auto enable_enum_ops_v<kvf::PipelineFlag> = true;
+}
 
 namespace kvf {
 enum class PipelineFlag : std::int8_t {
@@ -10,13 +19,11 @@ enum class PipelineFlag : std::int8_t {
 	AlphaBlend = 1 << 0,
 	DepthTest = 1 << 1,
 };
-using PipelineFlags = klib::EnumFlags<PipelineFlag>;
 
 struct PipelineState {
 	using Flag = PipelineFlag;
-	using Flags = PipelineFlags;
 
-	[[nodiscard]] static constexpr auto default_flags() -> Flags { return Flags{Flag::AlphaBlend, Flag::DepthTest}; }
+	[[nodiscard]] static constexpr auto default_flags() -> Flag { return Flag::AlphaBlend | Flag::DepthTest; }
 
 	std::span<vk::VertexInputBindingDescription const> vertex_bindings;
 	std::span<vk::VertexInputAttributeDescription const> vertex_attributes;
@@ -27,7 +34,7 @@ struct PipelineState {
 	vk::PolygonMode polygon_mode{vk::PolygonMode::eFill};
 	vk::CullModeFlags cull_mode{vk::CullModeFlagBits::eNone};
 	vk::CompareOp depth_compare{vk::CompareOp::eLess};
-	Flags flags{default_flags()};
+	Flag flags{default_flags()};
 };
 
 struct PipelineFormat {
