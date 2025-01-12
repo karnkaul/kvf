@@ -183,10 +183,10 @@ struct BuildAtlas {
 		for (auto& entry : m_entries) {
 			if (entry.alpha.count == 0) { continue; }
 			entry.slot.alpha_channels = std::span{m_alphas}.subspan(entry.alpha.first, entry.alpha.count);
-			entry.uv_rect.lt = m_cursor;
-			entry.uv_rect.rb = m_cursor + entry.slot.size;
 			auto const width = m_cursor.x + entry.slot.size.x + m_pad.x;
 			if (width > m_atlas_size.x) { next_line(); }
+			entry.uv_rect.lt = m_cursor;
+			entry.uv_rect.rb = m_cursor + entry.slot.size;
 			m_line_height = std::max(m_line_height, entry.slot.size.y);
 			for (int y = 0; y < entry.slot.size.y; ++y) {
 				for (int x = 0; x < entry.slot.size.x; ++x) { m_pixels.push_back(Pixel{.alpha = entry.slot[x, y], .coords = m_cursor + glm::ivec2{x, y}}); }
@@ -216,6 +216,7 @@ struct BuildAtlas {
 				.rb = glm::vec2(entry.uv_rect.rb) / fsize,
 			};
 			ret.glyphs.push_back(Glyph{
+				.codepoint = entry.codepoint,
 				.size = entry.slot.size,
 				.left_top = entry.slot.left_top,
 				.advance = entry.slot.advance,

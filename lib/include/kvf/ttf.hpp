@@ -28,6 +28,7 @@ struct Slot {
 };
 
 struct Glyph {
+	Codepoint codepoint{};
 	glm::vec2 size{};
 	glm::vec2 left_top{};
 	glm::vec2 advance{};
