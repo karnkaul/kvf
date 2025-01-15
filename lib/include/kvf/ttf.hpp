@@ -7,11 +7,12 @@
 #include <span>
 
 namespace kvf::ttf {
+// NOLINTNEXTLINE(performance-enum-size)
 enum struct Codepoint : std::uint32_t {
-	eTofu = 0,
-	eSpace = 32,
-	eAsciiFirst = eSpace,
-	eAsciiLast = 126,
+	Tofu = 0,
+	Space = 32,
+	AsciiFirst = Space,
+	AsciiLast = 126,
 };
 
 struct Slot {
@@ -21,7 +22,7 @@ struct Slot {
 	std::span<std::byte const> alpha_channels{};
 
 	[[nodiscard]] constexpr auto operator[](int const x, int const y) const -> std::byte {
-		auto const index = std::size_t(y * size.x + x);
+		auto const index = std::size_t((y * size.x) + x);
 		if (index >= alpha_channels.size()) { return {}; }
 		return alpha_channels[index];
 	}
@@ -34,9 +35,11 @@ struct Glyph {
 	glm::vec2 advance{};
 	UvRect uv_rect{};
 
-	[[nodiscard]] constexpr auto rect(glm::vec2 baseline, float const scale = 1.0f) const -> Rect<> {
+	[[nodiscard]] constexpr auto rect(glm::vec2 const baseline, float const scale = 1.0f) const -> Rect<> {
 		return {.lt = baseline + scale * left_top, .rb = baseline + scale * (left_top + glm::vec2{size.x, -size.y})};
 	}
+
+	[[nodiscard]] constexpr auto is_empty() const -> bool { return advance == glm::vec2{0.0f} && size == glm::vec2{0.0f}; }
 };
 
 struct Atlas {

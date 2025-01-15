@@ -170,7 +170,7 @@ struct BuildAtlas {
 
 	void load_entries(Typeface& face, std::span<Codepoint const> codepoints) {
 		m_entries.reserve(codepoints.size() + 1);
-		load_entry(face, Codepoint::eTofu);
+		load_entry(face, Codepoint::Tofu);
 		for (auto const codepoint : codepoints) { load_entry(face, codepoint); }
 
 		auto const fcolumns = std::sqrt(m_entries.size());
