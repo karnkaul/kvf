@@ -2,6 +2,7 @@
 #include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
 #include <kvf/bitmap.hpp>
+#include <kvf/buffer_write.hpp>
 #include <kvf/color.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
@@ -14,12 +15,7 @@
 using namespace std::chrono_literals;
 
 namespace kvf {
-enum class IoResult : int { Success, OpenFailed, SizeMismatch };
-
-struct BufferWrite {
-	void const* ptr;
-	vk::DeviceSize size;
-};
+enum class IoResult : std::int8_t { Success, OpenFailed, SizeMismatch };
 
 namespace util {
 constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view {

@@ -2,6 +2,8 @@
 #include <kvf/constants.hpp>
 #include <kvf/ttf.hpp>
 #include <log.hpp>
+#include <algorithm>
+#include <limits>
 #include <mutex>
 
 #if KVF_USE_FREETYPE == 1
@@ -56,20 +58,36 @@ struct Typeface::Impl {
 	std::shared_ptr<Lib> lib{g_data.get_or_make_lib()};
 	std::vector<std::byte> font{};
 	klib::Unique<FT_Face, Deleter> face{};
+	bool has_kerning{};
 };
 
 void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
 Typeface::Typeface() : m_impl(new Impl) {}
 
+auto Typeface::default_codepoints() -> std::span<Codepoint const> {
+	static auto const ret = [&] {
+		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
+		auto ret = std::array<Codepoint, count_v>{};
+		auto index = std::size_t{};
+		ret.at(index++) = Codepoint::Tofu;
+		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
+		return ret;
+	}();
+	return ret;
+}
+
 auto Typeface::load(std::vector<std::byte> font) -> bool {
 	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
 	if (!m_impl->lib) { return false; }
 
-	m_impl->face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
-	if (m_impl->face.is_identity()) { return false; }
+	FT_Face face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
+	if (face == nullptr) { return false; }
 
 	m_impl->font = std::move(font);
+	m_impl->face = face;
+	m_impl->has_kerning = FT_HAS_KERNING(face);
+
 	return true;
 }
 
@@ -94,8 +112,21 @@ auto Typeface::load_slot(Slot& out, Codepoint const codepoint) -> bool {
 		.left_top = {glyph->bitmap_left, glyph->bitmap_top},
 		.advance = {glyph->advance.x >> 6, glyph->advance.y >> 6},
 		.alpha_channels = std::span{static_cast<std::byte const*>(ptr), std::size_t(size)},
+		.glyph_index = GlyphIndex{FT_Get_Char_Index(m_impl->face.get(), FT_ULong(codepoint))},
 	};
 	return true;
+}
+
+auto Typeface::has_kerning() const -> bool {
+	if (!is_loaded()) { return false; }
+	return m_impl->has_kerning;
+}
+
+auto Typeface::get_kerning(GlyphIndex const left, GlyphIndex const right) const -> glm::ivec2 {
+	if (!has_kerning()) { return {}; }
+	auto delta = FT_Vector{};
+	FT_Get_Kerning(m_impl->face.get(), FT_UInt(left), FT_UInt(right), FT_KERNING_DEFAULT, &delta);
+	return {delta.x >> 6, delta.y >> 6};
 }
 
 #else
@@ -114,11 +145,17 @@ auto Typeface::set_height(std::uint32_t const /*height*/) -> bool { return false
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool { return false; }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::has_kerning() const -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::get_kerning(GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
+
 #endif
 
 namespace {
 constexpr auto pot(int const in) {
-	auto ret = int{1};
+	auto ret = 1;
 	while (ret < in && ret < std::numeric_limits<int>::max()) { ret <<= 1; }
 	return ret;
 }
@@ -157,20 +194,21 @@ struct BuildAtlas {
 
 	void load_entry(Typeface& face, Codepoint const codepoint) {
 		auto slot = Slot{};
-		if (!face.load_slot(slot, codepoint)) { return; }
-		auto const alpha = Alpha{.first = m_alphas.size(), .count = slot.alpha_channels.size()};
-		if (alpha.count > 0) {
-			m_alphas.resize(m_alphas.size() + alpha.count);
-			auto const dst = std::span{m_alphas}.subspan(alpha.first);
-			std::memcpy(dst.data(), slot.alpha_channels.data(), dst.size());
+		auto alpha = Alpha{};
+		if (face.load_slot(slot, codepoint)) {
+			alpha = Alpha{.first = m_alphas.size(), .count = slot.alpha_channels.size()};
+			if (alpha.count > 0) {
+				m_alphas.resize(m_alphas.size() + alpha.count);
+				auto const dst = std::span{m_alphas}.subspan(alpha.first);
+				std::memcpy(dst.data(), slot.alpha_channels.data(), dst.size());
+			}
+			m_max_glyph_width = std::max(m_max_glyph_width, slot.size.x);
 		}
 		m_entries.push_back(Entry{.codepoint = codepoint, .slot = slot, .alpha = alpha});
-		m_max_glyph_width = std::max(m_max_glyph_width, slot.size.x);
 	}
 
 	void load_entries(Typeface& face, std::span<Codepoint const> codepoints) {
-		m_entries.reserve(codepoints.size() + 1);
-		load_entry(face, Codepoint::eTofu);
+		m_entries.reserve(codepoints.size());
 		for (auto const codepoint : codepoints) { load_entry(face, codepoint); }
 
 		auto const fcolumns = std::sqrt(m_entries.size());
@@ -183,10 +221,10 @@ struct BuildAtlas {
 		for (auto& entry : m_entries) {
 			if (entry.alpha.count == 0) { continue; }
 			entry.slot.alpha_channels = std::span{m_alphas}.subspan(entry.alpha.first, entry.alpha.count);
-			entry.uv_rect.lt = m_cursor;
-			entry.uv_rect.rb = m_cursor + entry.slot.size;
 			auto const width = m_cursor.x + entry.slot.size.x + m_pad.x;
 			if (width > m_atlas_size.x) { next_line(); }
+			entry.uv_rect.lt = m_cursor;
+			entry.uv_rect.rb = m_cursor + entry.slot.size;
 			m_line_height = std::max(m_line_height, entry.slot.size.y);
 			for (int y = 0; y < entry.slot.size.y; ++y) {
 				for (int x = 0; x < entry.slot.size.x; ++x) { m_pixels.push_back(Pixel{.alpha = entry.slot[x, y], .coords = m_cursor + glm::ivec2{x, y}}); }
@@ -216,10 +254,12 @@ struct BuildAtlas {
 				.rb = glm::vec2(entry.uv_rect.rb) / fsize,
 			};
 			ret.glyphs.push_back(Glyph{
+				.codepoint = entry.codepoint,
 				.size = entry.slot.size,
 				.left_top = entry.slot.left_top,
 				.advance = entry.slot.advance,
 				.uv_rect = uv_rect,
+				.index = entry.slot.glyph_index,
 			});
 		}
 
@@ -243,5 +283,39 @@ struct BuildAtlas {
 
 auto Typeface::build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 const glyph_padding) -> Atlas {
 	return BuildAtlas{}(*this, codepoints, glyph_padding);
+}
+
+auto GlyphIterator::glyph_or_fallback(Codepoint const codepoint) const -> Glyph const& {
+	auto it = std::ranges::find_if(glyphs, [codepoint](Glyph const& g) { return g.codepoint == codepoint; });
+	if (it == glyphs.end() && use_tofu) {
+		it = std::ranges::find_if(glyphs, [](Glyph const& g) { return g.codepoint == Codepoint::Tofu; });
+	}
+	if (it == glyphs.end()) {
+		static constexpr auto null_v = Glyph{};
+		return null_v;
+	}
+	return *it;
+}
+
+auto GlyphIterator::line_bounds(std::string_view const line) const -> Rect<> {
+	auto pos = glm::vec2{};
+	auto ret = Rect<>{.lt = pos, .rb = pos};
+	if (line.empty()) { return ret; }
+	ret.lt.x = std::numeric_limits<float>::max();
+	iterate(line, [&](IterationEntry const& entry) {
+		auto const rect = entry.glyph->rect(pos);
+		ret.lt.x = std::min(ret.lt.x, rect.lt.x);
+		ret.lt.y = std::max(ret.lt.y, rect.lt.y);
+		ret.rb.x = pos.x + entry.glyph->size.x;
+		ret.rb.y = std::min(ret.rb.y, rect.rb.y);
+		pos = advance(pos, entry);
+	});
+	return ret;
+}
+
+auto GlyphIterator::next_glyph_position(std::string_view const line) const -> glm::vec2 {
+	auto ret = glm::vec2{};
+	iterate(line, [&ret](IterationEntry const& entry) { ret = advance(ret, entry); });
+	return ret;
 }
 } // namespace kvf::ttf

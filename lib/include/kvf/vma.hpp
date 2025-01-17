@@ -1,5 +1,6 @@
 #pragma once
 #include <vk_mem_alloc.h>
+#include <klib/enum_flags.hpp>
 #include <klib/polymorphic.hpp>
 #include <klib/unique.hpp>
 #include <kvf/render_device_fwd.hpp>
@@ -74,14 +75,12 @@ class Buffer : public Resource<vk::Buffer> {
 	void* m_mapped{};
 };
 
-struct ImageFlag {
-	enum : int {
-		None = 0,
-		DedicatedAlloc = 1 << 0,
-		MipMapped = 1 << 1,
-	};
+enum class ImageFlag : std::int8_t {
+	None = 0,
+	DedicatedAlloc = 1 << 0,
+	MipMapped = 1 << 1,
 };
-using ImageFlags = int;
+using ImageFlags = klib::EnumFlags<ImageFlag>;
 
 struct ImageCreateInfo {
 	static constexpr auto implicit_usage_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;

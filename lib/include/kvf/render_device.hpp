@@ -5,11 +5,22 @@
 #include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffered.hpp>
+#include <kvf/pipeline_state.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
+#include <cstdint>
 #include <gsl/pointers>
 #include <memory>
 #include <span>
+
+namespace kvf {
+enum class RenderDeviceFlag : std::int8_t;
+}
+
+namespace klib {
+template <>
+inline constexpr auto enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
+}
 
 namespace kvf {
 struct Gpu {
@@ -18,14 +29,11 @@ struct Gpu {
 	vk::PhysicalDeviceFeatures features{};
 };
 
-struct RenderDeviceFlag {
-	enum : int {
-		None = 0,
-		ValidationLayers = 1 << 0,
-		LinearBackbuffer = 1 << 1,
-	};
+enum class RenderDeviceFlag : std::int8_t {
+	None = 0,
+	ValidationLayers = 1 << 0,
+	LinearBackbuffer = 1 << 1,
 };
-using RenderDeviceFlags = std::underlying_type_t<decltype(RenderDeviceFlag::None)>;
 
 class GpuSelector : public klib::Polymorphic {
   public:
@@ -40,13 +48,13 @@ class GpuSelector : public klib::Polymorphic {
 struct RenderDeviceCreateInfo {
 	static constexpr auto sets_per_pool_v{64};
 
-	static constexpr auto default_flags() -> RenderDeviceFlags {
-		auto ret = RenderDeviceFlags{};
+	static constexpr auto default_flags() -> RenderDeviceFlag {
+		auto ret = RenderDeviceFlag{};
 		if constexpr (klib::debug_v) { ret |= RenderDeviceFlag::ValidationLayers; }
 		return ret;
 	}
 
-	RenderDeviceFlags flags{default_flags()};
+	RenderDeviceFlag flags{default_flags()};
 	std::vector<vk::DescriptorPoolSize> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	GpuSelector const* gpu_selector{nullptr};
@@ -69,7 +77,7 @@ class RenderDevice {
 	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info = {});
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow*;
-	[[nodiscard]] auto get_flags() const -> RenderDeviceFlags;
+	[[nodiscard]] auto get_flags() const -> RenderDeviceFlag;
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex;
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version;
@@ -90,6 +98,7 @@ class RenderDevice {
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
 	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
 
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});

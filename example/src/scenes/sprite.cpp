@@ -136,7 +136,7 @@ void Sprite::create_pipeline() {
 		.vertex_attributes = attributes,
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
-		.flags = PipelineState::AlphaBlend,
+		.flags = PipelineFlag::AlphaBlend,
 	};
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
@@ -159,13 +159,11 @@ void Sprite::write_vbo() {
 	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
-	auto buffer_write = BufferWrite{.ptr = vertices.data(), .size = vertices.size_bytes()};
-	if (!util::overwrite(m_vbo, buffer_write, 0)) { throw Error{"Failed to write vertices to Buffer"}; }
+	if (!util::overwrite(m_vbo, vertices, 0)) { throw Error{"Failed to write vertices to Buffer"}; }
 
-	m_index_offset = buffer_write.size;
+	m_index_offset = vertices.size_bytes();
 	auto const indices = std::span{quad.indices};
-	buffer_write = BufferWrite{.ptr = indices.data(), .size = indices.size_bytes()};
-	if (!util::overwrite(m_vbo, buffer_write, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
+	if (!util::overwrite(m_vbo, indices, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
 }
 
 void Sprite::create_instances() {

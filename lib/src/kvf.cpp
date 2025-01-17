@@ -9,6 +9,7 @@
 #include <klib/version_str.hpp>
 #include <kvf/build_version.hpp>
 #include <kvf/error.hpp>
+#include <kvf/is_positive.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
 #include <charconv>
@@ -25,7 +26,7 @@ namespace {
 template <typename... T>
 constexpr void ensure_positive(T&... out) {
 	auto const sanitize = [](auto& t) {
-		if (t <= 0) { t = 1; }
+		if (!is_positive(t)) { t = 1; }
 	};
 	(sanitize(out), ...);
 }
@@ -243,7 +244,7 @@ class DearImGui {
 		if (auto* data = ImGui::GetDrawData()) { ImGui_ImplVulkan_RenderDrawData(data, command_buffer); }
 	}
 
-	enum class State { eNewFrame, eEndFrame };
+	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
 	vk::Device m_device{};
 
@@ -431,7 +432,6 @@ struct DescriptorAllocator {
 
 struct RenderDevice::Impl {
 	using Flag = RenderDeviceFlag;
-	using Flags = RenderDeviceFlags;
 
 	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
 		static auto const default_gpu_selector = GpuSelector{};
@@ -449,7 +449,7 @@ struct RenderDevice::Impl {
 	}
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow* { return m_window; }
-	[[nodiscard]] auto get_flags() const -> Flags { return m_flags; }
+	[[nodiscard]] auto get_flags() const -> Flag { return m_flags; }
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex { return FrameIndex{m_frame_index}; }
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version { return m_loader_version; }
@@ -502,6 +502,74 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+		auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+		shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+		shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
+
+		auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+		pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+		auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+		auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
+		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+		auto pcbas = vk::PipelineColorBlendAttachmentState{};
+		auto const alpha_blend = (state.flags & PipelineFlag::AlphaBlend) == PipelineFlag::AlphaBlend;
+		using CCF = vk::ColorComponentFlagBits;
+		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+			.setBlendEnable(alpha_blend ? vk::True : vk::False)
+			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setAlphaBlendOp(vk::BlendOp::eAdd);
+		auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
+		pcbsci.setAttachments(pcbas);
+
+		auto const pdscis = std::array{
+			vk::DynamicState::eViewport,
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eLineWidth,
+		};
+		auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+		pdsci.setDynamicStates(pdscis);
+
+		auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+		auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+		pmsci.setRasterizationSamples(format.samples).setSampleShadingEnable(vk::False);
+
+		auto prci = vk::PipelineRenderingCreateInfo{};
+		if (format.color != vk::Format::eUndefined) { prci.setColorAttachmentFormats(format.color); }
+		prci.setDepthAttachmentFormat(format.depth);
+
+		auto gpci = vk::GraphicsPipelineCreateInfo{};
+		gpci.setPVertexInputState(&pvisci)
+			.setStages(shader_stages)
+			.setPRasterizationState(&prsci)
+			.setPDepthStencilState(&pdssci)
+			.setPInputAssemblyState(&piasci)
+			.setPColorBlendState(&pcbsci)
+			.setPDynamicState(&pdsci)
+			.setPViewportState(&pvsci)
+			.setPMultisampleState(&pmsci)
+			.setLayout(layout)
+			.setPNext(&prci);
+
+		auto const device = get_device();
+		auto ret = vk::Pipeline{};
+		if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+		return vk::UniquePipeline{ret, device};
+	}
+
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
 	}
@@ -523,11 +591,7 @@ struct RenderDevice::Impl {
 		m_imgui.new_frame();
 		m_set_allocators.at(m_frame_index).reset();
 
-		if (m_current_cmd) {	 // previous render() early returned
-			m_current_cmd.end(); // discard existing commands
-		} else {
-			m_current_cmd = m_command_buffers.at(m_frame_index);
-		}
+		m_current_cmd = m_command_buffers.at(m_frame_index);
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
 		return m_current_cmd;
 	}
@@ -537,13 +601,19 @@ struct RenderDevice::Impl {
 		if (!m_current_cmd) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
+		if (framebuffer_extent.width == 0 || framebuffer_extent.height == 0) { return; }
+
 		if (m_swapchain.get_info().imageExtent != framebuffer_extent) { m_swapchain.recreate(framebuffer_extent); }
 
 		auto const& sync = m_syncs.at(m_frame_index);
 		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 
 		auto lock = std::unique_lock{m_queue_mutex};
-		if (!m_swapchain.acquire_next_image(*sync.draw)) { return; } // out of date
+		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
+			lock.unlock();
+			m_swapchain.recreate(framebuffer_extent);
+			return;
+		}
 		lock.unlock();
 
 		m_device->resetFences(*sync.drawn); // must submit after reset
@@ -898,7 +968,7 @@ struct RenderDevice::Impl {
 	}
 
 	GLFWwindow* m_window{};
-	Flags m_flags{};
+	Flag m_flags{};
 
 	klib::Version m_loader_version{};
 
@@ -936,7 +1006,7 @@ void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_
 RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
-auto RenderDevice::get_flags() const -> RenderDeviceFlags { return m_impl->get_flags(); }
+auto RenderDevice::get_flags() const -> RenderDeviceFlag { return m_impl->get_flags(); }
 auto RenderDevice::get_frame_index() const -> FrameIndex { return m_impl->get_frame_index(); }
 
 auto RenderDevice::get_loader_api_version() const -> klib::Version { return m_impl->get_loader_api_version(); }
@@ -957,6 +1027,10 @@ auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_d
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
 	return m_impl->sampler_info(wrap, filter, aniso);
+}
+
+auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+	return m_impl->create_pipeline(layout, state, format);
 }
 
 auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
@@ -1132,77 +1206,12 @@ auto RenderPass::set_depth_target() -> RenderPass& {
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-	shader_stages[0].pName = shader_stages[1].pName = "main";
-
-	shader_stages[0].module = state.vertex_shader;
-	shader_stages[1].module = state.fragment_shader;
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbas = vk::PipelineColorBlendAttachmentState{};
-	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-	using CCF = vk::ColorComponentFlagBits;
-	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-		.setColorBlendOp(vk::BlendOp::eAdd)
-		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
-	pcbsci.setAttachments(pcbas);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
+	auto const format = PipelineFormat{
+		.samples = m_samples,
+		.color = get_color_format(),
+		.depth = get_depth_format(),
 	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	auto const& framebuffer = m_framebuffers.front();
-	auto const colour_format = framebuffer.color.get_info().format;
-	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
-	if (framebuffer.depth) { prci.setDepthAttachmentFormat(framebuffer.depth.get_info().format); }
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto const device = m_device->get_device();
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
+	return m_device->create_pipeline(layout, state, format);
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -1399,7 +1408,7 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 	auto size = glm::ivec2{};
 	auto in_channels = int{};
 	void* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
-	if (result == nullptr || size.x <= 0 || size.y <= 0) { return false; }
+	if (result == nullptr || !is_positive(size)) { return false; }
 
 	m_bitmap = Bitmap{
 		.bytes = std::span{static_cast<std::byte const*>(result), std::size_t(size.x * size.y * int(channels_v))},
@@ -1425,7 +1434,7 @@ void ColorBitmap::resize(glm::ivec2 size) {
 }
 
 auto ColorBitmap::at(int const x, int const y) const -> Color const& {
-	auto const index = y * m_size.x + x;
+	auto const index = (y * m_size.x) + x;
 	return m_bitmap.at(std::size_t(index));
 }
 
@@ -1563,12 +1572,12 @@ auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString p
 auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }
 
-	if (dst.get_size() < offset + bytes.size) { return false; }
-	if (bytes.size == 0) { return true; }
+	if (dst.get_size() < offset + bytes.size()) { return false; }
+	if (bytes.is_empty()) { return true; }
 
 	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		std::memcpy(ptr + offset, bytes.ptr, bytes.size);
+		std::memcpy(ptr + offset, bytes.data(), bytes.size());
 		return true;
 	}
 
@@ -1578,7 +1587,7 @@ auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize o
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size};
+	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
 	if (!overwrite(staging, bytes)) { return false; }
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
@@ -1590,7 +1599,7 @@ auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize o
 }
 
 auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
-	if (!dst.resize(bytes.size)) { return false; }
+	if (!dst.resize(bytes.size())) { return false; }
 	return overwrite(dst, bytes);
 }
 

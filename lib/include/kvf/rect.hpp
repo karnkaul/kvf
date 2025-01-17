@@ -18,14 +18,14 @@ struct Rect {
 	/// \returns Rect.
 	static constexpr auto from_lbrt(glm::tvec2<Type> lb, glm::tvec2<Type> rt) -> Rect { return {.lt = {lb.x, rt.y}, .rb = {rt.x, lb.y}}; }
 
-	/// \brief Construct from size and centre.
+	/// \brief Construct from size and center.
 	/// \param size Total size of rect.
-	/// \param centre Centre of rect.
+	/// \param center Center of rect.
 	/// \returns Rect.
-	static constexpr auto from_size(glm::tvec2<Type> size, glm::tvec2<Type> centre = {}) -> Rect {
-		if (size.x == Type{} && size.y == Type{}) { return {.lt = centre, .rb = centre}; }
+	static constexpr auto from_size(glm::tvec2<Type> size, glm::tvec2<Type> center = {}) -> Rect {
+		if (size.x == Type{} && size.y == Type{}) { return {.lt = center, .rb = center}; }
 		auto const he = size / Type{2};
-		return {.lt = {centre.x - he.x, centre.y + he.y}, .rb = {centre.x + he.x, centre.y - he.y}};
+		return {.lt = {center.x - he.x, center.y + he.y}, .rb = {center.x + he.x, center.y - he.y}};
 	}
 
 	[[nodiscard]] constexpr auto top_left() const -> glm::tvec2<Type> { return lt; }
@@ -33,7 +33,7 @@ struct Rect {
 	[[nodiscard]] constexpr auto bottom_left() const -> glm::tvec2<Type> { return {lt.x, rb.y}; }
 	[[nodiscard]] constexpr auto bottom_right() const -> glm::tvec2<Type> { return rb; }
 
-	[[nodiscard]] constexpr auto centre() const -> glm::tvec2<Type> { return {(lt.x + rb.x) / Type{2}, (lt.y + rb.y) / Type{2}}; }
+	[[nodiscard]] constexpr auto center() const -> glm::tvec2<Type> { return {(lt.x + rb.x) / Type{2}, (lt.y + rb.y) / Type{2}}; }
 	[[nodiscard]] constexpr auto size() const -> glm::tvec2<Type> { return {std::abs(rb.x - lt.x), std::abs(lt.y - rb.y)}; }
 
 	/// \brief Check if a point is contained within this rect.
@@ -86,12 +86,12 @@ using UvRect = Rect<float>;
 inline constexpr UvRect uv_rect_v{.lt = {0.0f, 0.0f}, .rb = {1.0f, 1.0f}};
 
 /// \brief Convert a normalized point to UV coordinates.
-/// \param n_xy Normalized point in world space (origin at centre, +y goes up).
+/// \param n_xy Normalized point in world space (origin at center, +y goes up).
 /// \returns Point in UV space (origin at top-left, +y goes down).
 [[nodiscard]] constexpr auto to_uv_coords(glm::vec2 const n_xy) -> glm::vec2 { return glm::vec2{0.5f + n_xy.x, 0.5f - n_xy.y}; }
 
 /// \brief Convert a normalized Rect to UV coordinates.
-/// \param n_rect Normalized rect in world space (origin at centre, +y goes up).
+/// \param n_rect Normalized rect in world space (origin at center, +y goes up).
 /// \returns Rect in UV space (origin at top-left, +y goes down).
 [[nodiscard]] constexpr auto to_uv_rect(Rect<> const& n_rect) -> UvRect {
 	return Rect<>{.lt = to_uv_coords(n_rect.top_left()), .rb = to_uv_coords(n_rect.bottom_right())};
