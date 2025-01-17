@@ -62,6 +62,18 @@ void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_dele
 
 Typeface::Typeface() : m_impl(new Impl) {}
 
+auto Typeface::default_codepoints() -> std::span<Codepoint const> {
+	static auto const ret = [&] {
+		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
+		auto ret = std::array<Codepoint, count_v>{};
+		auto index = std::size_t{};
+		ret.at(index++) = Codepoint::Tofu;
+		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
+		return ret;
+	}();
+	return ret;
+}
+
 auto Typeface::load(std::vector<std::byte> font) -> bool {
 	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
 	if (!m_impl->lib) { return false; }
@@ -157,20 +169,21 @@ struct BuildAtlas {
 
 	void load_entry(Typeface& face, Codepoint const codepoint) {
 		auto slot = Slot{};
-		if (!face.load_slot(slot, codepoint)) { return; }
-		auto const alpha = Alpha{.first = m_alphas.size(), .count = slot.alpha_channels.size()};
-		if (alpha.count > 0) {
-			m_alphas.resize(m_alphas.size() + alpha.count);
-			auto const dst = std::span{m_alphas}.subspan(alpha.first);
-			std::memcpy(dst.data(), slot.alpha_channels.data(), dst.size());
+		auto alpha = Alpha{};
+		if (face.load_slot(slot, codepoint)) {
+			alpha = Alpha{.first = m_alphas.size(), .count = slot.alpha_channels.size()};
+			if (alpha.count > 0) {
+				m_alphas.resize(m_alphas.size() + alpha.count);
+				auto const dst = std::span{m_alphas}.subspan(alpha.first);
+				std::memcpy(dst.data(), slot.alpha_channels.data(), dst.size());
+			}
+			m_max_glyph_width = std::max(m_max_glyph_width, slot.size.x);
 		}
 		m_entries.push_back(Entry{.codepoint = codepoint, .slot = slot, .alpha = alpha});
-		m_max_glyph_width = std::max(m_max_glyph_width, slot.size.x);
 	}
 
 	void load_entries(Typeface& face, std::span<Codepoint const> codepoints) {
-		m_entries.reserve(codepoints.size() + 1);
-		load_entry(face, Codepoint::Tofu);
+		m_entries.reserve(codepoints.size());
 		for (auto const codepoint : codepoints) { load_entry(face, codepoint); }
 
 		auto const fcolumns = std::sqrt(m_entries.size());

@@ -49,6 +49,8 @@ struct Atlas {
 
 class Typeface {
   public:
+	[[nodiscard]] static auto default_codepoints() -> std::span<Codepoint const>;
+
 	Typeface();
 
 	explicit Typeface(std::vector<std::byte> font) { load(std::move(font)); }
@@ -59,7 +61,7 @@ class Typeface {
 	auto set_height(std::uint32_t height) -> bool;
 	auto load_slot(Slot& out, Codepoint codepoint) -> bool;
 
-	[[nodiscard]] auto build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 glyph_padding = glm::ivec2{2}) -> Atlas;
+	[[nodiscard]] auto build_atlas(std::span<Codepoint const> codepoints = default_codepoints(), glm::ivec2 padding = glm::ivec2{2}) -> Atlas;
 
 	explicit operator bool() const { return is_loaded(); }
 
