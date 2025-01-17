@@ -130,7 +130,7 @@ auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool {
 
 namespace {
 constexpr auto pot(int const in) {
-	auto ret = int{1};
+	auto ret = 1;
 	while (ret < in && ret < std::numeric_limits<int>::max()) { ret <<= 1; }
 	return ret;
 }
