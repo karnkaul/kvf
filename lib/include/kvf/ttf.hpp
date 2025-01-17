@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string_view>
 
 namespace kvf::ttf {
 // NOLINTNEXTLINE(performance-enum-size)
@@ -71,5 +72,25 @@ class Typeface {
 		void operator()(Impl* ptr) const noexcept;
 	};
 	std::unique_ptr<Impl, Deleter> m_impl{};
+};
+
+struct GlyphIterator {
+	[[nodiscard]] auto glyph_or_fallback(Codepoint codepoint) const -> Glyph const&;
+
+	[[nodiscard]] auto line_bounds(std::string_view line) const -> Rect<>;
+	[[nodiscard]] auto next_glyph_position(std::string_view line) const -> glm::vec2;
+
+	template <typename F>
+		requires(std::invocable<F, char, Glyph const&>)
+	void iterate(std::string_view const text, F func) const {
+		for (char const c : text) {
+			auto const codepoint = Codepoint(c);
+			auto const& glyph = glyph_or_fallback(codepoint);
+			func(c, glyph);
+		}
+	}
+
+	std::span<Glyph const> glyphs{};
+	bool use_tofu{true};
 };
 } // namespace kvf::ttf

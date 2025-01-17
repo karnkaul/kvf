@@ -2,6 +2,8 @@
 #include <kvf/constants.hpp>
 #include <kvf/ttf.hpp>
 #include <log.hpp>
+#include <algorithm>
+#include <limits>
 #include <mutex>
 
 #if KVF_USE_FREETYPE == 1
@@ -257,5 +259,39 @@ struct BuildAtlas {
 
 auto Typeface::build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 const glyph_padding) -> Atlas {
 	return BuildAtlas{}(*this, codepoints, glyph_padding);
+}
+
+auto GlyphIterator::glyph_or_fallback(Codepoint const codepoint) const -> Glyph const& {
+	auto it = std::ranges::find_if(glyphs, [codepoint](Glyph const& g) { return g.codepoint == codepoint; });
+	if (it == glyphs.end() && use_tofu) {
+		it = std::ranges::find_if(glyphs, [](Glyph const& g) { return g.codepoint == Codepoint::Tofu; });
+	}
+	if (it == glyphs.end()) {
+		static constexpr auto null_v = Glyph{};
+		return null_v;
+	}
+	return *it;
+}
+
+auto GlyphIterator::line_bounds(std::string_view const line) const -> Rect<> {
+	auto pos = glm::vec2{};
+	auto ret = Rect<>{.lt = pos, .rb = pos};
+	if (line.empty()) { return ret; }
+	ret.lt.x = std::numeric_limits<float>::max();
+	iterate(line, [&]([[maybe_unused]] char c, Glyph const& glyph) {
+		auto const rect = glyph.rect(pos);
+		ret.lt.x = std::min(ret.lt.x, rect.lt.x);
+		ret.lt.y = std::max(ret.lt.y, rect.lt.y);
+		ret.rb.x = pos.x + glyph.size.x;
+		ret.rb.y = std::min(ret.rb.y, rect.rb.y);
+		pos += glyph.advance;
+	});
+	return ret;
+}
+
+auto GlyphIterator::next_glyph_position(std::string_view const line) const -> glm::vec2 {
+	auto ret = glm::vec2{};
+	iterate(line, [&ret]([[maybe_unused]] char c, Glyph const& glyph) { ret += glyph.advance; });
+	return ret;
 }
 } // namespace kvf::ttf
