@@ -58,6 +58,7 @@ struct Typeface::Impl {
 	std::shared_ptr<Lib> lib{g_data.get_or_make_lib()};
 	std::vector<std::byte> font{};
 	klib::Unique<FT_Face, Deleter> face{};
+	bool has_kerning{};
 };
 
 void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
@@ -80,10 +81,13 @@ auto Typeface::load(std::vector<std::byte> font) -> bool {
 	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
 	if (!m_impl->lib) { return false; }
 
-	m_impl->face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
-	if (m_impl->face.is_identity()) { return false; }
+	FT_Face face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
+	if (face == nullptr) { return false; }
 
 	m_impl->font = std::move(font);
+	m_impl->face = face;
+	m_impl->has_kerning = FT_HAS_KERNING(face);
+
 	return true;
 }
 
@@ -108,8 +112,21 @@ auto Typeface::load_slot(Slot& out, Codepoint const codepoint) -> bool {
 		.left_top = {glyph->bitmap_left, glyph->bitmap_top},
 		.advance = {glyph->advance.x >> 6, glyph->advance.y >> 6},
 		.alpha_channels = std::span{static_cast<std::byte const*>(ptr), std::size_t(size)},
+		.glyph_index = GlyphIndex{FT_Get_Char_Index(m_impl->face.get(), FT_ULong(codepoint))},
 	};
 	return true;
+}
+
+auto Typeface::has_kerning() const -> bool {
+	if (!is_loaded()) { return false; }
+	return m_impl->has_kerning;
+}
+
+auto Typeface::get_kerning(GlyphIndex const left, GlyphIndex const right) const -> glm::ivec2 {
+	if (!has_kerning()) { return {}; }
+	auto delta = FT_Vector{};
+	FT_Get_Kerning(m_impl->face.get(), FT_UInt(left), FT_UInt(right), FT_KERNING_DEFAULT, &delta);
+	return {delta.x >> 6, delta.y >> 6};
 }
 
 #else
@@ -127,6 +144,12 @@ auto Typeface::set_height(std::uint32_t const /*height*/) -> bool { return false
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::has_kerning() const -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::get_kerning(GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
 
 #endif
 
@@ -236,6 +259,7 @@ struct BuildAtlas {
 				.left_top = entry.slot.left_top,
 				.advance = entry.slot.advance,
 				.uv_rect = uv_rect,
+				.index = entry.slot.glyph_index,
 			});
 		}
 
@@ -278,20 +302,20 @@ auto GlyphIterator::line_bounds(std::string_view const line) const -> Rect<> {
 	auto ret = Rect<>{.lt = pos, .rb = pos};
 	if (line.empty()) { return ret; }
 	ret.lt.x = std::numeric_limits<float>::max();
-	iterate(line, [&]([[maybe_unused]] char c, Glyph const& glyph) {
-		auto const rect = glyph.rect(pos);
+	iterate(line, [&](IterationEntry const& entry) {
+		auto const rect = entry.glyph->rect(pos);
 		ret.lt.x = std::min(ret.lt.x, rect.lt.x);
 		ret.lt.y = std::max(ret.lt.y, rect.lt.y);
-		ret.rb.x = pos.x + glyph.size.x;
+		ret.rb.x = pos.x + entry.glyph->size.x;
 		ret.rb.y = std::min(ret.rb.y, rect.rb.y);
-		pos += glyph.advance;
+		pos = advance(pos, entry);
 	});
 	return ret;
 }
 
 auto GlyphIterator::next_glyph_position(std::string_view const line) const -> glm::vec2 {
 	auto ret = glm::vec2{};
-	iterate(line, [&ret]([[maybe_unused]] char c, Glyph const& glyph) { ret += glyph.advance; });
+	iterate(line, [&ret](IterationEntry const& entry) { ret = advance(ret, entry); });
 	return ret;
 }
 } // namespace kvf::ttf
