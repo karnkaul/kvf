@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
-#include <optional>
 #include <span>
 #include <string_view>
 
@@ -54,6 +53,11 @@ struct Atlas {
 	std::vector<Glyph> glyphs{};
 };
 
+struct GlyphLayout {
+	gsl::not_null<Glyph const*> glyph;
+	glm::vec2 baseline{};
+};
+
 class Typeface {
   public:
 	[[nodiscard]] static auto default_codepoints() -> std::span<Codepoint const>;
@@ -72,6 +76,7 @@ class Typeface {
 	[[nodiscard]] auto get_kerning(GlyphIndex left, GlyphIndex right) const -> glm::ivec2;
 
 	[[nodiscard]] auto build_atlas(std::span<Codepoint const> codepoints = default_codepoints(), glm::ivec2 padding = glm::ivec2{2}) -> Atlas;
+	auto push_layouts(std::vector<GlyphLayout>& out, std::span<Glyph const> glyphs, std::string_view line, bool use_tofu = true) const -> glm::vec2;
 
 	explicit operator bool() const { return is_loaded(); }
 
@@ -83,38 +88,6 @@ class Typeface {
 	std::unique_ptr<Impl, Deleter> m_impl{};
 };
 
-struct IterationEntry {
-	gsl::not_null<Glyph const*> glyph;
-	char ch{};
-	glm::vec2 kerning{};
-};
-
-struct GlyphIterator {
-	using Entry = IterationEntry;
-
-	[[nodiscard]] static auto advance(glm::vec2 position, Entry const& entry) -> glm::vec2 { return position + entry.glyph->advance + entry.kerning; }
-
-	[[nodiscard]] auto glyph_or_fallback(Codepoint codepoint) const -> Glyph const&;
-
-	[[nodiscard]] auto line_bounds(std::string_view line) const -> Rect<>;
-	[[nodiscard]] auto next_glyph_position(std::string_view line) const -> glm::vec2;
-
-	template <typename F>
-		requires(std::invocable<F, Entry const&>)
-	void iterate(std::string_view const text, F func) const {
-		auto previous = std::optional<GlyphIndex>{};
-		for (char const c : text) {
-			auto const codepoint = Codepoint(c);
-			auto const& glyph = glyph_or_fallback(codepoint);
-			auto entry = Entry{.glyph = &glyph, .ch = c};
-			if (face != nullptr && previous) { entry.kerning = face->get_kerning(*previous, glyph.index); }
-			previous = glyph.index;
-			func(entry);
-		}
-	}
-
-	Typeface const* face{};
-	std::span<Glyph const> glyphs{};
-	bool use_tofu{true};
-};
+[[nodiscard]] auto glyph_or_fallback(std::span<Glyph const> glyphs, Codepoint codepoint, bool use_tofu = true) -> Glyph const&;
+[[nodiscard]] auto glyph_bounds(std::span<GlyphLayout const> glyph_layouts) -> Rect<>;
 } // namespace kvf::ttf

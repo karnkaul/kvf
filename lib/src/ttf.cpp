@@ -285,7 +285,25 @@ auto Typeface::build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 con
 	return BuildAtlas{}(*this, codepoints, glyph_padding);
 }
 
-auto GlyphIterator::glyph_or_fallback(Codepoint const codepoint) const -> Glyph const& {
+auto Typeface::push_layouts(std::vector<GlyphLayout>& out, std::span<Glyph const> glyphs, std::string_view const line, bool const use_tofu) const -> glm::vec2 {
+	if (line.empty() || glyphs.empty()) { return {}; }
+	out.reserve(out.size() + line.size());
+	auto baseline = glm::vec2{};
+	Glyph const* previous = nullptr;
+	for (char const c : line) {
+		auto const codepoint = Codepoint(c);
+		auto const& glyph = glyph_or_fallback(glyphs, codepoint, use_tofu);
+		if (previous != nullptr) { baseline += get_kerning(previous->index, glyph.index); }
+		auto const glyph_layout = GlyphLayout{.glyph = &glyph, .baseline = baseline};
+		out.push_back(glyph_layout);
+		baseline += glyph.advance;
+		previous = &glyph;
+	}
+	return baseline;
+}
+} // namespace kvf::ttf
+
+auto kvf::ttf::glyph_or_fallback(std::span<Glyph const> glyphs, Codepoint const codepoint, bool const use_tofu) -> Glyph const& {
 	auto it = std::ranges::find_if(glyphs, [codepoint](Glyph const& g) { return g.codepoint == codepoint; });
 	if (it == glyphs.end() && use_tofu) {
 		it = std::ranges::find_if(glyphs, [](Glyph const& g) { return g.codepoint == Codepoint::Tofu; });
@@ -297,25 +315,16 @@ auto GlyphIterator::glyph_or_fallback(Codepoint const codepoint) const -> Glyph 
 	return *it;
 }
 
-auto GlyphIterator::line_bounds(std::string_view const line) const -> Rect<> {
-	auto pos = glm::vec2{};
-	auto ret = Rect<>{.lt = pos, .rb = pos};
-	if (line.empty()) { return ret; }
+auto kvf::ttf::glyph_bounds(std::span<GlyphLayout const> glyph_layouts) -> Rect<> {
+	auto ret = Rect<>{};
+	if (glyph_layouts.empty()) { return ret; }
 	ret.lt.x = std::numeric_limits<float>::max();
-	iterate(line, [&](IterationEntry const& entry) {
-		auto const rect = entry.glyph->rect(pos);
+	for (auto const& glyph_layout : glyph_layouts) {
+		auto const rect = glyph_layout.glyph->rect(glyph_layout.baseline);
 		ret.lt.x = std::min(ret.lt.x, rect.lt.x);
 		ret.lt.y = std::max(ret.lt.y, rect.lt.y);
-		ret.rb.x = pos.x + entry.glyph->size.x;
+		ret.rb.x = glyph_layout.baseline.x + glyph_layout.glyph->size.x;
 		ret.rb.y = std::min(ret.rb.y, rect.rb.y);
-		pos = advance(pos, entry);
-	});
+	}
 	return ret;
 }
-
-auto GlyphIterator::next_glyph_position(std::string_view const line) const -> glm::vec2 {
-	auto ret = glm::vec2{};
-	iterate(line, [&ret](IterationEntry const& entry) { ret = advance(ret, entry); });
-	return ret;
-}
-} // namespace kvf::ttf
