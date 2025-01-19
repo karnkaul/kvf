@@ -48,112 +48,7 @@ struct {
 	std::weak_ptr<Lib> lib{};
 	std::mutex mutex{};
 } g_data{}; // NOLINT(cppcoreguidelines-avoid-non-const-global-variables)
-} // namespace
 
-struct Typeface::Impl {
-	struct Deleter {
-		void operator()(FT_Face face) const noexcept { FT_Done_Face(face); }
-	};
-
-	std::shared_ptr<Lib> lib{g_data.get_or_make_lib()};
-	std::vector<std::byte> font{};
-	klib::Unique<FT_Face, Deleter> face{};
-	bool has_kerning{};
-};
-
-void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
-
-Typeface::Typeface() : m_impl(new Impl) {}
-
-auto Typeface::default_codepoints() -> std::span<Codepoint const> {
-	static auto const ret = [&] {
-		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
-		auto ret = std::array<Codepoint, count_v>{};
-		auto index = std::size_t{};
-		ret.at(index++) = Codepoint::Tofu;
-		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
-		return ret;
-	}();
-	return ret;
-}
-
-auto Typeface::load(std::vector<std::byte> font) -> bool {
-	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
-	if (!m_impl->lib) { return false; }
-
-	FT_Face face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
-	if (face == nullptr) { return false; }
-
-	m_impl->font = std::move(font);
-	m_impl->face = face;
-	m_impl->has_kerning = FT_HAS_KERNING(face);
-
-	return true;
-}
-
-auto Typeface::is_loaded() const -> bool { return m_impl && !m_impl->face.is_identity(); }
-
-auto Typeface::set_height(std::uint32_t const height) -> bool {
-	if (!is_loaded()) { return false; }
-	return FT_Set_Pixel_Sizes(static_cast<FT_Face>(m_impl->face.get()), 0, FT_UInt(height)) == FT_Err_Ok;
-}
-
-auto Typeface::load_slot(Slot& out, Codepoint const codepoint) -> bool {
-	if (!is_loaded()) { return false; }
-	if (FT_Load_Char(m_impl->face.get(), FT_ULong(codepoint), FT_LOAD_RENDER) != FT_Err_Ok) { return false; }
-
-	auto const* glyph = m_impl->face.get()->glyph;
-	if (glyph == nullptr) { return false; }
-
-	auto const* ptr = static_cast<void const*>(glyph->bitmap.buffer);
-	auto const size = glyph->bitmap.width * glyph->bitmap.rows;
-	out = Slot{
-		.size = {glyph->bitmap.width, glyph->bitmap.rows},
-		.left_top = {glyph->bitmap_left, glyph->bitmap_top},
-		.advance = {glyph->advance.x >> 6, glyph->advance.y >> 6},
-		.alpha_channels = std::span{static_cast<std::byte const*>(ptr), std::size_t(size)},
-		.glyph_index = GlyphIndex{FT_Get_Char_Index(m_impl->face.get(), FT_ULong(codepoint))},
-	};
-	return true;
-}
-
-auto Typeface::has_kerning() const -> bool {
-	if (!is_loaded()) { return false; }
-	return m_impl->has_kerning;
-}
-
-auto Typeface::get_kerning(GlyphIndex const left, GlyphIndex const right) const -> glm::ivec2 {
-	if (!has_kerning()) { return {}; }
-	auto delta = FT_Vector{};
-	FT_Get_Kerning(m_impl->face.get(), FT_UInt(left), FT_UInt(right), FT_KERNING_DEFAULT, &delta);
-	return {delta.x >> 6, delta.y >> 6};
-}
-
-#else
-
-Typeface::Typeface() = default;
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::load(std::vector<std::byte> /*font*/) -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::is_loaded() const -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::set_height(std::uint32_t const /*height*/) -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::has_kerning() const -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::get_kerning(GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
-
-#endif
-
-namespace {
 constexpr auto pot(int const in) {
 	auto ret = 1;
 	while (ret < in && ret < std::numeric_limits<int>::max()) { ret <<= 1; }
@@ -163,15 +58,15 @@ constexpr auto pot(int const in) {
 struct BuildAtlas {
 	static constexpr int max_size_v{8 * 1024};
 
-	auto operator()(Typeface& face, std::span<Codepoint const> codepoints, glm::ivec2 const pad) -> Atlas {
+	auto operator()(Typeface& face, std::uint32_t const height, std::span<Codepoint const> codepoints, glm::ivec2 const pad) -> Atlas {
 		if (!face.is_loaded()) { return {}; }
 
 		m_pad = pad;
-		load_entries(face, codepoints);
+		load_entries(face, height, codepoints);
 		store_pixels();
 		if (m_atlas_size.x > max_size_v || m_atlas_size.y > max_size_v) { return {}; }
 
-		return finalize();
+		return finalize(height);
 	}
 
   private:
@@ -192,10 +87,10 @@ struct BuildAtlas {
 		glm::ivec2 coords{};
 	};
 
-	void load_entry(Typeface& face, Codepoint const codepoint) {
+	void load_entry(Typeface& face, std::uint32_t const height, Codepoint const codepoint) {
 		auto slot = Slot{};
 		auto alpha = Alpha{};
-		if (face.load_slot(slot, codepoint)) {
+		if (face.load_slot(slot, height, codepoint)) {
 			alpha = Alpha{.first = m_alphas.size(), .count = slot.alpha_channels.size()};
 			if (alpha.count > 0) {
 				m_alphas.resize(m_alphas.size() + alpha.count);
@@ -207,9 +102,9 @@ struct BuildAtlas {
 		m_entries.push_back(Entry{.codepoint = codepoint, .slot = slot, .alpha = alpha});
 	}
 
-	void load_entries(Typeface& face, std::span<Codepoint const> codepoints) {
+	void load_entries(Typeface& face, std::uint32_t const height, std::span<Codepoint const> codepoints) {
 		m_entries.reserve(codepoints.size());
-		for (auto const codepoint : codepoints) { load_entry(face, codepoint); }
+		for (auto const codepoint : codepoints) { load_entry(face, height, codepoint); }
 
 		auto const fcolumns = std::sqrt(m_entries.size());
 		auto const columns = int(std::ceil(fcolumns));
@@ -240,11 +135,12 @@ struct BuildAtlas {
 		m_line_height = 0;
 	}
 
-	auto finalize() -> Atlas {
+	auto finalize(std::uint32_t const height) -> Atlas {
 		auto ret = Atlas{};
 
 		m_atlas_size.y = pot(m_atlas_size.y);
 		ret.bitmap = ColorBitmap{m_atlas_size};
+		ret.height = height;
 
 		ret.glyphs.reserve(m_entries.size());
 		auto const fsize = glm::vec2(m_atlas_size);
@@ -281,19 +177,120 @@ struct BuildAtlas {
 };
 } // namespace
 
-auto Typeface::build_atlas(std::span<Codepoint const> codepoints, glm::ivec2 const glyph_padding) -> Atlas {
-	return BuildAtlas{}(*this, codepoints, glyph_padding);
+struct Typeface::Impl {
+	struct Deleter {
+		void operator()(FT_Face face) const noexcept { FT_Done_Face(face); }
+	};
+
+	std::shared_ptr<Lib> lib{g_data.get_or_make_lib()};
+	std::vector<std::byte> font{};
+	klib::Unique<FT_Face, Deleter> face{};
+	bool has_kerning{};
+};
+
+void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
+
+auto Typeface::default_codepoints() -> std::span<Codepoint const> {
+	static auto const ret = [&] {
+		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
+		auto ret = std::array<Codepoint, count_v>{};
+		auto index = std::size_t{};
+		ret.at(index++) = Codepoint::Tofu;
+		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
+		return ret;
+	}();
+	return ret;
 }
 
-auto Typeface::push_layouts(std::vector<GlyphLayout>& out, std::span<Glyph const> glyphs, std::string_view const line, bool const use_tofu) const -> glm::vec2 {
-	if (line.empty() || glyphs.empty()) { return {}; }
-	out.reserve(out.size() + line.size());
+auto Typeface::load(std::vector<std::byte> font) -> bool {
+	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
+	if (!m_impl->lib) { return false; }
+
+	FT_Face face = g_data.load_face(m_impl->lib->lib.get(), font.data(), font.size());
+	if (face == nullptr) { return false; }
+
+	m_impl->font = std::move(font);
+	m_impl->face = face;
+	m_impl->has_kerning = FT_HAS_KERNING(face);
+
+	return true;
+}
+
+auto Typeface::is_loaded() const -> bool { return m_impl && !m_impl->face.is_identity(); }
+
+auto Typeface::load_slot(Slot& out, std::uint32_t const height, Codepoint const codepoint) -> bool {
+	if (!is_loaded()) { return false; }
+	if (FT_Set_Pixel_Sizes(m_impl->face.get(), 0, FT_UInt(height)) != FT_Err_Ok) { return false; }
+	if (FT_Load_Char(m_impl->face.get(), FT_ULong(codepoint), FT_LOAD_RENDER) != FT_Err_Ok) { return false; }
+
+	auto const* glyph = m_impl->face.get()->glyph;
+	if (glyph == nullptr) { return false; }
+
+	auto const* ptr = static_cast<void const*>(glyph->bitmap.buffer);
+	auto const size = glyph->bitmap.width * glyph->bitmap.rows;
+	out = Slot{
+		.size = {glyph->bitmap.width, glyph->bitmap.rows},
+		.left_top = {glyph->bitmap_left, glyph->bitmap_top},
+		.advance = {glyph->advance.x >> 6, glyph->advance.y >> 6},
+		.alpha_channels = std::span{static_cast<std::byte const*>(ptr), std::size_t(size)},
+		.glyph_index = GlyphIndex{FT_Get_Char_Index(m_impl->face.get(), FT_ULong(codepoint))},
+	};
+	return true;
+}
+
+auto Typeface::has_kerning() const -> bool {
+	if (!is_loaded()) { return false; }
+	return m_impl->has_kerning;
+}
+
+auto Typeface::get_kerning(std::uint32_t const height, GlyphIndex const left, GlyphIndex const right) const -> glm::ivec2 {
+	if (!has_kerning()) { return {}; }
+	if (FT_Set_Pixel_Sizes(m_impl->face.get(), 0, FT_UInt(height)) != FT_Err_Ok) { return {}; }
+	auto delta = FT_Vector{};
+	FT_Get_Kerning(m_impl->face.get(), FT_UInt(left), FT_UInt(right), FT_KERNING_DEFAULT, &delta);
+	return {delta.x >> 6, delta.y >> 6};
+}
+
+auto Typeface::build_atlas(std::uint32_t const height, std::span<Codepoint const> codepoints, glm::ivec2 const glyph_padding) -> Atlas {
+	if (FT_Set_Pixel_Sizes(m_impl->face.get(), 0, FT_UInt(height)) != FT_Err_Ok) { return {}; }
+	return BuildAtlas{}(*this, height, codepoints, glyph_padding);
+}
+
+#else
+
+Typeface::Typeface() = default;
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::load(std::vector<std::byte> /*font*/) -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::is_loaded() const -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::set_height(std::uint32_t const /*height*/) -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::has_kerning() const -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::get_kerning(GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
+
+auto Typeface::build_atlas(std::uint32_t /*height*/, std::span<Codepoint const> /*codepoints*/, glm::ivec2 /*glyph_padding*/) -> Atlas { return {}; }
+
+#endif
+
+auto Typeface::push_layouts(std::vector<GlyphLayout>& out, LineLInput const& input, bool use_tofu) const -> glm::vec2 {
+	if (!is_loaded() || input.line.empty() || input.glyphs.empty()) { return {}; }
+	out.reserve(out.size() + input.line.size());
 	auto baseline = glm::vec2{};
 	Glyph const* previous = nullptr;
-	for (char const c : line) {
+	for (char const c : input.line) {
 		auto const codepoint = Codepoint(c);
-		auto const& glyph = glyph_or_fallback(glyphs, codepoint, use_tofu);
-		if (previous != nullptr) { baseline += get_kerning(previous->index, glyph.index); }
+		auto const& glyph = glyph_or_fallback(input.glyphs, codepoint, use_tofu);
+		if (previous != nullptr) { baseline += get_kerning(input.height, previous->index, glyph.index); }
 		auto const glyph_layout = GlyphLayout{.glyph = &glyph, .baseline = baseline};
 		out.push_back(glyph_layout);
 		baseline += glyph.advance;
