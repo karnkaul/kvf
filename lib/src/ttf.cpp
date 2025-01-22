@@ -3,6 +3,7 @@
 #include <kvf/ttf.hpp>
 #include <log.hpp>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include <mutex>
 

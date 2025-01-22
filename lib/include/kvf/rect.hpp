@@ -1,7 +1,7 @@
 #pragma once
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
-#include <cmath>
+#include <klib/compat.hpp>
 
 namespace kvf {
 /// \brief Axis aligned rectangle specified by top-left and bottom-right points.
@@ -34,7 +34,7 @@ struct Rect {
 	[[nodiscard]] constexpr auto bottom_right() const -> glm::tvec2<Type> { return rb; }
 
 	[[nodiscard]] constexpr auto center() const -> glm::tvec2<Type> { return {(lt.x + rb.x) / Type{2}, (lt.y + rb.y) / Type{2}}; }
-	[[nodiscard]] constexpr auto size() const -> glm::tvec2<Type> { return {std::abs(rb.x - lt.x), std::abs(lt.y - rb.y)}; }
+	[[nodiscard]] constexpr auto size() const -> glm::tvec2<Type> { return {klib::abs(rb.x - lt.x), klib::abs(lt.y - rb.y)}; }
 
 	/// \brief Check if a point is contained within this rect.
 	/// \param point Point to test against.
