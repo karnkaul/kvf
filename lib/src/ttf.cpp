@@ -259,26 +259,22 @@ auto Typeface::build_atlas(std::uint32_t const height, std::span<Codepoint const
 
 #else
 
-Typeface::Typeface() = default;
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static, performance-unnecessary-value-param)
 auto Typeface::load(std::vector<std::byte> /*font*/) -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::is_loaded() const -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::set_height(std::uint32_t const /*height*/) -> bool { return false; }
-
-// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::load_slot(Slot& /*out*/, Codepoint const /*codepoint*/) -> bool { return false; }
+auto Typeface::load_slot(Slot& /*out*/, std::uint32_t /*height*/, Codepoint /*codepoint*/) -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::has_kerning() const -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
-auto Typeface::get_kerning(GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
+auto Typeface::get_kerning(std::uint32_t /*height*/, GlyphIndex /*left*/, GlyphIndex /*right*/) const -> glm::ivec2 { return {}; }
 
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::build_atlas(std::uint32_t /*height*/, std::span<Codepoint const> /*codepoints*/, glm::ivec2 /*glyph_padding*/) -> Atlas { return {}; }
 
 #endif
