@@ -653,6 +653,7 @@ struct RenderDevice::Impl {
 		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
 			lock.unlock();
 			m_swapchain.recreate(framebuffer_extent);
+			m_current_cmd.end();
 			return;
 		}
 		lock.unlock();
@@ -701,8 +702,10 @@ struct RenderDevice::Impl {
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		m_swapchain.present(m_queue, *sync.present);
+		auto const present_sucess = m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
+
+		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
 
 		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
 		m_current_cmd = vk::CommandBuffer{};
