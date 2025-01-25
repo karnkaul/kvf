@@ -1,4 +1,5 @@
 #pragma once
+#include <klib/c_string.hpp>
 #include <kvf/color_bitmap.hpp>
 #include <kvf/rect.hpp>
 #include <cstddef>
@@ -77,6 +78,8 @@ class Typeface {
 
 	auto load(std::vector<std::byte> font) -> bool;
 	[[nodiscard]] auto is_loaded() const -> bool;
+
+	[[nodiscard]] auto get_name() const -> klib::CString;
 
 	auto load_slot(Slot& out, std::uint32_t height, Codepoint codepoint) -> bool;
 

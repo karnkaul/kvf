@@ -219,6 +219,11 @@ auto Typeface::load(std::vector<std::byte> font) -> bool {
 
 auto Typeface::is_loaded() const -> bool { return m_impl && !m_impl->face.is_identity(); }
 
+auto Typeface::get_name() const -> klib::CString {
+	if (!m_impl) { return {}; }
+	return klib::CString{FT_Get_Postscript_Name(m_impl->face.get())};
+}
+
 auto Typeface::load_slot(Slot& out, std::uint32_t const height, Codepoint const codepoint) -> bool {
 	if (!is_loaded()) { return false; }
 	if (FT_Set_Pixel_Sizes(m_impl->face.get(), 0, FT_UInt(height)) != FT_Err_Ok) { return false; }
@@ -264,6 +269,9 @@ auto Typeface::load(std::vector<std::byte> /*font*/) -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::is_loaded() const -> bool { return false; }
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+auto Typeface::get_name() const -> klib::CString { return {}; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
 auto Typeface::load_slot(Slot& /*out*/, std::uint32_t /*height*/, Codepoint /*codepoint*/) -> bool { return false; }
