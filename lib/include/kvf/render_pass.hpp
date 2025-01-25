@@ -1,40 +1,19 @@
 #pragma once
-#include <kvf/buffering.hpp>
+#include <kvf/buffered.hpp>
+#include <kvf/color.hpp>
+#include <kvf/pipeline_state.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/vma.hpp>
-#include <span>
 
 namespace kvf {
-struct PipelineState {
-	enum : int {
-		None = 0,
-		AlphaBlend = 1 << 0,
-		DepthTest = 1 << 1,
-	};
-	using Flags = int;
-
-	[[nodiscard]] static constexpr auto default_flags() -> Flags { return AlphaBlend | DepthTest; }
-
-	std::span<vk::VertexInputAttributeDescription const> vertex_attributes;
-	std::span<vk::VertexInputBindingDescription const> vertex_bindings;
-	vk::ShaderModule vertex_shader;
-	vk::ShaderModule fragment_shader;
-
-	vk::PrimitiveTopology topology{vk::PrimitiveTopology::eTriangleList};
-	vk::PolygonMode polygon_mode{vk::PolygonMode::eFill};
-	vk::CullModeFlags cull_mode{vk::CullModeFlagBits::eNone};
-	vk::CompareOp depth_compare{vk::CompareOp::eLess};
-	Flags flags{default_flags()};
-};
-
 class RenderPass {
   public:
 	static constexpr auto samples_v = vk::SampleCountFlagBits::e1;
 
 	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
-	void set_color_target(vk::Format format = vk::Format::eUndefined); // undefined = RGBA with swapchain color space
-	void set_depth_target();
+	auto set_color_target(vk::Format format = vk::Format::eUndefined) -> RenderPass&; // undefined = RGBA with swapchain color space
+	auto set_depth_target() -> RenderPass&;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline;
 
@@ -52,7 +31,11 @@ class RenderPass {
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);
 	void end_render();
 
-	vk::ClearColorValue clear_color{};
+	[[nodiscard]] auto viewport() const -> vk::Viewport;
+	[[nodiscard]] auto scissor() const -> vk::Rect2D;
+	void bind_pipeline(vk::Pipeline pipeline) const;
+
+	Color clear_color{black_v};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};
 

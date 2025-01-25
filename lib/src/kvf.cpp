@@ -1,4 +1,6 @@
 #include <vk_mem_alloc.h>
+#include <glm/gtc/color_space.hpp>
+#include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
 #include <klib/flex_array.hpp>
@@ -7,8 +9,10 @@
 #include <klib/version_str.hpp>
 #include <kvf/build_version.hpp>
 #include <kvf/error.hpp>
+#include <kvf/is_positive.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
+#include <charconv>
 #include <chrono>
 #include <cmath>
 #include <fstream>
@@ -22,7 +26,7 @@ namespace {
 template <typename... T>
 constexpr void ensure_positive(T&... out) {
 	auto const sanitize = [](auto& t) {
-		if (t <= 0) { t = 1; }
+		if (!is_positive(t)) { t = 1; }
 	};
 	(sanitize(out), ...);
 }
@@ -35,6 +39,47 @@ constexpr void ensure_positive(T&... out) {
 }
 } // namespace
 } // namespace kvf
+
+// window
+
+#include <kvf/window.hpp>
+
+namespace {
+void glfw_init() {
+	if (glfwInit() != GLFW_TRUE) { throw kvf::Error{"Failed to initialize GLFW"}; }
+	if (glfwVulkanSupported() != GLFW_TRUE) { throw kvf::Error{"Vulkan not supported"}; }
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+}
+} // namespace
+
+void kvf::WindowDeleter::operator()(GLFWwindow* ptr) const noexcept {
+	glfwDestroyWindow(ptr);
+	glfwTerminate();
+}
+
+auto kvf::create_window(glm::ivec2 const size, klib::CString const title, bool const decorated) -> UniqueWindow {
+	glfw_init();
+	glfwWindowHint(GLFW_DECORATED, decorated ? GLFW_TRUE : GLFW_FALSE);
+	auto* window = glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr);
+	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
+	glfwSetWindowSize(window, size.x, size.y);
+	return UniqueWindow{window};
+}
+
+auto kvf::create_fullscreen_window(klib::CString const title, GLFWmonitor* target) -> UniqueWindow {
+	glfw_init();
+	if (target == nullptr) { target = glfwGetPrimaryMonitor(); }
+	auto const* mode = glfwGetVideoMode(target);
+	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+	glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+	glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_TRUE);
+	auto* window = glfwCreateWindow(mode->width, mode->height, title.c_str(), target, nullptr);
+	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
+	return UniqueWindow{window};
+}
 
 // render_device
 
@@ -51,14 +96,42 @@ constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::For
 
 constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
 
-auto srgb_to_linear(float const f) -> float {
-	if (f < 0.04045f) { return f / 12.92f; }
-	return std::pow((f + 0.055f) / 1.055f, 2.4f);
+[[nodiscard]] auto instance_extensions() -> std::span<char const* const> {
+	auto count = std::uint32_t{};
+	auto const* first = glfwGetRequiredInstanceExtensions(&count);
+	return {first, count};
 }
 
-auto srgb_to_linear(ImVec4 const& in) -> ImVec4 { return ImVec4{srgb_to_linear(in.x), srgb_to_linear(in.y), srgb_to_linear(in.z), in.w}; }
+[[nodiscard]] auto filter_modes(std::span<vk::PresentModeKHR const> all) -> std::vector<vk::PresentModeKHR> {
+	auto ret = std::vector<vk::PresentModeKHR>{};
+	ret.reserve(all.size());
+	for (auto const in : all) {
+		if (std::ranges::find(RenderDevice::present_modes_v, in) == RenderDevice::present_modes_v.end()) { continue; }
+		ret.push_back(in);
+	}
+	return ret;
+}
 
-auto best_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
+[[nodiscard]] constexpr auto optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	for (auto const desired : desired_v) {
+		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
+	}
+	return vk::PresentModeKHR::eFifo;
+}
+
+[[nodiscard]] constexpr auto compatible_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
+	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
+	for (auto const srgb_format : desired) {
+		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
+			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
+		});
+		if (it != supported.end()) { return *it; }
+	}
+	return vk::SurfaceFormatKHR{};
+}
+
+auto optimal_depth_format(vk::PhysicalDevice const& gpu) -> vk::Format {
 	static constexpr auto target_v{vk::Format::eD32Sfloat};
 	auto const props = gpu.getFormatProperties(target_v);
 	if (props.optimalTilingFeatures & vk::FormatFeatureFlagBits::eDepthStencilAttachment) { return target_v; }
@@ -109,31 +182,6 @@ struct GpuList {
 	}
 };
 
-[[nodiscard]] auto get_instance_extensions() -> std::span<char const* const> {
-	auto count = std::uint32_t{};
-	auto const* first = glfwGetRequiredInstanceExtensions(&count);
-	return {first, count};
-}
-
-[[nodiscard]] constexpr auto get_optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
-	for (auto const desired : desired_v) {
-		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
-	}
-	return vk::PresentModeKHR::eFifo;
-}
-
-[[nodiscard]] constexpr auto get_surface_format(std::span<vk::SurfaceFormatKHR const> supported, bool const linear) -> vk::SurfaceFormatKHR {
-	auto const& desired = linear ? linear_formats_v : srgb_formats_v;
-	for (auto const srgb_format : desired) {
-		auto const it = std::ranges::find_if(supported, [srgb_format](vk::SurfaceFormatKHR const& format) {
-			return format.colorSpace == vk::ColorSpaceKHR::eSrgbNonlinear && format.format == srgb_format;
-		});
-		if (it != supported.end()) { return *it; }
-	}
-	return vk::SurfaceFormatKHR{};
-}
-
 class DearImGui {
   public:
 	struct CreateInfo { // NOLINT(cppcoreguidelines-pro-type-member-init)
@@ -177,8 +225,11 @@ class DearImGui {
 		ImGui::StyleColorsDark();
 		if (create_info.srgb_target) {
 			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-			for (auto& colour : ImGui::GetStyle().Colors) { colour = srgb_to_linear(colour); }
-			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.98f; // more opaque
+			for (auto& colour : ImGui::GetStyle().Colors) {
+				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+			}
+			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
 		}
 
 		auto load_vk_func = +[](char const* name, void* user_data) {
@@ -198,7 +249,7 @@ class DearImGui {
 		init_info.DescriptorPool = *m_pool;
 		init_info.Subpass = 0;
 		init_info.MinImageCount = 2;
-		init_info.ImageCount = buffering_v + 1;
+		init_info.ImageCount = resource_buffering_v;
 		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
 		init_info.UseDynamicRendering = true;
 		init_info.PipelineRenderingCreateInfo = create_info.prci;
@@ -234,7 +285,7 @@ class DearImGui {
 		if (auto* data = ImGui::GetDrawData()) { ImGui_ImplVulkan_RenderDrawData(data, command_buffer); }
 	}
 
-	enum class State { eNewFrame, eEndFrame };
+	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
 	vk::Device m_device{};
 
@@ -376,23 +427,70 @@ struct Swapchain {
 
 	vk::Queue m_queue;
 };
+
+struct DescriptorAllocator {
+	void reset() {
+		for (auto& pool : m_pools) { device.resetDescriptorPool(*pool); }
+		m_index = 0;
+	}
+
+	auto allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		KLIB_ASSERT(device && !pool_sizes.empty() && sets_per_pool > 0);
+		if (layouts.empty() || out_sets.size() != layouts.size()) { return false; }
+		auto result = try_allocate(out_sets, layouts);
+		switch (result) {
+		case vk::Result::eSuccess: return true;
+		case vk::Result::eErrorOutOfPoolMemory: ++m_index; return try_allocate(out_sets, layouts) == vk::Result::eSuccess;
+		default: return false;
+		}
+	}
+
+	vk::Device device{};
+	std::span<vk::DescriptorPoolSize const> pool_sizes{};
+	std::uint32_t sets_per_pool{};
+
+  private:
+	auto get_pool() -> vk::DescriptorPool {
+		while (m_index >= m_pools.size()) {
+			auto dpci = vk::DescriptorPoolCreateInfo{};
+			dpci.setPoolSizes(pool_sizes).setMaxSets(sets_per_pool);
+			m_pools.push_back(device.createDescriptorPoolUnique(dpci));
+		}
+		return *m_pools.at(m_index);
+	}
+
+	auto try_allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> vk::Result {
+		auto const pool = get_pool();
+		auto dsai = vk::DescriptorSetAllocateInfo{};
+		dsai.setDescriptorPool(pool).setSetLayouts(layouts);
+		return device.allocateDescriptorSets(&dsai, out_sets.data());
+	}
+
+	std::vector<vk::UniqueDescriptorPool> m_pools{};
+	std::size_t m_index{};
+};
 } // namespace
 
 struct RenderDevice::Impl {
-	Impl(GLFWwindow* window, Flags const flags, GpuSelector const& gpu_selector) : m_window(window), m_flags(flags) {
+	using Flag = RenderDeviceFlag;
+
+	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
+		static auto const default_gpu_selector = GpuSelector{};
+		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
 		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
-		select_gpu(gpu_selector);
+		select_gpu(*create_info.gpu_selector);
 		create_device();
 		create_swapchain();
 		create_allocator();
+		init_set_allocators(create_info.sets_per_pool);
 
 		m_imgui.new_frame();
 	}
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow* { return m_window; }
-	[[nodiscard]] auto get_flags() const -> Flags { return m_flags; }
+	[[nodiscard]] auto get_flags() const -> Flag { return m_flags; }
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex { return FrameIndex{m_frame_index}; }
 
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version { return m_loader_version; }
@@ -413,9 +511,9 @@ struct RenderDevice::Impl {
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR { return m_swapchain.get_info().presentMode; }
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_present_modes; }
 
-	auto request_present_mode(vk::PresentModeKHR desired) -> bool {
+	auto set_present_mode(vk::PresentModeKHR desired) -> bool {
 		if (std::ranges::find(m_present_modes, desired) == m_present_modes.end()) { return false; }
-		m_next_present_mode = desired;
+		m_swapchain.recreate(get_framebuffer_extent(), desired);
 		return true;
 	}
 
@@ -429,23 +527,112 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
+		auto ret = vk::SamplerCreateInfo{};
+		ret.setAddressModeU(wrap)
+			.setAddressModeV(wrap)
+			.setAddressModeW(wrap)
+			.setAnisotropyEnable(aniso > 0.0f ? vk::True : vk::False)
+			.setMaxAnisotropy(aniso)
+			.setMinFilter(filter)
+			.setMagFilter(filter)
+			.setMaxLod(VK_LOD_CLAMP_NONE)
+			.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+			.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+		return ret;
+	}
+
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+		auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+		shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+		shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
+
+		auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
+		pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+		auto prsci = vk::PipelineRasterizationStateCreateInfo{};
+		prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
+		auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
+		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+
+		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+		auto pcbas = vk::PipelineColorBlendAttachmentState{};
+		auto const alpha_blend = (state.flags & PipelineFlag::AlphaBlend) == PipelineFlag::AlphaBlend;
+		using CCF = vk::ColorComponentFlagBits;
+		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
+			.setBlendEnable(alpha_blend ? vk::True : vk::False)
+			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setAlphaBlendOp(vk::BlendOp::eAdd);
+		auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
+		pcbsci.setAttachments(pcbas);
+
+		auto const pdscis = std::array{
+			vk::DynamicState::eViewport,
+			vk::DynamicState::eScissor,
+			vk::DynamicState::eLineWidth,
+		};
+		auto pdsci = vk::PipelineDynamicStateCreateInfo{};
+		pdsci.setDynamicStates(pdscis);
+
+		auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+		auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
+		pmsci.setRasterizationSamples(format.samples).setSampleShadingEnable(vk::False);
+
+		auto prci = vk::PipelineRenderingCreateInfo{};
+		if (format.color != vk::Format::eUndefined) { prci.setColorAttachmentFormats(format.color); }
+		prci.setDepthAttachmentFormat(format.depth);
+
+		auto gpci = vk::GraphicsPipelineCreateInfo{};
+		gpci.setPVertexInputState(&pvisci)
+			.setStages(shader_stages)
+			.setPRasterizationState(&prsci)
+			.setPDepthStencilState(&pdssci)
+			.setPInputAssemblyState(&piasci)
+			.setPColorBlendState(&pcbsci)
+			.setPDynamicState(&pdsci)
+			.setPViewportState(&pvsci)
+			.setPMultisampleState(&pmsci)
+			.setLayout(layout)
+			.setPNext(&prci);
+
+		auto const device = get_device();
+		auto ret = vk::Pipeline{};
+		if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+		return vk::UniquePipeline{ret, device};
+	}
+
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
+	}
+
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
 	}
 
-	auto next_frame() -> vk::CommandBuffer {
-		glfwPollEvents();
+	[[nodiscard]] auto is_window_closing() const -> bool { return glfwWindowShouldClose(m_window) == GLFW_TRUE; }
 
+	void set_window_closing(bool const value) const { glfwSetWindowShouldClose(m_window, value ? GLFW_TRUE : GLFW_FALSE); }
+
+	auto next_frame() -> vk::CommandBuffer {
 		auto const drawn = *m_syncs.at(m_frame_index).drawn;
 		if (!util::wait_for_fence(*m_device, drawn)) { throw Error{"Failed to wait for Render Fence"}; }
-		m_imgui.new_frame();
 
-		if (m_current_cmd) {	 // previous render() early returned
-			m_current_cmd.end(); // discard existing commands
-		} else {
-			m_current_cmd = m_command_buffers.at(m_frame_index);
-		}
+		glfwPollEvents();
+		m_imgui.new_frame();
+		m_set_allocators.at(m_frame_index).reset();
+
+		m_current_cmd = m_command_buffers.at(m_frame_index);
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
 		return m_current_cmd;
 	}
@@ -455,17 +642,20 @@ struct RenderDevice::Impl {
 		if (!m_current_cmd) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
-		if (m_next_present_mode || m_swapchain.get_info().imageExtent != framebuffer_extent) {
-			auto const present_mode = m_next_present_mode.value_or(m_swapchain.get_info().presentMode);
-			m_swapchain.recreate(framebuffer_extent, present_mode);
-			m_next_present_mode.reset();
-		}
+		if (framebuffer_extent.width == 0 || framebuffer_extent.height == 0) { return; }
+
+		if (m_swapchain.get_info().imageExtent != framebuffer_extent) { m_swapchain.recreate(framebuffer_extent); }
 
 		auto const& sync = m_syncs.at(m_frame_index);
 		if (!util::wait_for_fence(*m_device, *sync.drawn)) { throw Error{"Failed to wait for Render Fence"}; }
 
 		auto lock = std::unique_lock{m_queue_mutex};
-		if (!m_swapchain.acquire_next_image(*sync.draw)) { return; } // out of date
+		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
+			lock.unlock();
+			m_swapchain.recreate(framebuffer_extent);
+			m_current_cmd.end();
+			return;
+		}
 		lock.unlock();
 
 		m_device->resetFences(*sync.drawn); // must submit after reset
@@ -512,10 +702,12 @@ struct RenderDevice::Impl {
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		m_swapchain.present(m_queue, *sync.present);
+		auto const present_sucess = m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
 
-		m_frame_index = (m_frame_index + 1) % buffering_v;
+		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
+
+		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
 		m_current_cmd = vk::CommandBuffer{};
 	}
 
@@ -548,7 +740,7 @@ struct RenderDevice::Impl {
 		app_info.apiVersion = VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch);
 		auto ici = vk::InstanceCreateInfo{};
 		ici.pApplicationInfo = &app_info;
-		auto const wsi_extensions = get_instance_extensions();
+		auto const wsi_extensions = instance_extensions();
 		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
 		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
 			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
@@ -619,7 +811,7 @@ struct RenderDevice::Impl {
 		auto const* selected = &selector.select(list.gpus);
 		m_queue_family = list.get_queue_family(selected);
 		m_gpu = *selected;
-		m_depth_format = best_depth_format(m_gpu.device);
+		m_depth_format = optimal_depth_format(m_gpu.device);
 		log::debug("Using GPU: {}, queue family: {}", m_gpu.properties.deviceName.data(), m_queue_family);
 	}
 
@@ -658,11 +850,11 @@ struct RenderDevice::Impl {
 
 	void create_swapchain() {
 		auto const linear_backbuffer = (m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer;
-		auto const surface_format = get_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
-		m_present_modes = m_gpu.device.getSurfacePresentModesKHR(*m_surface);
+		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
+		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
 		sci.surface = *m_surface;
-		sci.presentMode = get_optimal_present_mode(m_present_modes);
+		sci.presentMode = optimal_present_mode(m_present_modes);
 		sci.imageFormat = surface_format.format;
 		sci.queueFamilyIndexCount = 1u;
 		sci.pQueueFamilyIndices = &m_queue_family;
@@ -672,7 +864,7 @@ struct RenderDevice::Impl {
 
 		auto const cpci = vk::CommandPoolCreateInfo{vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_family};
 		m_command_pool = m_device->createCommandPoolUnique(cpci);
-		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(buffering_v)};
+		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(resource_buffering_v)};
 		if (m_device->allocateCommandBuffers(&cbai, m_command_buffers.data()) != vk::Result::eSuccess) {
 			throw Error{"Failed to allocate render CommandBuffer(s)"};
 		}
@@ -712,6 +904,22 @@ struct RenderDevice::Impl {
 		vaci.pVulkanFunctions = &vkFunc;
 		if (vmaCreateAllocator(&vaci, &m_allocator.get()) != VK_SUCCESS) { throw Error{"Failed to create Vulkan Allocator"}; }
 		log::debug("Vulkan Allocator created");
+	}
+
+	void init_set_allocators(std::uint32_t const sets_per_pool) {
+		if (m_pool_sizes.empty()) {
+			static constexpr auto descriptors_per_type_v{8};
+			m_pool_sizes = {
+				vk::DescriptorPoolSize{vk::DescriptorType::eUniformBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eStorageBuffer, descriptors_per_type_v},
+				vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, descriptors_per_type_v},
+			};
+		}
+		for (auto& allocator : m_set_allocators) {
+			allocator.device = *m_device;
+			allocator.pool_sizes = m_pool_sizes;
+			allocator.sets_per_pool = sets_per_pool;
+		}
 	}
 
 	void blit_to_backbuffer(RenderTarget const& frame, RenderTarget const& backbuffer, vk::CommandBuffer cmd, vk::Filter filter) const {
@@ -804,7 +1012,7 @@ struct RenderDevice::Impl {
 	}
 
 	GLFWwindow* m_window{};
-	Flags m_flags{};
+	Flag m_flags{};
 
 	klib::Version m_loader_version{};
 
@@ -827,8 +1035,8 @@ struct RenderDevice::Impl {
 	DearImGui m_imgui{};
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
-
-	std::optional<vk::PresentModeKHR> m_next_present_mode{};
+	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
+	Buffered<DescriptorAllocator> m_set_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
@@ -839,11 +1047,10 @@ struct RenderDevice::Impl {
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, Flags const flags, GpuSelector const& gpu_selector)
-	: m_impl(new Impl(window, flags, gpu_selector)) {}
+RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
-auto RenderDevice::get_flags() const -> Flags { return m_impl->get_flags(); }
+auto RenderDevice::get_flags() const -> RenderDeviceFlag { return m_impl->get_flags(); }
 auto RenderDevice::get_frame_index() const -> FrameIndex { return m_impl->get_frame_index(); }
 
 auto RenderDevice::get_loader_api_version() const -> klib::Version { return m_impl->get_loader_api_version(); }
@@ -857,16 +1064,30 @@ auto RenderDevice::get_allocator() const -> VmaAllocator { return m_impl->get_al
 auto RenderDevice::get_framebuffer_extent() const -> vk::Extent2D { return m_impl->get_framebuffer_extent(); }
 auto RenderDevice::get_present_mode() const -> vk::PresentModeKHR { return m_impl->get_present_mode(); }
 auto RenderDevice::get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> { return m_impl->get_supported_present_modes(); }
-auto RenderDevice::request_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->request_present_mode(desired); }
+auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { return m_impl->set_present_mode(desired); }
 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
+auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+	return m_impl->sampler_info(wrap, filter, aniso);
+}
+
+auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
+	return m_impl->create_pipeline(layout, state, format);
+}
+
+auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+	return m_impl->allocate_sets(out_sets, layouts);
+}
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
+
+auto RenderDevice::is_window_closing() const -> bool { return m_impl->is_window_closing(); }
+void RenderDevice::set_window_closing(bool const value) const { m_impl->set_window_closing(value); }
 
 auto RenderDevice::next_frame() -> vk::CommandBuffer { return m_impl->next_frame(); }
 void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { m_impl->render(frame, filter); }
@@ -933,6 +1154,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	ensure_positive(extent.width, extent.height);
 	if (m_extent == extent) { return true; }
 
+	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
 	auto const queue_family = m_device->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
@@ -940,7 +1162,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 		.setUsage(m_info.usage)
 		.setImageType(vk::ImageType::e2D)
 		.setArrayLayers(m_info.layers)
-		.setMipLevels(m_info.mips)
+		.setMipLevels(mip_mapped ? util::compute_mip_levels(extent) : 1)
 		.setSamples(m_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
@@ -957,6 +1179,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
+	m_mip_levels = ici.mipLevels;
 	m_image = Payload{
 		.allocator = m_device->get_allocator(),
 		.allocation = allocation,
@@ -983,7 +1206,7 @@ void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2
 	m_layout = barrier.newLayout;
 }
 
-auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_info.mips, 0, m_info.layers}; }
+auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 } // namespace kvf::vma
 
 // render_pass
@@ -993,7 +1216,7 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 namespace kvf {
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
-void RenderPass::set_color_target(vk::Format format) {
+auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
 	auto const color_ici = vma::ImageCreateInfo{
 		.format = format,
@@ -1011,9 +1234,10 @@ void RenderPass::set_color_target(vk::Format format) {
 		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
 	}
+	return *this;
 }
 
-void RenderPass::set_depth_target() {
+auto RenderPass::set_depth_target() -> RenderPass& {
 	auto const depth_ici = vma::ImageCreateInfo{
 		.format = m_device->get_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
@@ -1022,80 +1246,16 @@ void RenderPass::set_depth_target() {
 		.flags = vma::ImageFlag::DedicatedAlloc,
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
+	return *this;
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].stage = vk::ShaderStageFlagBits::eVertex;
-	shader_stages[1].stage = vk::ShaderStageFlagBits::eFragment;
-	shader_stages[0].pName = shader_stages[1].pName = "main";
-
-	shader_stages[0].module = state.vertex_shader;
-	shader_stages[1].module = state.fragment_shader;
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineState::DepthTest) == PipelineState::DepthTest;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbas = vk::PipelineColorBlendAttachmentState{};
-	auto const alpha_blend = (state.flags & PipelineState::AlphaBlend) == PipelineState::AlphaBlend;
-	using CCF = vk::ColorComponentFlagBits;
-	pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-		.setBlendEnable(alpha_blend ? vk::True : vk::False)
-		.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-		.setColorBlendOp(vk::BlendOp::eAdd)
-		.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-		.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-		.setAlphaBlendOp(vk::BlendOp::eAdd);
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo();
-	pcbsci.setAttachments(pcbas);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
+	auto const format = PipelineFormat{
+		.samples = m_samples,
+		.color = get_color_format(),
+		.depth = get_depth_format(),
 	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	auto const& framebuffer = m_framebuffers.front();
-	auto const colour_format = framebuffer.color.get_info().format;
-	if (framebuffer.color) { prci.setColorAttachmentFormats(colour_format); }
-	if (framebuffer.depth) { prci.setDepthAttachmentFormat(framebuffer.depth.get_info().format); }
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto const device = m_device->get_device();
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
+	return m_device->create_pipeline(layout, state, format);
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -1115,6 +1275,8 @@ auto RenderPass::render_target() const -> RenderTarget const& {
 }
 
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
+	if (!has_color_target() && !has_depth_target()) { return; }
+
 	ensure_positive(extent.width, extent.height);
 	m_extent = extent;
 	m_command_buffer = command_buffer;
@@ -1157,11 +1319,12 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	auto dai = vk::RenderingAttachmentInfo{};
 
 	if (m_targets.color.view) {
+		auto const cc = clear_color.to_vec4();
 		cai.setImageView(m_targets.color.view)
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(vk::AttachmentStoreOp::eStore)
-			.setClearValue(clear_color);
+			.setClearValue(vk::ClearColorValue{cc.x, cc.y, cc.z, cc.w});
 	}
 	if (m_targets.resolve.view) {
 		cai.setResolveImageView(m_targets.resolve.view)
@@ -1219,6 +1382,17 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
+auto RenderPass::viewport() const -> vk::Viewport { return vk::Viewport{0.0f, float(m_extent.height), float(m_extent.width), -float(m_extent.height)}; }
+
+auto RenderPass::scissor() const -> vk::Rect2D { return {{}, m_extent}; }
+
+void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
+	if (!m_command_buffer) { return; }
+	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
+	m_command_buffer.setViewport(0, viewport());
+	m_command_buffer.setScissor(0, scissor());
+}
+
 void RenderPass::set_render_targets() {
 	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
 	if (framebuffer.color && framebuffer.color.get_extent() != m_extent) {
@@ -1260,9 +1434,70 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 }
 } // namespace kvf
 
-// util
+// image_bitmap
 
 #include <stb/stb_image.h>
+#include <kvf/image_bitmap.hpp>
+
+namespace kvf {
+void ImageBitmap::Deleter::operator()(Bitmap const& bitmap) const noexcept {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	stbi_image_free(const_cast<std::byte*>(bitmap.bytes.data()));
+}
+
+ImageBitmap::ImageBitmap(std::span<std::byte const> compressed) { decompress(compressed); }
+
+auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
+	auto const* ptr = static_cast<void const*>(compressed.data());
+	auto size = glm::ivec2{};
+	auto in_channels = int{};
+	void* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &size.x, &size.y, &in_channels, int(channels_v));
+	if (result == nullptr || !is_positive(size)) { return false; }
+
+	m_bitmap = Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(result), std::size_t(size.x * size.y * int(channels_v))},
+		.size = size,
+	};
+
+	return true;
+}
+} // namespace kvf
+
+// color_bitmap
+
+#include <kvf/color_bitmap.hpp>
+
+namespace kvf {
+auto Color::to_srgb() const -> glm::vec4 { return glm::convertLinearToSRGB(to_vec4()); }
+auto Color::to_linear() const -> glm::vec4 { return glm::convertSRGBToLinear(to_vec4()); }
+
+void ColorBitmap::resize(glm::ivec2 size) {
+	if (size.x < 0 || size.y < 0) { return; }
+	m_size = size;
+	m_bitmap.resize(std::size_t(m_size.x * m_size.y));
+}
+
+auto ColorBitmap::at(int const x, int const y) const -> Color const& {
+	auto const index = (y * m_size.x) + x;
+	return m_bitmap.at(std::size_t(index));
+}
+
+auto ColorBitmap::at(int const x, int const y) -> Color& {
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
+	return const_cast<Color&>(std::as_const(*this).at(x, y));
+}
+
+auto ColorBitmap::bitmap() const -> Bitmap {
+	static_assert(sizeof(Color) == Bitmap::channels_v);
+	void const* first = m_bitmap.data();
+	return Bitmap{
+		.bytes = std::span{static_cast<std::byte const*>(first), sizeof(Color) * m_bitmap.size()},
+		.size = m_size,
+	};
+}
+} // namespace kvf
+
+// util
 
 namespace kvf {
 namespace {
@@ -1275,8 +1510,8 @@ auto read_from_file(T& out, klib::CString path) -> IoResult {
 	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
 	file.seekg(0, std::ios::beg);
 	out.resize(std::size_t(size) / sizeof(value_type));
-	// NOLINTNEXTLINE(cppcoreguidelines-pro-type-reinterpret-cast)
-	file.read(reinterpret_cast<char*>(out.data()), size);
+	void* first = out.data();
+	file.read(static_cast<char*>(first), size);
 	return IoResult::Success;
 }
 
@@ -1333,7 +1568,7 @@ struct MakeMipMaps {
 		util::record_barrier(command_buffer, barrier);
 
 		auto src_extent = vk::Extent3D{out.get_extent(), 1};
-		for (std::uint32_t mip = 0; mip + 1 < out.get_info().mips; ++mip) {
+		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
 			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
 			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
 			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
@@ -1344,28 +1579,20 @@ struct MakeMipMaps {
 };
 } // namespace
 
-void RgbaImage::Deleter::operator()(void* ptr) const noexcept { stbi_image_free(ptr); }
-
-RgbaImage::RgbaImage(std::span<std::byte const> compressed) { decompress(compressed); }
-
-auto RgbaImage::decompress(std::span<std::byte const> compressed) -> bool {
-	auto const* ptr = static_cast<void const*>(compressed.data());
-	auto x = int{};
-	auto y = int{};
-	auto in_channels = int{};
-	auto* result = stbi_load_from_memory(static_cast<stbi_uc const*>(ptr), int(compressed.size()), &x, &y, &in_channels, int(channels_v));
-	if (result == nullptr || x <= 0 || y <= 0) { return false; }
-
-	m_ptr = result;
-	m_extent = vk::Extent2D{std::uint32_t(x), std::uint32_t(y)};
-	m_size_bytes = std::size_t(m_extent.width * m_extent.height * channels_v);
-	return true;
+auto util::color_from_hex(std::string_view hex) -> Color {
+	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
+	hex = hex.substr(1);
+	auto const next = [&](std::uint8_t& out) {
+		auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + 2, out, 16);
+		hex = hex.substr(2);
+		return ec == std::errc{} && ptr == hex.data();
+	};
+	auto ret = Color{};
+	if (!next(ret.x) || !next(ret.y) || !next(ret.z) || !next(ret.w)) { return {}; }
+	return ret;
 }
 
-auto RgbaImage::bitmap() const -> RgbaBitmap {
-	if (!is_loaded()) { return {}; }
-	return RgbaBitmap{.bytes = std::span{static_cast<std::byte const*>(m_ptr.get()), m_size_bytes}, .extent = m_extent};
-}
+auto util::to_hex_string(Color const& color) -> std::string { return std::format("#{:02x}{:02x}{:02x}{:02x}", color.x, color.y, color.z, color.w); }
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
@@ -1386,15 +1613,15 @@ auto util::string_from_file(std::string& out_string, klib::CString path) -> IoRe
 auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
 auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
 
-auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::DeviceSize offset) -> bool {
+auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }
 
 	if (dst.get_size() < offset + bytes.size()) { return false; }
-	if (bytes.empty()) { return true; }
+	if (bytes.is_empty()) { return true; }
 
-	if (auto* ptr = dst.get_mapped()) {
-		auto const span = std::span{static_cast<std::byte*>(ptr), dst.get_size()}.subspan(offset);
-		std::memcpy(span.data(), bytes.data(), bytes.size());
+	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		std::memcpy(ptr + offset, bytes.data(), bytes.size());
 		return true;
 	}
 
@@ -1407,7 +1634,7 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
 	if (!overwrite(staging, bytes)) { return false; }
 
-	auto const bc = vk::BufferCopy2{offset, 0, staging.get_size()};
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
 	auto cbi = vk::CopyBufferInfo2{};
 	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
 	auto cmd = CommandBuffer{dst.get_render_device()};
@@ -1415,21 +1642,22 @@ auto util::overwrite(vma::Buffer& dst, std::span<std::byte const> bytes, vk::Dev
 	return cmd.submit_and_wait();
 }
 
-auto util::write_to(vma::Buffer& dst, std::span<std::byte const> bytes) -> bool {
+auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
 	if (!dst.resize(bytes.size())) { return false; }
 	return overwrite(dst, bytes);
 }
 
-auto util::write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool {
+auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 	if (!dst || dst.get_info().layers != layers.size()) { return false; }
 	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
-	auto const extent = layers.front().extent;
-	auto const layer_size = vk::DeviceSize(extent.width * extent.height * RgbaBitmap::channels_v);
+	auto const size = layers.front().size;
+	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
 	auto const total_size = layers.size() * layer_size;
-	auto const check = [extent, layer_size](RgbaBitmap const& b) { return b.extent == extent && b.bytes.size() == layer_size; };
+	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
 	if (layer_size == 0) { return true; }
+	auto const extent = to_vk_extent(size);
 	if (!dst.resize(extent)) { return false; }
 
 	auto const original_layout = dst.get_layout();
@@ -1469,7 +1697,7 @@ auto util::write_to(vma::Image& dst, std::span<RgbaBitmap const> layers) -> bool
 	}
 
 	auto current_layout = dst.get_layout();
-	if (dst.get_info().mips > 1) {
+	if (dst.get_mip_levels() > 1) {
 		MakeMipMaps{.out = dst, .command_buffer = cmd}();
 		current_layout = vk::ImageLayout::eTransferSrcOptimal;
 	}
