@@ -40,6 +40,47 @@ constexpr void ensure_positive(T&... out) {
 } // namespace
 } // namespace kvf
 
+// window
+
+#include <kvf/window.hpp>
+
+namespace {
+void glfw_init() {
+	if (glfwInit() != GLFW_TRUE) { throw kvf::Error{"Failed to initialize GLFW"}; }
+	if (glfwVulkanSupported() != GLFW_TRUE) { throw kvf::Error{"Vulkan not supported"}; }
+	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
+	glfwWindowHint(GLFW_AUTO_ICONIFY, GLFW_FALSE);
+}
+} // namespace
+
+void kvf::WindowDeleter::operator()(GLFWwindow* ptr) const noexcept {
+	glfwDestroyWindow(ptr);
+	glfwTerminate();
+}
+
+auto kvf::create_window(glm::ivec2 const size, klib::CString const title, bool const decorated) -> UniqueWindow {
+	glfw_init();
+	glfwWindowHint(GLFW_DECORATED, decorated ? GLFW_TRUE : GLFW_FALSE);
+	auto* window = glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr);
+	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
+	glfwSetWindowSize(window, size.x, size.y);
+	return UniqueWindow{window};
+}
+
+auto kvf::create_fullscreen_window(klib::CString const title, GLFWmonitor* target) -> UniqueWindow {
+	glfw_init();
+	if (target == nullptr) { target = glfwGetPrimaryMonitor(); }
+	auto const* mode = glfwGetVideoMode(target);
+	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
+	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
+	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
+	glfwWindowHint(GLFW_REFRESH_RATE, mode->refreshRate);
+	glfwWindowHint(GLFW_CENTER_CURSOR, GLFW_TRUE);
+	auto* window = glfwCreateWindow(mode->width, mode->height, title.c_str(), target, nullptr);
+	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
+	return UniqueWindow{window};
+}
+
 // render_device
 
 #include <backends/imgui_impl_glfw.h>
@@ -612,6 +653,7 @@ struct RenderDevice::Impl {
 		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
 			lock.unlock();
 			m_swapchain.recreate(framebuffer_extent);
+			m_current_cmd.end();
 			return;
 		}
 		lock.unlock();
@@ -660,8 +702,10 @@ struct RenderDevice::Impl {
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		m_swapchain.present(m_queue, *sync.present);
+		auto const present_sucess = m_swapchain.present(m_queue, *sync.present);
 		lock.unlock();
+
+		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
 
 		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
 		m_current_cmd = vk::CommandBuffer{};
@@ -1424,8 +1468,8 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 #include <kvf/color_bitmap.hpp>
 
 namespace kvf {
-auto Color::to_srgb() const -> Color { return glm::convertLinearToSRGB(to_vec4()); }
-auto Color::to_linear() const -> Color { return glm::convertSRGBToLinear(to_vec4()); }
+auto Color::to_srgb() const -> glm::vec4 { return glm::convertLinearToSRGB(to_vec4()); }
+auto Color::to_linear() const -> glm::vec4 { return glm::convertSRGBToLinear(to_vec4()); }
 
 void ColorBitmap::resize(glm::ivec2 size) {
 	if (size.x < 0 || size.y < 0) { return; }

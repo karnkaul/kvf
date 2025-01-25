@@ -1,13 +1,17 @@
 file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
 
 if(NOT TARGET klib)
+  message(STATUS "[klib]")
   add_subdirectory(src/klib)
 endif()
 
+message(STATUS "[gsl]")
 add_subdirectory(src/gsl)
 
+message(STATUS "[dyvk]")
 add_subdirectory(src/dyvk)
 
+message(STATUS "[vma]")
 add_subdirectory(src/vma)
 add_library(vma)
 add_library(vma::vma ALIAS vma)
@@ -24,11 +28,14 @@ target_compile_definitions(vma PUBLIC
 
 set(GLFW_INSTALL OFF)
 set(GLFW_BUILD_DOCS OFF)
+message(STATUS "[glfw]")
 add_subdirectory(src/glfw)
 add_library(glfw::glfw ALIAS glfw)
 
+message(STATUS "[dear imgui]")
 add_subdirectory(src/dear_imgui)
 
+message(STATUS "[stb]")
 add_subdirectory(src/stb)
 
 if(CMAKE_C_COMPILER_ID STREQUAL GNU)
@@ -37,6 +44,7 @@ endif()
 
 if(NOT TARGET glm)
   set(GLM_ENABLE_CXX_20 ON)
+  message(STATUS "[glm]")
   add_subdirectory(src/glm)
   target_compile_definitions(glm PUBLIC
     GLM_FORCE_XYZW_ONLY
@@ -50,6 +58,7 @@ endif()
 
 if(KVF_USE_FREETYPE)
   if(NOT TARGET freetype)
+    message(STATUS "[freetype]")
     add_subdirectory(src/freetype)
   endif()
 

@@ -29,8 +29,8 @@ class Color : public GlmColor {
 
 	[[nodiscard]] constexpr auto to_vec4() const -> glm::vec4 { return {to_f32(x), to_f32(y), to_f32(z), to_f32(w)}; }
 
-	[[nodiscard]] auto to_srgb() const -> Color;
-	[[nodiscard]] auto to_linear() const -> Color;
+	[[nodiscard]] auto to_srgb() const -> glm::vec4;
+	[[nodiscard]] auto to_linear() const -> glm::vec4;
 };
 
 constexpr auto black_v = Color{0x0000000ff};
