@@ -60,10 +60,11 @@ struct GlyphLayout {
 	glm::vec2 baseline{};
 };
 
-struct LineLInput {
-	std::string_view line;
+struct TextInput {
+	std::string_view text;
 	std::span<Glyph const> glyphs;
 	std::uint32_t height;
+	float n_line_height{1.5f};
 };
 
 class Typeface {
@@ -87,7 +88,10 @@ class Typeface {
 	[[nodiscard]] auto get_kerning(std::uint32_t height, GlyphIndex left, GlyphIndex right) const -> glm::ivec2;
 
 	[[nodiscard]] auto build_atlas(std::uint32_t height, std::span<Codepoint const> codepoints = default_codepoints(), glm::ivec2 padding = padding_v) -> Atlas;
-	auto push_layouts(std::vector<GlyphLayout>& out, LineLInput const& input, bool use_tofu = true) const -> glm::vec2;
+
+	/// \brief Build GlyphLayouts for given TextInput.
+	/// \returns Position of cursor (for the next glyph).
+	auto push_layouts(std::vector<GlyphLayout>& out, TextInput const& input, bool use_tofu = true) const -> glm::vec2;
 
 	explicit operator bool() const { return is_loaded(); }
 
