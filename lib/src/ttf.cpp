@@ -287,12 +287,17 @@ auto Typeface::build_atlas(std::uint32_t /*height*/, std::span<Codepoint const> 
 
 #endif
 
-auto Typeface::push_layouts(std::vector<GlyphLayout>& out, LineLInput const& input, bool use_tofu) const -> glm::vec2 {
-	if (!is_loaded() || input.line.empty() || input.glyphs.empty()) { return {}; }
-	out.reserve(out.size() + input.line.size());
+auto Typeface::push_layouts(std::vector<GlyphLayout>& out, TextInput const& input, bool use_tofu) const -> glm::vec2 {
+	if (!is_loaded() || input.text.empty() || input.glyphs.empty()) { return {}; }
+	out.reserve(out.size() + input.text.size());
 	auto baseline = glm::vec2{};
 	Glyph const* previous = nullptr;
-	for (char const c : input.line) {
+	for (char const c : input.text) {
+		if (c == '\n') {
+			baseline.x = 0.0f;
+			baseline.y -= input.n_line_height * float(input.height);
+			continue;
+		}
 		auto const codepoint = Codepoint(c);
 		auto const& glyph = glyph_or_fallback(input.glyphs, codepoint, use_tofu);
 		if (previous != nullptr) { baseline += get_kerning(input.height, previous->index, glyph.index); }
@@ -321,11 +326,11 @@ auto kvf::ttf::glyph_bounds(std::span<GlyphLayout const> glyph_layouts) -> Rect<
 	auto ret = Rect<>{};
 	if (glyph_layouts.empty()) { return ret; }
 	ret.lt.x = std::numeric_limits<float>::max();
-	for (auto const& glyph_layout : glyph_layouts) {
-		auto const rect = glyph_layout.glyph->rect(glyph_layout.baseline);
+	for (auto const& layout : glyph_layouts) {
+		auto const rect = layout.glyph->rect(layout.baseline);
 		ret.lt.x = std::min(ret.lt.x, rect.lt.x);
 		ret.lt.y = std::max(ret.lt.y, rect.lt.y);
-		ret.rb.x = glyph_layout.baseline.x + glyph_layout.glyph->size.x;
+		ret.rb.x = std::max(ret.rb.x, rect.rb.x);
 		ret.rb.y = std::min(ret.rb.y, rect.rb.y);
 	}
 	return ret;
