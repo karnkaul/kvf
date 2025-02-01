@@ -1260,12 +1260,12 @@ auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const&
 
 auto RenderPass::get_color_format() const -> vk::Format {
 	if (!has_color_target()) { return vk::Format::eUndefined; }
-	return m_device->get_swapchain_format();
+	return m_framebuffers[0].color.get_info().format;
 }
 
 auto RenderPass::get_depth_format() const -> vk::Format {
 	if (!has_depth_target()) { return vk::Format::eUndefined; }
-	return m_device->get_depth_format();
+	return m_framebuffers[0].depth.get_info().format;
 }
 
 auto RenderPass::render_target() const -> RenderTarget const& {
@@ -1319,7 +1319,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	auto dai = vk::RenderingAttachmentInfo{};
 
 	if (m_targets.color.view) {
-		auto const cc = clear_color.to_vec4();
+		auto const cc = clear_color;
 		cai.setImageView(m_targets.color.view)
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)

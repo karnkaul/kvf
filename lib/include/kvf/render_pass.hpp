@@ -35,7 +35,7 @@ class RenderPass {
 	[[nodiscard]] auto scissor() const -> vk::Rect2D;
 	void bind_pipeline(vk::Pipeline pipeline) const;
 
-	Color clear_color{black_v};
+	glm::vec4 clear_color{0.0f};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};
 
