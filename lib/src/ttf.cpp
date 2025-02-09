@@ -191,18 +191,6 @@ struct Typeface::Impl {
 
 void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-auto Typeface::default_codepoints() -> std::span<Codepoint const> {
-	static auto const ret = [&] {
-		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
-		auto ret = std::array<Codepoint, count_v>{};
-		auto index = std::size_t{};
-		ret.at(index++) = Codepoint::Tofu;
-		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
-		return ret;
-	}();
-	return ret;
-}
-
 auto Typeface::load(std::vector<std::byte> font) -> bool {
 	if (!m_impl) { m_impl.reset(new Impl); } // NOLINT(cppcoreguidelines-owning-memory)
 	if (!m_impl->lib) { return false; }
@@ -265,6 +253,9 @@ auto Typeface::build_atlas(std::uint32_t const height, std::span<Codepoint const
 #else
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static, performance-unnecessary-value-param)
+void Typeface::Deleter::operator()(Impl* /*ptr*/) const noexcept {}
+
+// NOLINTNEXTLINE(readability-convert-member-functions-to-static, performance-unnecessary-value-param)
 auto Typeface::load(std::vector<std::byte> /*font*/) -> bool { return false; }
 
 // NOLINTNEXTLINE(readability-convert-member-functions-to-static)
@@ -286,6 +277,18 @@ auto Typeface::get_kerning(std::uint32_t /*height*/, GlyphIndex /*left*/, GlyphI
 auto Typeface::build_atlas(std::uint32_t /*height*/, std::span<Codepoint const> /*codepoints*/, glm::ivec2 /*glyph_padding*/) -> Atlas { return {}; }
 
 #endif
+
+auto Typeface::default_codepoints() -> std::span<Codepoint const> {
+	static auto const ret = [&] {
+		static constexpr auto count_v = std::size_t(Codepoint::AsciiLast) - std::size_t(Codepoint::AsciiFirst) + 2;
+		auto ret = std::array<Codepoint, count_v>{};
+		auto index = std::size_t{};
+		ret.at(index++) = Codepoint::Tofu;
+		for (auto c = Codepoint::AsciiFirst; c <= Codepoint::AsciiLast; c = Codepoint(int(c) + 1)) { ret.at(index++) = c; }
+		return ret;
+	}();
+	return ret;
+}
 
 auto Typeface::push_layouts(std::vector<GlyphLayout>& out, TextInput const& input, bool use_tofu) const -> glm::vec2 {
 	if (!is_loaded() || input.text.empty() || input.glyphs.empty()) { return {}; }
