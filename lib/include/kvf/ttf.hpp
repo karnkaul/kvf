@@ -1,5 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
+#include <kvf/codepoint.hpp>
 #include <kvf/color_bitmap.hpp>
 #include <kvf/rect.hpp>
 #include <cstddef>
@@ -10,13 +11,6 @@
 #include <string_view>
 
 namespace kvf::ttf {
-// NOLINTNEXTLINE(performance-enum-size)
-enum struct Codepoint : std::uint32_t {
-	Tofu = 0,
-	Space = 32,
-	AsciiFirst = Space,
-	AsciiLast = 126,
-};
 
 enum struct GlyphIndex : std::uint32_t {};
 

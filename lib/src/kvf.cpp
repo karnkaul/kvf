@@ -1214,6 +1214,12 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 #include <kvf/render_pass.hpp>
 
 namespace kvf {
+namespace {
+constexpr auto is_norm(float const f) { return f >= 0.0f && f <= 1.0f; }
+constexpr auto is_norm(glm::vec2 const v) { return is_norm(v.x) && is_norm(v.y); }
+constexpr auto is_norm(UvRect const& r) { return is_norm(r.lt) && is_norm(r.rb); }
+} // namespace
+
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
@@ -1382,15 +1388,28 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
-auto RenderPass::viewport() const -> vk::Viewport { return vk::Viewport{0.0f, float(m_extent.height), float(m_extent.width), -float(m_extent.height)}; }
+auto RenderPass::to_viewport(UvRect n_rect) const -> vk::Viewport {
+	if (!is_norm(n_rect)) { n_rect = uv_rect_v; }
+	auto const fb_size = util::to_glm_vec(get_extent());
+	auto const rect = UvRect{.lt = n_rect.lt * fb_size, .rb = n_rect.rb * fb_size};
+	auto const vp_size = rect.size();
+	return vk::Viewport{rect.lt.x, rect.rb.y, vp_size.x, -vp_size.y};
+}
 
-auto RenderPass::scissor() const -> vk::Rect2D { return {{}, m_extent}; }
+auto RenderPass::to_scissor(UvRect n_rect) const -> vk::Rect2D {
+	if (!is_norm(n_rect)) { n_rect = uv_rect_v; }
+	auto const fb_size = kvf::util::to_glm_vec(get_extent());
+	auto const rect = kvf::UvRect{.lt = n_rect.lt * fb_size, .rb = n_rect.rb * fb_size};
+	auto const offset = glm::ivec2{rect.lt};
+	auto const extent = glm::uvec2{rect.size()};
+	return vk::Rect2D{vk::Offset2D{offset.x, offset.y}, vk::Extent2D{extent.x, extent.y}};
+}
 
 void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
 	if (!m_command_buffer) { return; }
 	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-	m_command_buffer.setViewport(0, viewport());
-	m_command_buffer.setScissor(0, scissor());
+	m_command_buffer.setViewport(0, to_viewport(uv_rect_v));
+	m_command_buffer.setScissor(0, to_scissor(uv_rect_v));
 }
 
 void RenderPass::set_render_targets() {

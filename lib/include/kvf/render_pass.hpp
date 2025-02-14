@@ -2,6 +2,7 @@
 #include <kvf/buffered.hpp>
 #include <kvf/color.hpp>
 #include <kvf/pipeline_state.hpp>
+#include <kvf/rect.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/vma.hpp>
 
@@ -31,8 +32,9 @@ class RenderPass {
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);
 	void end_render();
 
-	[[nodiscard]] auto viewport() const -> vk::Viewport;
-	[[nodiscard]] auto scissor() const -> vk::Rect2D;
+	[[nodiscard]] auto to_viewport(UvRect n_rect) const -> vk::Viewport;
+	[[nodiscard]] auto to_scissor(UvRect n_rect) const -> vk::Rect2D;
+
 	void bind_pipeline(vk::Pipeline pipeline) const;
 
 	glm::vec4 clear_color{0.0f};
