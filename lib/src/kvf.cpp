@@ -632,14 +632,14 @@ struct RenderDevice::Impl {
 		m_imgui.new_frame();
 		m_set_allocators.at(m_frame_index).reset();
 
-		m_current_cmd = m_command_buffers.at(m_frame_index);
-		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
-		return m_current_cmd;
+		m_current_cmd = &m_command_buffers.at(m_frame_index);
+		m_current_cmd->begin();
+		return m_current_cmd->cmd;
 	}
 
 	void render(RenderTarget const& frame, vk::Filter const filter) {
 		m_imgui.end_frame();
-		if (!m_current_cmd) { return; }
+		if (m_current_cmd == nullptr) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
 		if (framebuffer_extent.width == 0 || framebuffer_extent.height == 0) { return; }
@@ -653,7 +653,8 @@ struct RenderDevice::Impl {
 		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
 			lock.unlock();
 			m_swapchain.recreate(framebuffer_extent);
-			m_current_cmd.end();
+			m_current_cmd->end();
+			m_current_cmd = {};
 			return;
 		}
 		lock.unlock();
@@ -673,28 +674,28 @@ struct RenderDevice::Impl {
 
 		if (frame.image && frame.view) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eTransferDstOptimal);
-			util::record_barrier(m_current_cmd, barrier);
-			blit_to_backbuffer(frame, backbuffer, m_current_cmd, filter);
+			util::record_barrier(m_current_cmd->cmd, barrier);
+			blit_to_backbuffer(frame, backbuffer, m_current_cmd->cmd, filter);
 			backbuffer_load_op = vk::AttachmentLoadOp::eLoad;
 		}
 
 		if (should_render_imgui) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eAttachmentOptimal);
-			util::record_barrier(m_current_cmd, barrier);
+			util::record_barrier(m_current_cmd->cmd, barrier);
 			auto cai = vk::RenderingAttachmentInfo{};
 			cai.setImageView(backbuffer.view)
 				.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 				.setLoadOp(backbuffer_load_op)
 				.setStoreOp(vk::AttachmentStoreOp::eStore);
-			render_imgui(m_current_cmd, cai, backbuffer.extent);
+			render_imgui(m_current_cmd->cmd, cai, backbuffer.extent);
 		}
 
 		barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::ePresentSrcKHR);
-		util::record_barrier(m_current_cmd, barrier);
+		util::record_barrier(m_current_cmd->cmd, barrier);
 
-		m_current_cmd.end();
+		m_current_cmd->end();
 
-		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd};
+		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd->cmd};
 		auto const wssi = vk::SemaphoreSubmitInfo{*sync.draw, 0, vk::PipelineStageFlagBits2::eTopOfPipe};
 		auto const sssi = vk::SemaphoreSubmitInfo{*sync.present, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
 		auto si = vk::SubmitInfo2{};
@@ -708,7 +709,7 @@ struct RenderDevice::Impl {
 		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
 
 		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
-		m_current_cmd = vk::CommandBuffer{};
+		m_current_cmd = nullptr;
 	}
 
 	bool should_render_imgui{true};
@@ -718,6 +719,23 @@ struct RenderDevice::Impl {
 		vk::UniqueSemaphore draw{};
 		vk::UniqueSemaphore present{};
 		vk::UniqueFence drawn{};
+	};
+
+	struct RenderCmd {
+		vk::CommandBuffer cmd{};
+		bool recording{};
+
+		void begin() {
+			if (recording) { end(); }
+			cmd.begin(vk::CommandBufferBeginInfo{});
+			recording = true;
+		}
+
+		void end() {
+			if (!recording) { return; }
+			cmd.end();
+			recording = false;
+		}
 	};
 
 	struct Deleter {
@@ -865,9 +883,9 @@ struct RenderDevice::Impl {
 		auto const cpci = vk::CommandPoolCreateInfo{vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_family};
 		m_command_pool = m_device->createCommandPoolUnique(cpci);
 		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(resource_buffering_v)};
-		if (m_device->allocateCommandBuffers(&cbai, m_command_buffers.data()) != vk::Result::eSuccess) {
-			throw Error{"Failed to allocate render CommandBuffer(s)"};
-		}
+		auto cmds = Buffered<vk::CommandBuffer>{};
+		if (m_device->allocateCommandBuffers(&cbai, cmds.data()) != vk::Result::eSuccess) { throw Error{"Failed to allocate render CommandBuffer(s)"}; }
+		for (auto [cmd, render_cmd] : std::views::zip(cmds, m_command_buffers)) { render_cmd.cmd = cmd; }
 
 		for (auto& sync : m_syncs) {
 			sync.draw = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
@@ -1031,7 +1049,7 @@ struct RenderDevice::Impl {
 	Swapchain m_swapchain{};
 	Buffered<Sync> m_syncs{};
 	vk::UniqueCommandPool m_command_pool{};
-	Buffered<vk::CommandBuffer> m_command_buffers{};
+	Buffered<RenderCmd> m_command_buffers{};
 	DearImGui m_imgui{};
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
@@ -1040,7 +1058,7 @@ struct RenderDevice::Impl {
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
-	vk::CommandBuffer m_current_cmd{};
+	RenderCmd* m_current_cmd{};
 
 	DeviceBlock m_device_block{};
 };
