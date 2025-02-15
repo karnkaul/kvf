@@ -13,6 +13,8 @@ class RenderPass {
 
 	explicit RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
+	[[nodiscard]] auto get_render_device() const -> RenderDevice& { return *m_device; }
+
 	auto set_color_target(vk::Format format = vk::Format::eUndefined) -> RenderPass&; // undefined = RGBA with swapchain color space
 	auto set_depth_target() -> RenderPass&;
 
@@ -30,6 +32,7 @@ class RenderPass {
 	[[nodiscard]] auto render_target() const -> RenderTarget const&;
 
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent);
+	[[nodiscard]] auto get_command_buffer() const -> vk::CommandBuffer { return m_command_buffer; }
 	void end_render();
 
 	[[nodiscard]] auto to_viewport(UvRect n_rect) const -> vk::Viewport;
