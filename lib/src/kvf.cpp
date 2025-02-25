@@ -760,6 +760,11 @@ struct RenderDevice::Impl {
 		ici.pApplicationInfo = &app_info;
 		auto const wsi_extensions = instance_extensions();
 		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
+
+		auto const validation_enables = std::array{vk::ValidationFeatureEnableEXT::eSynchronizationValidation};
+		auto validation_features = vk::ValidationFeaturesEXT{};
+		validation_features.setEnabledValidationFeatures(validation_enables);
+
 		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
 			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
 			auto const props = vk::enumerateInstanceLayerProperties();
@@ -771,6 +776,7 @@ struct RenderDevice::Impl {
 			} else {
 				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
 				ici.setPEnabledLayerNames(validation_layer_v);
+				ici.pNext = &validation_features;
 			}
 		}
 
@@ -1014,13 +1020,7 @@ struct RenderDevice::Impl {
 				.setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 			break;
 		case vk::ImageLayout::ePresentSrcKHR:
-			if (m_backbuffer_layout == vk::ImageLayout::eUndefined) {
-				// nothing rendered, insert a forced barrier
-				ret.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
-			} else {
-				ret.setDstAccessMask(vk::AccessFlagBits2::eNone);
-			}
-			ret.setDstStageMask(vk::PipelineStageFlagBits2::eBottomOfPipe);
+			ret.setDstAccessMask(vk::AccessFlagBits2::eNone).setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 			break;
 		default: KLIB_ASSERT(false);
 		}
