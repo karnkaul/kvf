@@ -1,7 +1,7 @@
 #pragma once
 #include <vk_mem_alloc.h>
+#include <klib/base_types.hpp>
 #include <klib/enum_flags.hpp>
-#include <klib/polymorphic.hpp>
 #include <klib/unique.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>

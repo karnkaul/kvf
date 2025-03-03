@@ -1,8 +1,8 @@
 #pragma once
 #include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
+#include <klib/base_types.hpp>
 #include <klib/constants.hpp>
-#include <klib/polymorphic.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffered.hpp>
 #include <kvf/pipeline_state.hpp>
