@@ -474,7 +474,8 @@ struct DescriptorAllocator {
 struct RenderDevice::Impl {
 	using Flag = RenderDeviceFlag;
 
-	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
+	Impl(GLFWwindow* window, CreateInfo create_info)
+		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
 		log::debug("kvf {}", klib::to_string(build_version_v));

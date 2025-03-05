@@ -55,7 +55,7 @@ struct RenderDeviceCreateInfo {
 	}
 
 	RenderDeviceFlag flags{default_flags()};
-	std::vector<vk::DescriptorPoolSize> custom_pool_sizes{};
+	std::span<vk::DescriptorPoolSize const> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	GpuSelector const* gpu_selector{nullptr};
 };
