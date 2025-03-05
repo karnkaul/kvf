@@ -46,6 +46,11 @@ constexpr void ensure_positive(T&... out) {
 
 namespace {
 void glfw_init() {
+	static auto const on_error = [](int const code, char const* description) {
+		static constexpr std::string_view tag_v{"glfw"};
+		klib::log::error(tag_v, "{} ({})", description, code);
+	};
+	glfwSetErrorCallback(on_error);
 	if (glfwInit() != GLFW_TRUE) { throw kvf::Error{"Failed to initialize GLFW"}; }
 	if (glfwVulkanSupported() != GLFW_TRUE) { throw kvf::Error{"Vulkan not supported"}; }
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
