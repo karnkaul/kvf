@@ -479,14 +479,14 @@ struct DescriptorAllocator {
 struct RenderDevice::Impl {
 	using Flag = RenderDeviceFlag;
 
-	Impl(GLFWwindow* window, CreateInfo create_info)
+	Impl(GLFWwindow* window, CreateInfo const& create_info)
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
-		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
+		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
 		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
-		select_gpu(*create_info.gpu_selector);
+		select_gpu(gpu_selector);
 		create_device();
 		create_swapchain();
 		create_allocator();
@@ -1071,7 +1071,7 @@ struct RenderDevice::Impl {
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
+RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info) : m_impl(new Impl(window, create_info)) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
 auto RenderDevice::get_flags() const -> RenderDeviceFlag { return m_impl->get_flags(); }

@@ -27,7 +27,6 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 target_link_libraries(${PROJECT_NAME} PRIVATE
   klib::klib-warnings
   klib::klib-ndwerror
-  klib::klib-msbuild-mp
   stb-image::stb-image
   $<$<BOOL:${KVF_USE_FREETYPE}>:freetype::freetype>
 )

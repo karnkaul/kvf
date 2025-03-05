@@ -74,7 +74,7 @@ class RenderDevice {
 
 	using CreateInfo = RenderDeviceCreateInfo;
 
-	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info = {});
+	explicit RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info = {});
 
 	[[nodiscard]] auto get_window() const -> GLFWwindow*;
 	[[nodiscard]] auto get_flags() const -> RenderDeviceFlag;
