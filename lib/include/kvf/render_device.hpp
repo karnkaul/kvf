@@ -31,8 +31,7 @@ struct Gpu {
 
 enum class RenderDeviceFlag : std::int8_t {
 	None = 0,
-	ValidationLayers = 1 << 0,
-	LinearBackbuffer = 1 << 1,
+	LinearBackbuffer = 1 << 0,
 };
 
 class GpuSelector : public klib::Polymorphic {
@@ -48,13 +47,7 @@ class GpuSelector : public klib::Polymorphic {
 struct RenderDeviceCreateInfo {
 	static constexpr auto sets_per_pool_v{64};
 
-	static constexpr auto default_flags() -> RenderDeviceFlag {
-		auto ret = RenderDeviceFlag{};
-		if constexpr (klib::debug_v) { ret |= RenderDeviceFlag::ValidationLayers; }
-		return ret;
-	}
-
-	RenderDeviceFlag flags{default_flags()};
+	RenderDeviceFlag flags{};
 	std::span<vk::DescriptorPoolSize const> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	GpuSelector const* gpu_selector{nullptr};

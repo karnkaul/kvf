@@ -761,70 +761,16 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan loader (Instance API) version: {}", klib::to_string(m_loader_version));
 
 		auto app_info = vk::ApplicationInfo{};
-		app_info.apiVersion = VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch);
+		app_info.setApiVersion(VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch));
+
 		auto ici = vk::InstanceCreateInfo{};
-		ici.pApplicationInfo = &app_info;
 		auto const wsi_extensions = instance_extensions();
-		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
-
-		auto const validation_enables = std::array{vk::ValidationFeatureEnableEXT::eSynchronizationValidation};
-		auto validation_features = vk::ValidationFeaturesEXT{};
-		validation_features.setEnabledValidationFeatures(validation_enables);
-
-		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
-			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
-			auto const props = vk::enumerateInstanceLayerProperties();
-			static constexpr auto pred = [](vk::LayerProperties const& p) { return p.layerName == std::string_view{validation_layer_v}; };
-			auto const it = std::ranges::find_if(props, pred);
-			if (it == props.end()) {
-				log::warn("Validation layers requested but {} is not available", validation_layer_v);
-				m_flags &= ~Flag::ValidationLayers;
-			} else {
-				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-				ici.setPEnabledLayerNames(validation_layer_v);
-				ici.pNext = &validation_features;
-			}
-		}
-
-		ici.enabledExtensionCount = std::uint32_t(extensions.size());
-		ici.ppEnabledExtensionNames = extensions.data();
-		try {
-			m_instance = vk::createInstanceUnique(ici);
-		} catch (vk::LayerNotPresentError const& e) {
-			log::error("{}", e.what());
-			ici.enabledLayerCount = 0;
-			m_instance = vk::createInstanceUnique(ici);
-		}
-
+		ici.setPApplicationInfo(&app_info).setPEnabledExtensionNames(wsi_extensions);
+		m_instance = vk::createInstanceUnique(ici);
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
+
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
 		log::debug("Vulkan {} Instance created", min_ver_str);
-
-		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) { create_debug_messenger(); }
-	}
-
-	void create_debug_messenger() {
-		auto dmci = vk::DebugUtilsMessengerCreateInfoEXT{};
-		using Severity = vk::DebugUtilsMessageSeverityFlagBitsEXT;
-		using Type = vk::DebugUtilsMessageTypeFlagBitsEXT;
-		using Types = vk::DebugUtilsMessageTypeFlagsEXT;
-		using Data = vk::DebugUtilsMessengerCallbackDataEXT;
-		auto severity_v = Severity::eError | Severity::eWarning;
-		if constexpr (klib::debug_v) { severity_v |= Severity::eInfo; }
-		static constexpr auto types_v = Type::eGeneral | Type::ePerformance | Type::eValidation | Type::eDeviceAddressBinding;
-		static auto const on_msg = [](Severity severity, Types /*unused*/, Data const* data, void* /*unused*/) -> vk::Bool32 {
-			static constexpr std::string_view tag_v{"validation"};
-			switch (severity) {
-			case Severity::eError: klib::log::error(tag_v, "{}", data->pMessage); break;
-			case Severity::eWarning: klib::log::warn(tag_v, "{}", data->pMessage); break;
-			case Severity::eInfo: klib::log::info(tag_v, "{}", data->pMessage); break;
-			default: break;
-			}
-			return vk::False;
-		};
-		dmci.setMessageSeverity(severity_v).setMessageType(types_v).setPfnUserCallback(on_msg);
-		m_debug_messenger = m_instance->createDebugUtilsMessengerEXTUnique(dmci);
-		log::debug("Vulkan Debug Messenger created");
 	}
 
 	void create_surface() {
@@ -1041,7 +987,6 @@ struct RenderDevice::Impl {
 	klib::Version m_loader_version{};
 
 	vk::UniqueInstance m_instance{};
-	vk::UniqueDebugUtilsMessengerEXT m_debug_messenger{};
 	vk::UniqueSurfaceKHR m_surface{};
 	Gpu m_gpu{};
 	std::uint32_t m_queue_family{};
