@@ -14,10 +14,7 @@
 
 using namespace std::chrono_literals;
 
-namespace kvf {
-enum class IoResult : std::int8_t { Success, OpenFailed, SizeMismatch };
-
-namespace util {
+namespace kvf::util {
 constexpr auto to_str(vk::PresentModeKHR const present_mode) -> std::string_view {
 	switch (present_mode) {
 	case vk::PresentModeKHR::eFifo: return "FIFO";
@@ -55,14 +52,13 @@ inline void record_barrier(vk::CommandBuffer const command_buffer, vk::ImageMemo
 	record_barriers(command_buffer, {&image_barrier, 1});
 }
 
-auto string_from_file(std::string& out_string, klib::CString path) -> IoResult;
-auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult;
-auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult;
+auto string_from_file(std::string& out_string, klib::CString path) -> bool;
+auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool;
+auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool;
 
 auto overwrite(vma::Buffer& dst, BufferWrite bytes, vk::DeviceSize offset = 0) -> bool;
 auto write_to(vma::Buffer& dst, BufferWrite bytes) -> bool;
 
 auto write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool;
 inline auto write_to(vma::Image& dst, Bitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
-} // namespace util
-} // namespace kvf
+} // namespace kvf::util

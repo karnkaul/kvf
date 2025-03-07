@@ -3,6 +3,7 @@
 #include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
+#include <klib/file_io.hpp>
 #include <klib/flex_array.hpp>
 #include <klib/scoped_defer.hpp>
 #include <klib/unique.hpp>
@@ -15,7 +16,6 @@
 #include <charconv>
 #include <chrono>
 #include <cmath>
-#include <fstream>
 #include <mutex>
 #include <ranges>
 
@@ -1544,20 +1544,6 @@ auto ColorBitmap::bitmap() const -> Bitmap {
 
 namespace kvf {
 namespace {
-template <typename T>
-auto read_from_file(T& out, klib::CString path) -> IoResult {
-	using value_type = T::value_type;
-	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
-	if (!file.is_open()) { return IoResult::OpenFailed; }
-	auto const size = file.tellg();
-	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
-	file.seekg(0, std::ios::beg);
-	out.resize(std::size_t(size) / sizeof(value_type));
-	void* first = out.data();
-	file.read(static_cast<char*>(first), size);
-	return IoResult::Success;
-}
-
 struct MakeMipMaps {
 	// NOLINTNEXTLINE
 	vma::Image& out;
@@ -1652,9 +1638,9 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 	command_buffer.pipelineBarrier2(di);
 }
 
-auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
-auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
-auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
+auto util::string_from_file(std::string& out_string, klib::CString path) -> bool { return klib::read_file_bytes_into(out_string, path); }
+auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool { return klib::read_file_bytes_into(out_bytes, path); }
+auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool { return klib::read_file_bytes_into(out_code, path); }
 
 auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
 	if (!dst) { return false; }

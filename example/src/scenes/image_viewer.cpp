@@ -57,7 +57,7 @@ void ImageViewer::resize_window() {
 void ImageViewer::try_load(klib::CString const path) {
 	auto const filename = [path] { return fs::path{path.as_view()}.filename().generic_string(); };
 	auto bytes = std::vector<std::byte>{};
-	if (util::bytes_from_file(bytes, path) != IoResult::Success) {
+	if (!util::bytes_from_file(bytes, path)) {
 		open_error_modal(std::format("Failed to load image file: {}", filename()));
 		return;
 	}

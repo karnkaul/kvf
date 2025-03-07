@@ -145,7 +145,7 @@ void Sprite::create_pipeline() {
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
-	if (util::bytes_from_file(bytes, path.c_str()) != IoResult::Success) { throw Error{std::format("Failed to load image: {}", path)}; }
+	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
 	if (!util::write_to(m_texture, image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
