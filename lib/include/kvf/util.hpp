@@ -1,9 +1,9 @@
 #pragma once
-#include <glm/vec2.hpp>
 #include <klib/c_string.hpp>
 #include <kvf/bitmap.hpp>
 #include <kvf/buffer_write.hpp>
 #include <kvf/color.hpp>
+#include <kvf/rect.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
@@ -38,6 +38,11 @@ constexpr auto to_vk_extent(glm::vec<2, Type> const in) -> vk::Extent2D {
 constexpr auto scale_extent(vk::Extent2D const extent, float const scale) -> vk::Extent2D {
 	return vk::Extent2D{std::uint32_t(float(extent.width) * scale), std::uint32_t(float(extent.height) * scale)};
 }
+
+constexpr auto ndc_to_uv(glm::vec2 const ndc) -> glm::vec2 { return {ndc.x + 0.5f, 0.5f - ndc.y}; }
+constexpr auto uv_to_ndc(glm::vec2 const ndc) -> glm::vec2 { return {ndc.x - 0.5f, 0.5f - ndc.y}; }
+constexpr auto ndc_to_uv(UvRect const& rect) { return UvRect{.lt = ndc_to_uv(rect.lt), .rb = ndc_to_uv(rect.rb)}; }
+constexpr auto uv_to_ndc(UvRect const& rect) { return UvRect{.lt = uv_to_ndc(rect.lt), .rb = uv_to_ndc(rect.rb)}; }
 
 [[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
 [[nodiscard]] auto to_hex_string(Color const& color) -> std::string;
