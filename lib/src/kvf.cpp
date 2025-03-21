@@ -320,17 +320,16 @@ struct Swapchain {
 		m_device = device;
 		m_physical_device = physical_device;
 		m_info = info;
-		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
-		m_info.imageArrayLayers = 1u;
+		m_info.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst).setImageArrayLayers(1);
 	}
 
 	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
 		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
 
 		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
-		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
+		m_info.imageExtent = get_image_extent(surface_capabilities, framebuffer);
 		if (present_mode) { m_info.presentMode = *present_mode; }
-		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
+		m_info.minImageCount = get_image_count(surface_capabilities);
 		m_info.oldSwapchain = *m_swapchain;
 
 		m_device.waitIdle();
@@ -403,6 +402,8 @@ struct Swapchain {
 	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
 
   private:
+	static constexpr std::uint32_t min_images_v{3};
+
 	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
 		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
 		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
@@ -412,8 +413,8 @@ struct Swapchain {
 	}
 
 	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
-		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
-		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
+		if (caps.maxImageCount < caps.minImageCount) { return std::max(min_images_v, caps.minImageCount); }
+		return std::clamp(min_images_v, caps.minImageCount, caps.maxImageCount);
 	}
 
 	vk::PhysicalDevice m_physical_device{};
