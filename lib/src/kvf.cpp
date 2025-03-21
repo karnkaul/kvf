@@ -316,14 +316,12 @@ struct MakeImageView {
 };
 
 struct Swapchain {
-	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
+	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info) {
 		m_device = device;
 		m_physical_device = physical_device;
 		m_info = info;
 		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
 		m_info.imageArrayLayers = 1u;
-
-		m_queue = queue;
 	}
 
 	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
@@ -429,8 +427,6 @@ struct Swapchain {
 
 	std::optional<std::uint32_t> m_image_index{};
 	vk::ImageLayout m_layout{};
-
-	vk::Queue m_queue;
 };
 
 struct DescriptorAllocator {
@@ -808,11 +804,7 @@ struct RenderDevice::Impl {
 
 		auto dci = vk::DeviceCreateInfo{};
 		static constexpr auto extensions_v = std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-		dci.setEnabledExtensionCount(std::uint32_t(extensions_v.size()))
-			.setPEnabledExtensionNames(extensions_v)
-			.setQueueCreateInfos(qci)
-			.setPEnabledFeatures(&enabled_features)
-			.setPNext(&sync_feature);
+		dci.setPEnabledExtensionNames(extensions_v).setQueueCreateInfos(qci).setPEnabledFeatures(&enabled_features).setPNext(&sync_feature);
 
 		m_device = m_gpu.device.createDeviceUnique(dci);
 		if (!m_device) { throw Error{"Failed to create Vulkan Device"}; }
@@ -829,13 +821,12 @@ struct RenderDevice::Impl {
 		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
 		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
-		sci.surface = *m_surface;
-		sci.presentMode = optimal_present_mode(m_present_modes);
-		sci.imageFormat = surface_format.format;
-		sci.queueFamilyIndexCount = 1u;
-		sci.pQueueFamilyIndices = &m_queue_family;
-		sci.imageColorSpace = surface_format.colorSpace;
-		m_swapchain.init(*m_device, m_gpu.device, sci, m_queue);
+		sci.setSurface(*m_surface)
+			.setPresentMode(optimal_present_mode(m_present_modes))
+			.setImageFormat(surface_format.format)
+			.setImageColorSpace(surface_format.colorSpace)
+			.setQueueFamilyIndices(m_queue_family);
+		m_swapchain.init(*m_device, m_gpu.device, sci);
 		m_swapchain.recreate(get_framebuffer_extent());
 
 		auto const cpci = vk::CommandPoolCreateInfo{vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_family};
