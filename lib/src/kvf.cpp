@@ -330,6 +330,9 @@ struct Swapchain {
 		m_info.imageExtent = get_image_extent(surface_capabilities, framebuffer);
 		if (present_mode) { m_info.presentMode = *present_mode; }
 		m_info.minImageCount = get_image_count(surface_capabilities);
+		if (m_info.minImageCount <= KVF_RESOURCE_BUFFERING) {
+			throw Error{std::format("Insufficient Swapchain images: {}, KVF_RESOURCE_BUFFERING: {}", m_info.minImageCount, KVF_RESOURCE_BUFFERING)};
+		}
 		m_info.oldSwapchain = *m_swapchain;
 
 		m_device.waitIdle();
@@ -402,7 +405,7 @@ struct Swapchain {
 	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
 
   private:
-	static constexpr std::uint32_t min_images_v{3};
+	static constexpr std::uint32_t min_images_v{KVF_RESOURCE_BUFFERING + 1};
 
 	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
 		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
