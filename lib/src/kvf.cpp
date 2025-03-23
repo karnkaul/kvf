@@ -189,88 +189,61 @@ struct GpuList {
 
 class DearImGui {
   public:
-	struct CreateInfo { // NOLINT(cppcoreguidelines-pro-type-member-init)
-		GLFWwindow* window;
-		vk::Instance instance;
-		vk::Device device;
-		vk::PhysicalDevice physical_device;
-		std::uint32_t queue_family;
-		vk::Queue queue;
-		vk::SampleCountFlagBits samples;
-		vk::PipelineRenderingCreateInfo prci;
-		bool srgb_target;
+	struct CreateInfo {
+		GLFWwindow* window{};
+		std::uint32_t api_version{};
+		vk::Instance instance{};
+		vk::PhysicalDevice physical_device{};
+		std::uint32_t queue_family{};
+		vk::Device device{};
+		vk::Queue queue{};
+		vk::Format color_format{};
+		vk::SampleCountFlagBits samples{};
+		bool srgb_target{};
 	};
 
-	DearImGui(DearImGui const&) = delete;
-	DearImGui(DearImGui&&) = delete;
-	auto operator=(DearImGui const&) = delete;
-	auto operator=(DearImGui&&) = delete;
-
-	DearImGui() = default;
-
 	void init(CreateInfo const& create_info) {
-		m_device = create_info.device;
-		static constexpr std::uint32_t max_textures_v{16};
-		auto const pool_sizes = std::array{
-			vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, max_textures_v},
-		};
-		auto dpci = vk::DescriptorPoolCreateInfo{};
-		dpci.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-		dpci.maxSets = max_textures_v;
-		dpci.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
-		dpci.pPoolSizes = pool_sizes.data();
-		m_pool = m_device.createDescriptorPoolUnique(dpci);
-
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
-		// ImGuiIO& io = ImGui::GetIO();
-		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
 
-		ImGui::StyleColorsDark();
-		if (create_info.srgb_target) {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-			for (auto& colour : ImGui::GetStyle().Colors) {
-				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
-				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
-			}
-			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
-		}
-
-		auto load_vk_func = +[](char const* name, void* user_data) {
-			if (std::string_view{name} == "vkCmdBeginRenderingKHR") { name = "vkCmdBeginRendering"; }
-			if (std::string_view{name} == "vkCmdEndRenderingKHR") { name = "vkCmdEndRendering"; }
+		static auto const load_vk_func = +[](char const* name, void* user_data) {
 			return VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr(*static_cast<vk::Instance*>(user_data), name);
 		};
 		auto instance = create_info.instance;
-		ImGui_ImplVulkan_LoadFunctions(load_vk_func, &instance);
-		ImGui_ImplGlfw_InitForVulkan(create_info.window, true);
-		ImGui_ImplVulkan_InitInfo init_info = {};
+		ImGui_ImplVulkan_LoadFunctions(create_info.api_version, load_vk_func, &instance);
+
+		if (!ImGui_ImplGlfw_InitForVulkan(create_info.window, true)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
+
+		auto init_info = ImGui_ImplVulkan_InitInfo{};
+		init_info.ApiVersion = create_info.api_version;
 		init_info.Instance = create_info.instance;
 		init_info.PhysicalDevice = create_info.physical_device;
 		init_info.Device = create_info.device;
 		init_info.QueueFamily = create_info.queue_family;
 		init_info.Queue = create_info.queue;
-		init_info.DescriptorPool = *m_pool;
-		init_info.Subpass = 0;
 		init_info.MinImageCount = 2;
-		init_info.ImageCount = resource_buffering_v;
+		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
 		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
+		init_info.DescriptorPoolSize = 2;
+		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
+		pipline_rendering_ci.setColorAttachmentCount(1).setColorAttachmentFormats(create_info.color_format);
+		init_info.PipelineRenderingCreateInfo = pipline_rendering_ci;
 		init_info.UseDynamicRendering = true;
-		init_info.PipelineRenderingCreateInfo = create_info.prci;
-
-		ImGui_ImplVulkan_Init(&init_info);
+		if (!ImGui_ImplVulkan_Init(&init_info)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
 		ImGui_ImplVulkan_CreateFontsTexture();
+
+		ImGui::StyleColorsDark();
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+		for (auto& colour : ImGui::GetStyle().Colors) {
+			auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+			colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+		}
+		ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
+
+		m_device = create_info.device;
 	}
 
-	~DearImGui() {
-		if (!m_pool) { return; }
-		ImGui_ImplVulkan_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
-		ImGui::DestroyContext();
-	}
-
-	void new_frame() { // NOLINT(misc-no-recursion)
+	void new_frame() {
 		if (m_state == State::eEndFrame) { end_frame(); }
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -278,24 +251,35 @@ class DearImGui {
 		m_state = State::eEndFrame;
 	}
 
-	void end_frame() { // NOLINT(misc-no-recursion)
+	void end_frame() {
+		if (m_state == State::eNewFrame) { return; }
 		// ImGui::Render calls ImGui::EndFrame
-		if (m_state == State::eNewFrame) { new_frame(); }
 		ImGui::Render();
 		m_state = State::eNewFrame;
 	}
 
-	void render(vk::CommandBuffer const command_buffer) {
-		if (m_state == State::eEndFrame) { end_frame(); }
+	// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+	void render(vk::CommandBuffer const command_buffer) const {
 		if (auto* data = ImGui::GetDrawData()) { ImGui_ImplVulkan_RenderDrawData(data, command_buffer); }
 	}
 
+  private:
+	struct Deleter {
+		void operator()(vk::Device device) const {
+			if (!device) { return; }
+			device.waitIdle();
+			ImGui_ImplVulkan_DestroyFontsTexture();
+			ImGui_ImplVulkan_Shutdown();
+			ImGui_ImplGlfw_Shutdown();
+			ImGui::DestroyContext();
+		}
+	};
+
 	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
-	vk::Device m_device{};
-
-	vk::UniqueDescriptorPool m_pool{};
 	State m_state{};
+
+	klib::Unique<vk::Device, Deleter> m_device{};
 };
 
 struct MakeImageView {
@@ -846,17 +830,15 @@ struct RenderDevice::Impl {
 			sync.drawn = m_device->createFenceUnique(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled});
 		}
 
-		auto prci = vk::PipelineRenderingCreateInfo{};
-		prci.setColorAttachmentCount(1).setColorAttachmentFormats(m_swapchain.get_info().imageFormat);
 		auto const dici = DearImGui::CreateInfo{
 			.window = m_window,
 			.instance = *m_instance,
-			.device = *m_device,
 			.physical_device = m_gpu.device,
 			.queue_family = m_queue_family,
+			.device = *m_device,
 			.queue = m_queue,
+			.color_format = m_swapchain.get_info().imageFormat,
 			.samples = vk::SampleCountFlagBits::e1,
-			.prci = prci,
 			.srgb_target = !linear_backbuffer,
 		};
 		m_imgui.init(dici);
