@@ -15,7 +15,7 @@ Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view ass
 		.format = vk::Format::eR8G8B8A8Unorm,
 	};
 	m_image = vma::Image{device, ici, util::to_vk_extent(bitmap.size)};
-	if (!util::write_to(m_image, bitmap)) { throw Error{"Failed to write to Image"}; }
+	if (!m_image.resize_and_overwrite(bitmap)) { throw Error{"Failed to write to Image"}; }
 }
 
 auto Standalone::get_render_filter() const -> vk::Filter { return vk::Filter::eNearest; }

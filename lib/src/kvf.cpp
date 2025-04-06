@@ -1056,9 +1056,75 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 
 // vma
 
+#include <kvf/command_buffer.hpp>
 #include <kvf/vma.hpp>
 
 namespace kvf::vma {
+namespace {
+struct MakeMipMaps {
+	// NOLINTNEXTLINE
+	vma::Image& out;
+
+	vk::CommandBuffer command_buffer;
+
+	vk::ImageMemoryBarrier2 barrier{};
+	vk::ImageAspectFlags aspect{};
+	std::uint32_t layer_count{};
+
+	auto blit_mips(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) const -> void {
+		auto ib = vk::ImageBlit2{};
+		ib.srcSubresource.setAspectMask(aspect).setMipLevel(src_level).setLayerCount(layer_count);
+		ib.dstSubresource.setAspectMask(aspect).setMipLevel(src_level + 1).setLayerCount(layer_count);
+		ib.srcOffsets[1] = src_offset;
+		ib.dstOffsets[1] = dst_offset;
+		auto bii = vk::BlitImageInfo2{};
+		bii.setSrcImage(barrier.image)
+			.setDstImage(barrier.image)
+			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
+			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
+			.setRegions(ib)
+			.setFilter(vk::Filter::eLinear);
+		command_buffer.blitImage2(bii);
+	}
+
+	auto blit_next_mip(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) -> void {
+		barrier.subresourceRange.setBaseMipLevel(src_level + 1);
+		barrier.setOldLayout(vk::ImageLayout::eUndefined).setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+		util::record_barrier(command_buffer, barrier);
+
+		blit_mips(src_level, src_offset, dst_offset);
+
+		barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal).setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		util::record_barrier(command_buffer, barrier);
+	}
+
+	auto operator()() -> void {
+		barrier = out.get_render_api()->image_barrier(out.get_info().aspect);
+		layer_count = out.get_info().layers;
+		aspect = out.get_info().aspect;
+
+		barrier.setImage(out.get_image())
+			.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+			.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+			.setDstAccessMask(barrier.srcAccessMask)
+			.setDstStageMask(barrier.srcStageMask)
+			.setOldLayout(out.get_layout())
+			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		barrier.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(layer_count);
+		util::record_barrier(command_buffer, barrier);
+
+		auto src_extent = vk::Extent3D{out.get_extent(), 1};
+		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
+			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
+			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
+			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
+			blit_next_mip(mip, src_offset, dst_offset);
+			src_extent = dst_extent;
+		}
+	}
+};
+} // namespace
+
 void Buffer::Deleter::operator()(Payload const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
 
 Buffer::Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::DeviceSize size) : Resource<vk::Buffer>(api), m_info(create_info) {
@@ -1069,7 +1135,7 @@ Buffer::Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_in
 auto Buffer::resize(vk::DeviceSize size) -> bool {
 	if (m_api == nullptr) { return false; }
 	ensure_positive(size);
-	if (m_capacity >= size) {
+	if (!m_buffer.is_identity() && m_capacity >= size) {
 		m_size = size;
 		return true;
 	}
@@ -1101,6 +1167,44 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	return true;
 }
 
+auto Buffer::write_in_place(BufferWrite const data, vk::DeviceSize offset) -> bool {
+	if (m_api == nullptr) { return false; }
+
+	if (get_size() < offset + data.size()) { return false; }
+	if (data.is_empty()) { return true; }
+
+	if (auto dst = mapped_span(); !dst.empty()) {
+		KLIB_ASSERT(dst.size() >= offset + data.size());
+		dst = dst.subspan(offset);
+		std::memcpy(dst.data(), data.data(), data.size());
+		return true;
+	}
+
+	if ((get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = Buffer{get_render_api(), bci, data.size()};
+	if (!staging.write_in_place(data)) { return false; }
+
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
+	auto cbi = vk::CopyBufferInfo2{};
+	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(get_buffer()).setRegions(bc);
+	auto cmd = CommandBuffer{get_render_api()};
+	cmd.get().copyBuffer2(cbi);
+	return cmd.submit_and_wait();
+}
+
+auto Buffer::resize_and_overwrite(BufferWrite const data) -> bool { return resize(data.size()) && write_in_place(data); }
+
+auto Buffer::mapped_span() const -> std::span<std::byte> {
+	auto* bytes = get_mapped();
+	if (bytes == nullptr) { return {}; }
+	return {static_cast<std::byte*>(bytes), m_size};
+}
+
 void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
 Image::Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent) : Resource<vk::Image>(api), m_info(create_info) {
@@ -1111,7 +1215,7 @@ Image::Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info
 auto Image::resize(vk::Extent2D extent) -> bool {
 	if (m_api == nullptr) { return false; }
 	ensure_positive(extent.width, extent.height);
-	if (m_extent == extent) { return true; }
+	if (!m_image.is_identity() && m_extent == extent) { return true; }
 
 	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
 	auto const queue_family = m_api->get_queue_family();
@@ -1163,6 +1267,73 @@ void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2
 		.setSubresourceRange(subresource_range());
 	util::record_barrier(command_buffer, barrier);
 	m_layout = barrier.newLayout;
+}
+
+auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
+	if (m_image.is_identity() || m_info.layers != layers.size()) { return false; }
+	if ((m_info.usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
+	auto const size = layers.front().size;
+	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
+	auto const total_size = layers.size() * layer_size;
+	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
+	if (!std::ranges::all_of(layers, check)) { return false; }
+
+	if (layer_size == 0) { return true; }
+	auto const extent = util::to_vk_extent(size);
+	if (!resize(extent)) { return false; }
+
+	auto const original_layout = get_layout();
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = vma::Buffer{get_render_api(), bci, total_size};
+
+	auto cmd = CommandBuffer{get_render_api()};
+	auto barrier = vk::ImageMemoryBarrier2{};
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+	transition(cmd, barrier);
+
+	auto span = std::span{static_cast<std::byte*>(staging.get_mapped()), total_size};
+	auto buffer_offset = vk::DeviceSize{};
+	auto cbtii = vk::CopyBufferToImageInfo2{};
+	cbtii.setDstImage(get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
+	for (auto const [index, layer] : std::ranges::enumerate_view(layers)) {
+		std::memcpy(span.data(), layer.bytes.data(), layer_size);
+
+		auto bic = vk::BufferImageCopy2{};
+		bic.setImageExtent({extent.width, extent.height, 1})
+			.setImageSubresource(vk::ImageSubresourceLayers{m_info.aspect, 0, std::uint32_t(index), 1})
+			.setBufferOffset(buffer_offset);
+		cbtii.setRegions(bic);
+		cmd.get().copyBufferToImage2(cbtii);
+
+		span = span.subspan(layer_size);
+		buffer_offset += layer_size;
+	}
+
+	auto current_layout = get_layout();
+	if (get_mip_levels() > 1) {
+		MakeMipMaps{.out = *this, .command_buffer = cmd}();
+		current_layout = vk::ImageLayout::eTransferSrcOptimal;
+	}
+
+	auto const final_layout = original_layout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eShaderReadOnlyOptimal : original_layout;
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setOldLayout(current_layout)
+		.setNewLayout(final_layout);
+	transition(cmd, barrier);
+
+	return cmd.submit_and_wait();
 }
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
@@ -1478,71 +1649,6 @@ auto ColorBitmap::bitmap() const -> Bitmap {
 // util
 
 namespace kvf {
-namespace {
-struct MakeMipMaps {
-	// NOLINTNEXTLINE
-	vma::Image& out;
-
-	vk::CommandBuffer command_buffer;
-
-	vk::ImageMemoryBarrier2 barrier{};
-	vk::ImageAspectFlags aspect{};
-	std::uint32_t layer_count{};
-
-	auto blit_mips(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) const -> void {
-		auto ib = vk::ImageBlit2{};
-		ib.srcSubresource.setAspectMask(aspect).setMipLevel(src_level).setLayerCount(layer_count);
-		ib.dstSubresource.setAspectMask(aspect).setMipLevel(src_level + 1).setLayerCount(layer_count);
-		ib.srcOffsets[1] = src_offset;
-		ib.dstOffsets[1] = dst_offset;
-		auto bii = vk::BlitImageInfo2{};
-		bii.setSrcImage(barrier.image)
-			.setDstImage(barrier.image)
-			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
-			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setRegions(ib)
-			.setFilter(vk::Filter::eLinear);
-		command_buffer.blitImage2(bii);
-	}
-
-	auto blit_next_mip(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) -> void {
-		barrier.subresourceRange.setBaseMipLevel(src_level + 1);
-		barrier.setOldLayout(vk::ImageLayout::eUndefined).setNewLayout(vk::ImageLayout::eTransferDstOptimal);
-		util::record_barrier(command_buffer, barrier);
-
-		blit_mips(src_level, src_offset, dst_offset);
-
-		barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal).setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
-		util::record_barrier(command_buffer, barrier);
-	}
-
-	auto operator()() -> void {
-		barrier = out.get_render_api()->image_barrier(out.get_info().aspect);
-		layer_count = out.get_info().layers;
-		aspect = out.get_info().aspect;
-
-		barrier.setImage(out.get_image())
-			.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-			.setDstAccessMask(barrier.srcAccessMask)
-			.setDstStageMask(barrier.srcStageMask)
-			.setOldLayout(out.get_layout())
-			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
-		barrier.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(layer_count);
-		util::record_barrier(command_buffer, barrier);
-
-		auto src_extent = vk::Extent3D{out.get_extent(), 1};
-		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
-			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
-			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
-			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
-			blit_next_mip(mip, src_offset, dst_offset);
-			src_extent = dst_extent;
-		}
-	}
-};
-} // namespace
-
 auto util::color_from_hex(std::string_view hex) -> Color {
 	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
 	hex = hex.substr(1);
@@ -1576,105 +1682,4 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 auto util::string_from_file(std::string& out_string, klib::CString path) -> bool { return klib::read_file_bytes_into(out_string, path); }
 auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool { return klib::read_file_bytes_into(out_bytes, path); }
 auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool { return klib::read_file_bytes_into(out_code, path); }
-
-auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
-	if (!dst) { return false; }
-
-	if (dst.get_size() < offset + bytes.size()) { return false; }
-	if (bytes.is_empty()) { return true; }
-
-	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		std::memcpy(ptr + offset, bytes.data(), bytes.size());
-		return true;
-	}
-
-	if ((dst.get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
-
-	auto const bci = vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eTransferSrc,
-		.type = vma::BufferType::Host,
-	};
-	auto staging = vma::Buffer{dst.get_render_api(), bci, bytes.size()};
-	if (!overwrite(staging, bytes)) { return false; }
-
-	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
-	auto cbi = vk::CopyBufferInfo2{};
-	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
-	auto cmd = CommandBuffer{dst.get_render_api()};
-	cmd.get().copyBuffer2(cbi);
-	return cmd.submit_and_wait();
-}
-
-auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
-	if (!dst.resize(bytes.size())) { return false; }
-	return overwrite(dst, bytes);
-}
-
-auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
-	if (!dst || dst.get_info().layers != layers.size()) { return false; }
-	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
-	auto const size = layers.front().size;
-	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
-	auto const total_size = layers.size() * layer_size;
-	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
-	if (!std::ranges::all_of(layers, check)) { return false; }
-
-	if (layer_size == 0) { return true; }
-	auto const extent = to_vk_extent(size);
-	if (!dst.resize(extent)) { return false; }
-
-	auto const original_layout = dst.get_layout();
-
-	auto const bci = vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eTransferSrc,
-		.type = vma::BufferType::Host,
-	};
-	auto staging = vma::Buffer{dst.get_render_api(), bci, total_size};
-
-	auto cmd = CommandBuffer{dst.get_render_api()};
-	auto barrier = vk::ImageMemoryBarrier2{};
-	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setOldLayout(vk::ImageLayout::eUndefined)
-		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
-	dst.transition(cmd, barrier);
-
-	auto span = std::span{static_cast<std::byte*>(staging.get_mapped()), total_size};
-	auto buffer_offset = vk::DeviceSize{};
-	auto cbtii = vk::CopyBufferToImageInfo2{};
-	cbtii.setDstImage(dst.get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
-	for (auto const [index, layer] : std::ranges::enumerate_view(layers)) {
-		std::memcpy(span.data(), layer.bytes.data(), layer_size);
-
-		auto bic = vk::BufferImageCopy2{};
-		bic.setImageExtent({extent.width, extent.height, 1})
-			.setImageSubresource(vk::ImageSubresourceLayers{dst.get_info().aspect, 0, std::uint32_t(index), 1})
-			.setBufferOffset(buffer_offset);
-		cbtii.setRegions(bic);
-		cmd.get().copyBufferToImage2(cbtii);
-
-		span = span.subspan(layer_size);
-		buffer_offset += layer_size;
-	}
-
-	auto current_layout = dst.get_layout();
-	if (dst.get_mip_levels() > 1) {
-		MakeMipMaps{.out = dst, .command_buffer = cmd}();
-		current_layout = vk::ImageLayout::eTransferSrcOptimal;
-	}
-
-	auto const final_layout = original_layout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eShaderReadOnlyOptimal : original_layout;
-	barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setOldLayout(current_layout)
-		.setNewLayout(final_layout);
-	dst.transition(cmd, barrier);
-
-	return cmd.submit_and_wait();
-}
 } // namespace kvf

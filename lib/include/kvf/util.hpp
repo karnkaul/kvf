@@ -4,7 +4,6 @@
 #include <kvf/buffer_write.hpp>
 #include <kvf/color.hpp>
 #include <kvf/rect.hpp>
-#include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <cstddef>
@@ -60,10 +59,4 @@ inline void record_barrier(vk::CommandBuffer const command_buffer, vk::ImageMemo
 auto string_from_file(std::string& out_string, klib::CString path) -> bool;
 auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool;
 auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool;
-
-auto overwrite(vma::Buffer& dst, BufferWrite bytes, vk::DeviceSize offset = 0) -> bool;
-auto write_to(vma::Buffer& dst, BufferWrite bytes) -> bool;
-
-auto write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool;
-inline auto write_to(vma::Image& dst, Bitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
 } // namespace kvf::util

@@ -3,6 +3,8 @@
 #include <klib/base_types.hpp>
 #include <klib/enum_flags.hpp>
 #include <klib/unique.hpp>
+#include <kvf/bitmap.hpp>
+#include <kvf/buffer_write.hpp>
 #include <kvf/render_api.hpp>
 #include <kvf/render_target.hpp>
 #include <kvf/vma_fwd.hpp>
@@ -56,8 +58,12 @@ class Buffer : public Resource<vk::Buffer> {
 
 	auto resize(vk::DeviceSize size) -> bool;
 
+	auto write_in_place(BufferWrite data, vk::DeviceSize offset = 0) -> bool;
+	auto resize_and_overwrite(BufferWrite data) -> bool;
+
 	[[nodiscard]] auto get_buffer() const -> vk::Buffer { return m_buffer.get().resource; }
-	[[nodiscard]] auto get_mapped() const -> void* { return m_mapped; }
+	[[nodiscard]] auto get_mapped() const -> void* { return m_mapped.get(); }
+	[[nodiscard]] auto mapped_span() const -> std::span<std::byte>;
 
 	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize { return m_capacity; }
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize { return m_size; }
@@ -72,7 +78,7 @@ class Buffer : public Resource<vk::Buffer> {
 	klib::Unique<Payload, Deleter> m_buffer{};
 	vk::DeviceSize m_capacity{};
 	vk::DeviceSize m_size{};
-	void* m_mapped{};
+	klib::Unique<void*> m_mapped{};
 };
 
 enum class ImageFlag : std::int8_t {
@@ -106,6 +112,9 @@ class Image : public Resource<vk::Image> {
 
 	auto resize(vk::Extent2D extent) -> bool;
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
+
+	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool;
+	auto resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_and_overwrite({&bitmap, 1}); }
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }

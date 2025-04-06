@@ -148,7 +148,7 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	if (!util::write_to(m_texture, image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
+	if (!m_texture.resize_and_overwrite(image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
 
 	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().get_device().createSamplerUnique(sci);
@@ -159,11 +159,11 @@ void Sprite::write_vbo() {
 	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
-	if (!util::overwrite(m_vbo, vertices, 0)) { throw Error{"Failed to write vertices to Buffer"}; }
+	if (!m_vbo.write_in_place(vertices)) { throw Error{"Failed to write vertices to Buffer"}; }
 
 	m_index_offset = vertices.size_bytes();
 	auto const indices = std::span{quad.indices};
-	if (!util::overwrite(m_vbo, indices, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
+	if (!m_vbo.write_in_place(indices, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
 }
 
 void Sprite::create_instances() {
@@ -184,7 +184,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto const half_extent = 0.5f * extent;
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
 	auto& ubo = m_ubos.at(std::size_t(get_render_device().get_frame_index()));
-	if (!util::write_to(ubo, {&projection, sizeof(projection)})) { throw Error{"Failed to write to Uniform Buffer"}; }
+	if (!ubo.resize_and_overwrite(projection)) { throw Error{"Failed to write to Uniform Buffer"}; }
 
 	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto view_dbi = vk::DescriptorBufferInfo{};
@@ -199,7 +199,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 		m_instance_buffer.push_back(Std430Instance{.mat_world = t * r, .tint = instance.tint.to_vec4()});
 	}
 	auto& ssbo = m_ssbos.at(std::size_t(get_render_device().get_frame_index()));
-	util::write_to(ssbo, {m_instance_buffer.data(), std::span{m_instance_buffer}.size_bytes()});
+	if (!ssbo.resize_and_overwrite(std::span{m_instance_buffer})) { throw Error{"Failed to write to Storage Buffer"}; }
 	auto instances_dbi = vk::DescriptorBufferInfo{};
 	instances_dbi.setBuffer(ssbo.get_buffer()).setRange(ssbo.get_size());
 	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
