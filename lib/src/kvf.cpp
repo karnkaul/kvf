@@ -458,6 +458,13 @@ struct DescriptorAllocator {
 	std::vector<vk::UniqueDescriptorPool> m_pools{};
 	std::size_t m_index{};
 };
+
+struct BufferAllocator {
+	VmaAllocator allocator{};
+	std::uint32_t queue_family{};
+
+  private:
+};
 } // namespace
 
 struct RenderDevice::Impl {
@@ -605,7 +612,7 @@ struct RenderDevice::Impl {
 		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
 	}
 
-	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
 	}
@@ -971,7 +978,7 @@ struct RenderDevice::Impl {
 
 	vk::UniqueDevice m_device{};
 	vk::Queue m_queue{};
-	std::mutex m_queue_mutex{};
+	mutable std::mutex m_queue_mutex{};
 
 	std::vector<vk::PresentModeKHR> m_present_modes{};
 	Swapchain m_swapchain{};
@@ -1027,7 +1034,7 @@ auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::spa
 	return m_impl->allocate_sets(out_sets, layouts);
 }
 
-void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
+void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
@@ -1046,14 +1053,13 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 namespace kvf::vma {
 void Buffer::Deleter::operator()(Payload const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
 
-Buffer::Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
-	: Resource<vk::Buffer>(render_device), m_info(create_info) {
+Buffer::Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::DeviceSize size) : Resource<vk::Buffer>(api), m_info(create_info) {
 	if (m_info.type == BufferType::Device) { m_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
 	if (!resize(size)) { throw Error{"Failed to create Vulkan Buffer"}; }
 }
 
 auto Buffer::resize(vk::DeviceSize size) -> bool {
-	if (m_device == nullptr) { return false; }
+	if (m_api == nullptr) { return false; }
 	ensure_positive(size);
 	if (m_capacity >= size) {
 		m_size = size;
@@ -1075,11 +1081,11 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	VmaAllocation allocation{};
 	VkBuffer buffer{};
 	auto alloc_info = VmaAllocationInfo{};
-	if (vmaCreateBuffer(m_device->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
+	if (vmaCreateBuffer(m_api->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
 
 	m_size = m_capacity = size;
 	m_buffer = Payload{
-		.allocator = m_device->get_allocator(),
+		.allocator = m_api->get_allocator(),
 		.allocation = allocation,
 		.resource = buffer,
 	};
@@ -1089,19 +1095,18 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 
 void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
-Image::Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
-	: Resource<vk::Image>(render_device), m_info(create_info) {
+Image::Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent) : Resource<vk::Image>(api), m_info(create_info) {
 	m_info.usage |= CreateInfo::implicit_usage_v;
 	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
 }
 
 auto Image::resize(vk::Extent2D extent) -> bool {
-	if (m_device == nullptr) { return false; }
+	if (m_api == nullptr) { return false; }
 	ensure_positive(extent.width, extent.height);
 	if (m_extent == extent) { return true; }
 
 	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
-	auto const queue_family = m_device->get_queue_family();
+	auto const queue_family = m_api->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
 		.setFormat(m_info.format)
@@ -1122,12 +1127,12 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	}
 	VkImage image{};
 	VmaAllocation allocation{};
-	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
+	if (vmaCreateImage(m_api->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
 	m_mip_levels = ici.mipLevels;
 	m_image = Payload{
-		.allocator = m_device->get_allocator(),
+		.allocator = m_api->get_allocator(),
 		.allocation = allocation,
 		.resource = image,
 	};
@@ -1137,7 +1142,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 		.subresource = subresource_range(),
 		.type = vk::ImageViewType::e2D,
 	};
-	m_view = make_image_view(m_device->get_device());
+	m_view = make_image_view(m_api->get_device());
 	m_layout = vk::ImageLayout::eUndefined;
 
 	return true;
@@ -1145,7 +1150,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 
 void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) {
 	barrier.setImage(get_image())
-		.setSrcQueueFamilyIndex(m_device->get_queue_family())
+		.setSrcQueueFamilyIndex(m_api->get_queue_family())
 		.setDstQueueFamilyIndex(barrier.srcQueueFamilyIndex)
 		.setSubresourceRange(subresource_range());
 	util::record_barrier(command_buffer, barrier);
@@ -1377,10 +1382,10 @@ void RenderPass::set_render_targets() {
 #include <kvf/command_buffer.hpp>
 
 namespace kvf {
-CommandBuffer::CommandBuffer(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {
-	auto const device = render_device->get_device();
+CommandBuffer::CommandBuffer(gsl::not_null<IRenderApi const*> api) : m_api(api) {
+	auto const device = api->get_device();
 	auto cpci = vk::CommandPoolCreateInfo{};
-	cpci.setQueueFamilyIndex(render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
+	cpci.setQueueFamilyIndex(api->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
 	m_pool = device.createCommandPoolUnique(cpci);
 	auto cbai = vk::CommandBufferAllocateInfo{};
 	cbai.setCommandPool(*m_pool).setCommandBufferCount(1);
@@ -1393,9 +1398,9 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 	auto const cbsi = vk::CommandBufferSubmitInfo{m_cmd};
 	auto si = vk::SubmitInfo2{};
 	si.setCommandBufferInfos(cbsi);
-	auto const fence = m_device->get_device().createFenceUnique({});
-	m_device->queue_submit(si, *fence);
-	return util::wait_for_fence(m_device->get_device(), *fence, timeout);
+	auto const fence = m_api->get_device().createFenceUnique({});
+	m_api->queue_submit(si, *fence);
+	return util::wait_for_fence(m_api->get_device(), *fence, timeout);
 }
 } // namespace kvf
 
@@ -1504,7 +1509,7 @@ struct MakeMipMaps {
 	}
 
 	auto operator()() -> void {
-		barrier = out.get_render_device()->image_barrier(out.get_info().aspect);
+		barrier = out.get_render_api()->image_barrier(out.get_info().aspect);
 		layer_count = out.get_info().layers;
 		aspect = out.get_info().aspect;
 
@@ -1582,13 +1587,13 @@ auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize o
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
+	auto staging = vma::Buffer{dst.get_render_api(), bci, bytes.size()};
 	if (!overwrite(staging, bytes)) { return false; }
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
 	auto cbi = vk::CopyBufferInfo2{};
 	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
-	auto cmd = CommandBuffer{dst.get_render_device()};
+	auto cmd = CommandBuffer{dst.get_render_api()};
 	cmd.get().copyBuffer2(cbi);
 	return cmd.submit_and_wait();
 }
@@ -1617,9 +1622,9 @@ auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
 		.type = vma::BufferType::Host,
 	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, total_size};
+	auto staging = vma::Buffer{dst.get_render_api(), bci, total_size};
 
-	auto cmd = CommandBuffer{dst.get_render_device()};
+	auto cmd = CommandBuffer{dst.get_render_api()};
 	auto barrier = vk::ImageMemoryBarrier2{};
 	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
 		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)

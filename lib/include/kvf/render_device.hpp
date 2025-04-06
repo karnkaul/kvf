@@ -5,7 +5,9 @@
 #include <klib/constants.hpp>
 #include <klib/version.hpp>
 #include <kvf/buffered.hpp>
+#include <kvf/gpu.hpp>
 #include <kvf/pipeline_state.hpp>
+#include <kvf/render_api.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
 #include <cstdint>
@@ -23,12 +25,6 @@ inline constexpr auto enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
 }
 
 namespace kvf {
-struct Gpu {
-	vk::PhysicalDevice device{};
-	vk::PhysicalDeviceProperties properties{};
-	vk::PhysicalDeviceFeatures features{};
-};
-
 enum class RenderDeviceFlag : std::int8_t {
 	None = 0,
 	LinearBackbuffer = 1 << 0,
@@ -53,10 +49,9 @@ struct RenderDeviceCreateInfo {
 	GpuSelector const* gpu_selector{nullptr};
 };
 
-class RenderDevice {
+class RenderDevice : public IRenderApi {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
-	static constexpr auto aniso_v = 8.0f;
 
 	static constexpr auto present_modes_v = std::array{
 		vk::PresentModeKHR::eFifo,
@@ -76,25 +71,25 @@ class RenderDevice {
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version;
 	[[nodiscard]] auto get_instance() const -> vk::Instance;
 	[[nodiscard]] auto get_surface() const -> vk::SurfaceKHR;
-	[[nodiscard]] auto get_gpu() const -> Gpu const&;
-	[[nodiscard]] auto get_device() const -> vk::Device;
-	[[nodiscard]] auto get_queue_family() const -> std::uint32_t;
-	[[nodiscard]] auto get_allocator() const -> VmaAllocator;
+	[[nodiscard]] auto get_gpu() const -> Gpu const& final;
+	[[nodiscard]] auto get_device() const -> vk::Device final;
+	[[nodiscard]] auto get_queue_family() const -> std::uint32_t final;
+	[[nodiscard]] auto get_allocator() const -> VmaAllocator final;
 
 	[[nodiscard]] auto get_framebuffer_extent() const -> vk::Extent2D;
 	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR;
 	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const>;
 	auto set_present_mode(vk::PresentModeKHR desired) -> bool;
 
-	[[nodiscard]] auto get_swapchain_format() const -> vk::Format;
-	[[nodiscard]] auto get_depth_format() const -> vk::Format;
-	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2;
-	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo;
+	[[nodiscard]] auto get_swapchain_format() const -> vk::Format final;
+	[[nodiscard]] auto get_depth_format() const -> vk::Format final;
+	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 final;
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo final;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 
-	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {});
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {}) const final;
 
 	[[nodiscard]] auto get_render_imgui() const -> bool;
 	void set_render_imgui(bool should_render);

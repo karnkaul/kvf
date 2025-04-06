@@ -3,7 +3,7 @@
 #include <klib/base_types.hpp>
 #include <klib/enum_flags.hpp>
 #include <klib/unique.hpp>
-#include <kvf/render_device_fwd.hpp>
+#include <kvf/render_api.hpp>
 #include <kvf/render_target.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <cstdint>
@@ -18,12 +18,12 @@ class Resource : public klib::Polymorphic {
   public:
 	Resource() = default;
 
-	[[nodiscard]] auto get_render_device() const -> RenderDevice* { return m_device; }
+	[[nodiscard]] auto get_render_api() const -> IRenderApi const* { return m_api; }
 
-	explicit operator bool() const { return m_device != nullptr; }
+	explicit operator bool() const { return m_api != nullptr; }
 
   protected:
-	explicit Resource(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {}
+	explicit Resource(gsl::not_null<IRenderApi const*> api) : m_api(api) {}
 
 	struct Payload {
 		VmaAllocator allocator{};
@@ -33,7 +33,7 @@ class Resource : public klib::Polymorphic {
 		auto operator==(Payload const& rhs) const -> bool { return allocation == rhs.allocation; }
 	};
 
-	RenderDevice* m_device{};
+	IRenderApi const* m_api{};
 };
 
 enum class BufferType : std::uint8_t { Host, Device };
@@ -52,7 +52,7 @@ class Buffer : public Resource<vk::Buffer> {
 
 	Buffer() = default;
 
-	explicit Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
+	explicit Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
 
 	auto resize(vk::DeviceSize size) -> bool;
 
@@ -102,7 +102,7 @@ class Image : public Resource<vk::Image> {
 
 	Image() = default;
 
-	explicit Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
+	explicit Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
 
 	auto resize(vk::Extent2D extent) -> bool;
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
