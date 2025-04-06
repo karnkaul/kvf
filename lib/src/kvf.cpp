@@ -13,6 +13,7 @@
 #include <kvf/is_positive.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_hash.hpp>
 #include <charconv>
 #include <chrono>
 #include <cmath>
@@ -224,7 +225,7 @@ class DearImGui {
 		init_info.MinImageCount = 2;
 		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
 		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
-		init_info.DescriptorPoolSize = 2;
+		init_info.DescriptorPoolSize = std::uint32_t(resource_buffering_v);
 		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
 		pipline_rendering_ci.setColorAttachmentCount(1).setColorAttachmentFormats(create_info.color_format);
 		init_info.PipelineRenderingCreateInfo = pipline_rendering_ci;
@@ -460,10 +461,32 @@ struct DescriptorAllocator {
 };
 
 struct BufferAllocator {
-	VmaAllocator allocator{};
-	std::uint32_t queue_family{};
+	[[nodiscard]] auto allocate(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
+		auto& pool = m_pools[usage];
+		if (pool.index >= pool.buffers.size()) {
+			pool.index = pool.buffers.size();
+			auto const ci = vma::BufferCreateInfo{
+				.usage = usage,
+				.type = vma::BufferType::Host,
+			};
+			pool.buffers.emplace_back(&api, ci, size);
+		}
+		auto& ret = pool.buffers.at(pool.index);
+		ret.resize(size);
+		return ret;
+	}
+
+	void reset() {
+		for (auto& [_, pool] : m_pools) { pool.index = 0; }
+	}
 
   private:
+	struct Pool {
+		std::vector<vma::Buffer> buffers{};
+		std::size_t index{};
+	};
+
+	std::unordered_map<vk::BufferUsageFlags, Pool> m_pools{};
 };
 } // namespace
 
@@ -481,7 +504,7 @@ struct RenderDevice::Impl {
 		create_device();
 		create_swapchain();
 		create_allocator();
-		init_set_allocators(create_info.sets_per_pool);
+		init_descriptor_allocators(create_info.sets_per_pool);
 
 		m_imgui.new_frame();
 	}
@@ -609,7 +632,17 @@ struct RenderDevice::Impl {
 	}
 
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
-		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
+		return m_descriptor_allocators.at(m_frame_index).allocate(out_sets, layouts);
+	}
+
+	auto allocate_scratch_buffer(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
+		return m_buffer_allocators.at(m_frame_index).allocate(api, usage, size);
+	}
+
+	auto scratch_descriptor_info(IRenderApi const& api, vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
+		auto& buffer = allocate_scratch_buffer(api, usage, data.size());
+		buffer.write_in_place(data);
+		return buffer.descriptor_info();
 	}
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const {
@@ -627,7 +660,8 @@ struct RenderDevice::Impl {
 
 		glfwPollEvents();
 		m_imgui.new_frame();
-		m_set_allocators.at(m_frame_index).reset();
+		m_descriptor_allocators.at(m_frame_index).reset();
+		m_buffer_allocators.at(m_frame_index).reset();
 
 		m_current_cmd = &m_command_buffers.at(m_frame_index);
 		m_current_cmd->begin();
@@ -866,7 +900,7 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan Allocator created");
 	}
 
-	void init_set_allocators(std::uint32_t const sets_per_pool) {
+	void init_descriptor_allocators(std::uint32_t const sets_per_pool) {
 		if (m_pool_sizes.empty()) {
 			static constexpr auto descriptors_per_type_v{8};
 			m_pool_sizes = {
@@ -875,7 +909,7 @@ struct RenderDevice::Impl {
 				vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, descriptors_per_type_v},
 			};
 		}
-		for (auto& allocator : m_set_allocators) {
+		for (auto& allocator : m_descriptor_allocators) {
 			allocator.device = *m_device;
 			allocator.pool_sizes = m_pool_sizes;
 			allocator.sets_per_pool = sets_per_pool;
@@ -989,7 +1023,8 @@ struct RenderDevice::Impl {
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
 	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
-	Buffered<DescriptorAllocator> m_set_allocators{};
+	Buffered<DescriptorAllocator> m_descriptor_allocators{};
+	Buffered<BufferAllocator> m_buffer_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
@@ -1042,6 +1077,10 @@ auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::spa
 	return m_impl->allocate_sets(out_sets, layouts);
 }
 
+auto RenderDevice::write_scratch_buffer(vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
+	return m_impl->scratch_descriptor_info(*this, usage, data);
+}
+
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
@@ -1061,6 +1100,14 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 
 namespace kvf::vma {
 namespace {
+// 4-channels.
+constexpr auto white_pixel_v = std::array{std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+// fallback bitmap.
+constexpr auto white_bitmap_v = Bitmap{
+	.bytes = white_pixel_v,
+	.size = {1, 1},
+};
+
 struct MakeMipMaps {
 	// NOLINTNEXTLINE
 	vma::Image& out;
@@ -1205,6 +1252,12 @@ auto Buffer::mapped_span() const -> std::span<std::byte> {
 	return {static_cast<std::byte*>(bytes), m_size};
 }
 
+auto Buffer::descriptor_info() const -> vk::DescriptorBufferInfo {
+	auto ret = vk::DescriptorBufferInfo{};
+	ret.setBuffer(get_buffer()).setRange(get_size());
+	return ret;
+}
+
 void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
 Image::Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent) : Resource<vk::Image>(api), m_info(create_info) {
@@ -1278,9 +1331,9 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
-	if (layer_size == 0) { return true; }
 	auto const extent = util::to_vk_extent(size);
 	if (!resize(extent)) { return false; }
+	if (layer_size == 0) { return true; }
 
 	auto const original_layout = get_layout();
 
@@ -1300,7 +1353,7 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
 	transition(cmd, barrier);
 
-	auto span = std::span{static_cast<std::byte*>(staging.get_mapped()), total_size};
+	auto span = staging.mapped_span();
 	auto buffer_offset = vk::DeviceSize{};
 	auto cbtii = vk::CopyBufferToImageInfo2{};
 	cbtii.setDstImage(get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
@@ -1336,7 +1389,34 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	return cmd.submit_and_wait();
 }
 
+auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
+	if (bitmap.bytes.empty() || bitmap.size.x <= 0 || bitmap.size.y <= 0) { bitmap = white_bitmap_v; }
+	return resize_and_overwrite({&bitmap, 1});
+}
+
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
+
+Texture::Texture(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info) {
+	auto const image_ci = ImageCreateInfo{
+		.format = create_info.format,
+		.aspect = create_info.aspect,
+		.samples = create_info.samples,
+		.layers = 1,
+		.view_type = vk::ImageViewType::e2D,
+		.flags = create_info.flags,
+	};
+	auto const extent = util::to_vk_extent(create_info.bitmap.size);
+	m_image = Image{api, image_ci, extent};
+	m_image.resize_and_overwrite(create_info.bitmap);
+
+	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
+}
+
+auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {
+	auto ret = vk::DescriptorImageInfo{};
+	ret.setImageView(m_image.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	return ret;
+}
 } // namespace kvf::vma
 
 // render_pass
@@ -1557,8 +1637,6 @@ void RenderPass::set_render_targets() {
 } // namespace kvf
 
 // command_buffer
-
-#include <kvf/command_buffer.hpp>
 
 namespace kvf {
 CommandBuffer::CommandBuffer(gsl::not_null<IRenderApi const*> api) : m_api(api) {

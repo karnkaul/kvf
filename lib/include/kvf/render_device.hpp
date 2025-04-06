@@ -91,6 +91,7 @@ class RenderDevice : public IRenderApi {
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
+	[[nodiscard]] auto write_scratch_buffer(vk::BufferUsageFlags usage, BufferWrite data) -> vk::DescriptorBufferInfo;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {}) const final;
 

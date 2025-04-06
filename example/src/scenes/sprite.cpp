@@ -56,9 +56,6 @@ struct Quad {
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)), m_texture(device, texture_info()) {
-	for (auto& ubo : m_ubos) { ubo = vma::Buffer{device, ubo_info(), sizeof(glm::mat4)}; }
-	for (auto& ssbo : m_ssbos) { ssbo = vma::Buffer{device, ssbo_info()}; }
-
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 
@@ -181,14 +178,10 @@ void Sprite::create_instances() {
 }
 
 void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 const extent) {
+	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto const half_extent = 0.5f * extent;
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
-	auto& ubo = m_ubos.at(std::size_t(get_render_device().get_frame_index()));
-	if (!ubo.resize_and_overwrite(projection)) { throw Error{"Failed to write to Uniform Buffer"}; }
-
-	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
-	auto view_dbi = vk::DescriptorBufferInfo{};
-	view_dbi.setBuffer(ubo.get_buffer()).setRange(ubo.get_size());
+	auto const view_dbi = get_render_device().write_scratch_buffer(vk::BufferUsageFlagBits::eUniformBuffer, projection);
 	wds[0].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eUniformBuffer).setBufferInfo(view_dbi).setDstSet(sets[0]).setDstBinding(0);
 
 	m_instance_buffer.clear();
@@ -198,10 +191,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 		auto const r = glm::rotate(glm::mat4{1.0f}, glm::radians(instance.rotation), glm::vec3{0.0f, 0.0f, 1.0f});
 		m_instance_buffer.push_back(Std430Instance{.mat_world = t * r, .tint = instance.tint.to_vec4()});
 	}
-	auto& ssbo = m_ssbos.at(std::size_t(get_render_device().get_frame_index()));
-	if (!ssbo.resize_and_overwrite(std::span{m_instance_buffer})) { throw Error{"Failed to write to Storage Buffer"}; }
-	auto instances_dbi = vk::DescriptorBufferInfo{};
-	instances_dbi.setBuffer(ssbo.get_buffer()).setRange(ssbo.get_size());
+	auto const instances_dbi = get_render_device().write_scratch_buffer(vk::BufferUsageFlagBits::eStorageBuffer, std::span{m_instance_buffer});
 	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
 
 	auto texture_dii = vk::DescriptorImageInfo{};

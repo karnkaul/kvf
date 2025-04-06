@@ -69,6 +69,8 @@ class Buffer : public Resource<vk::Buffer> {
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize { return m_size; }
 	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_info; }
 
+	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorBufferInfo;
+
   private:
 	struct Deleter {
 		void operator()(Payload const& buffer) const noexcept;
@@ -114,7 +116,7 @@ class Image : public Resource<vk::Image> {
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
 
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool;
-	auto resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_and_overwrite({&bitmap, 1}); }
+	auto resize_and_overwrite(Bitmap bitmap) -> bool;
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }
@@ -138,5 +140,43 @@ class Image : public Resource<vk::Image> {
 	vk::UniqueImageView m_view{};
 	vk::Extent2D m_extent{};
 	vk::ImageLayout m_layout{};
+};
+
+[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter) {
+	auto ret = vk::SamplerCreateInfo{};
+	ret.setAddressModeU(wrap)
+		.setAddressModeV(wrap)
+		.setAddressModeW(wrap)
+		.setMinFilter(filter)
+		.setMagFilter(filter)
+		.setMaxLod(VK_LOD_CLAMP_NONE)
+		.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+		.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+	return ret;
+}
+
+constexpr auto sampler_ci_v = create_sampler_ci(vk::SamplerAddressMode::eClampToEdge, vk::Filter::eLinear);
+
+struct TextureCreateInfo {
+	Bitmap bitmap;
+
+	vk::Format format{vk::Format::eR8G8B8A8Srgb};
+	vk::ImageAspectFlagBits aspect{vk::ImageAspectFlagBits::eColor};
+	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
+	ImageFlags flags{ImageFlag::MipMapped};
+	vk::SamplerCreateInfo sampler{sampler_ci_v};
+};
+
+class Texture {
+  public:
+	using CreateInfo = TextureCreateInfo;
+
+	explicit Texture(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info);
+
+	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
+
+  private:
+	Image m_image{};
+	vk::UniqueSampler m_sampler{};
 };
 } // namespace kvf::vma
