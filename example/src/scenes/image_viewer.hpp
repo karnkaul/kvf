@@ -1,6 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
-#include <kvf/vma.hpp>
+#include <kvf/render_device.hpp>
 #include <scene.hpp>
 
 namespace kvf::example {

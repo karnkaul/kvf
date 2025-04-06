@@ -1026,6 +1026,14 @@ auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, 
 	return m_impl->sampler_info(wrap, filter, aniso);
 }
 
+auto RenderDevice::create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize const size) const -> vma::Buffer {
+	return vma::Buffer{this, create_info, size};
+}
+
+auto RenderDevice::create_image(vma::ImageCreateInfo const& create_info, vk::Extent2D const extent) const -> vma::Image {
+	return vma::Image{this, create_info, extent};
+}
+
 auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
 	return m_impl->create_pipeline(layout, state, format);
 }

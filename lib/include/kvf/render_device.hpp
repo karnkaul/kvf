@@ -1,6 +1,5 @@
 #pragma once
 #include <GLFW/glfw3.h>
-#include <vk_mem_alloc.h>
 #include <klib/base_types.hpp>
 #include <klib/constants.hpp>
 #include <klib/version.hpp>
@@ -10,6 +9,7 @@
 #include <kvf/render_api.hpp>
 #include <kvf/render_device_fwd.hpp>
 #include <kvf/render_target.hpp>
+#include <kvf/vma.hpp>
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
@@ -85,6 +85,9 @@ class RenderDevice : public IRenderApi {
 	[[nodiscard]] auto get_depth_format() const -> vk::Format final;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 final;
 	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo final;
+
+	[[nodiscard]] auto create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize size) const -> vma::Buffer;
+	[[nodiscard]] auto create_image(vma::ImageCreateInfo const& create_info, vk::Extent2D extent) const -> vma::Image;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
