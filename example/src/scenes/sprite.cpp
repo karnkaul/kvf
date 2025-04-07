@@ -51,11 +51,10 @@ struct Quad {
 [[nodiscard]] constexpr auto vbo_info() { return buffer_info(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer); }
 [[nodiscard]] constexpr auto ubo_info() { return buffer_info(vk::BufferUsageFlagBits::eUniformBuffer); }
 [[nodiscard]] constexpr auto ssbo_info() { return buffer_info(vk::BufferUsageFlagBits::eStorageBuffer); }
-[[nodiscard]] constexpr auto texture_info() { return vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .flags = vma::ImageFlag::MipMapped}; }
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)), m_texture(device, texture_info()) {
+	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)) {
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 
@@ -145,7 +144,10 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	if (!m_texture.resize_and_overwrite(image.bitmap())) { throw Error{"Failed to write to Vulkan Image"}; }
+	auto const texture_ci = vma::Texture::CreateInfo{
+		.bitmap = image.bitmap(),
+	};
+	m_texture.emplace(&get_render_device(), texture_ci);
 
 	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().get_device().createSamplerUnique(sci);
@@ -194,8 +196,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto const instances_dbi = get_render_device().write_scratch_buffer(vk::BufferUsageFlagBits::eStorageBuffer, std::span{m_instance_buffer});
 	wds[1].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eStorageBuffer).setBufferInfo(instances_dbi).setDstSet(sets[1]).setDstBinding(0);
 
-	auto texture_dii = vk::DescriptorImageInfo{};
-	texture_dii.setImageView(m_texture.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	auto const texture_dii = m_texture->descriptor_info();
 	wds[2].setDescriptorCount(1).setDescriptorType(vk::DescriptorType::eCombinedImageSampler).setImageInfo(texture_dii).setDstSet(sets[1]).setDstBinding(1);
 
 	get_render_device().get_device().updateDescriptorSets(wds, {});
