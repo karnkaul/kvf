@@ -1727,6 +1727,20 @@ auto ColorBitmap::bitmap() const -> Bitmap {
 // util
 
 namespace kvf {
+namespace {
+template <typename DescriptorInfoT>
+[[nodiscard]] auto descriptor_write(vk::DescriptorType const type, DescriptorInfoT const* info, vk::DescriptorSet set, std::uint32_t const binding) {
+	auto ret = vk::WriteDescriptorSet{};
+	ret.setDescriptorCount(1).setDescriptorType(type).setDstSet(set).setDstBinding(binding);
+	if constexpr (std::same_as<DescriptorInfoT, vk::DescriptorBufferInfo>) {
+		ret.setBufferInfo(*info);
+	} else {
+		ret.setImageInfo(*info);
+	}
+	return ret;
+}
+} // namespace
+
 auto util::color_from_hex(std::string_view hex) -> Color {
 	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
 	hex = hex.substr(1);
@@ -1744,6 +1758,18 @@ auto util::to_hex_string(Color const& color) -> std::string { return std::format
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
+}
+
+auto util::ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eUniformBuffer, info.get(), set, binding);
+}
+
+auto util::ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eStorageBuffer, info.get(), set, binding);
+}
+
+auto util::image_write(gsl::not_null<vk::DescriptorImageInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eCombinedImageSampler, info.get(), set, binding);
 }
 
 auto util::wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds const timeout) -> bool {
