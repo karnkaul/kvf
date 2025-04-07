@@ -119,7 +119,7 @@ constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::fi
 }
 
 [[nodiscard]] constexpr auto optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eFifoRelaxed, vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
 	for (auto const desired : desired_v) {
 		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
 	}
