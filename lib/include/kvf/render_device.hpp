@@ -88,6 +88,7 @@ class RenderDevice : public IRenderApi {
 
 	[[nodiscard]] auto create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize size) const -> vma::Buffer;
 	[[nodiscard]] auto create_image(vma::ImageCreateInfo const& create_info, vk::Extent2D extent) const -> vma::Image;
+	[[nodiscard]] auto create_texture(vma::TextureCreateInfo const& create_info) const -> vma::Texture;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;

@@ -1069,6 +1069,8 @@ auto RenderDevice::create_image(vma::ImageCreateInfo const& create_info, vk::Ext
 	return vma::Image{this, create_info, extent};
 }
 
+auto RenderDevice::create_texture(vma::TextureCreateInfo const& create_info) const -> vma::Texture { return vma::Texture{this, create_info}; }
+
 auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
 	return m_impl->create_pipeline(layout, state, format);
 }
