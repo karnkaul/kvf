@@ -1,9 +1,11 @@
 #pragma once
 #include <vk_mem_alloc.h>
+#include <klib/base_types.hpp>
 #include <klib/enum_flags.hpp>
-#include <klib/polymorphic.hpp>
 #include <klib/unique.hpp>
-#include <kvf/render_device_fwd.hpp>
+#include <kvf/bitmap.hpp>
+#include <kvf/buffer_write.hpp>
+#include <kvf/render_api.hpp>
 #include <kvf/render_target.hpp>
 #include <kvf/vma_fwd.hpp>
 #include <cstdint>
@@ -18,12 +20,12 @@ class Resource : public klib::Polymorphic {
   public:
 	Resource() = default;
 
-	[[nodiscard]] auto get_render_device() const -> RenderDevice* { return m_device; }
+	[[nodiscard]] auto get_render_api() const -> IRenderApi const* { return m_api; }
 
-	explicit operator bool() const { return m_device != nullptr; }
+	explicit operator bool() const { return m_api != nullptr; }
 
   protected:
-	explicit Resource(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {}
+	explicit Resource(gsl::not_null<IRenderApi const*> api) : m_api(api) {}
 
 	struct Payload {
 		VmaAllocator allocator{};
@@ -33,7 +35,7 @@ class Resource : public klib::Polymorphic {
 		auto operator==(Payload const& rhs) const -> bool { return allocation == rhs.allocation; }
 	};
 
-	RenderDevice* m_device{};
+	IRenderApi const* m_api{};
 };
 
 enum class BufferType : std::uint8_t { Host, Device };
@@ -52,16 +54,22 @@ class Buffer : public Resource<vk::Buffer> {
 
 	Buffer() = default;
 
-	explicit Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
+	explicit Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::DeviceSize size = min_size_v);
 
 	auto resize(vk::DeviceSize size) -> bool;
 
+	auto write_in_place(BufferWrite data, vk::DeviceSize offset = 0) -> bool;
+	auto resize_and_overwrite(BufferWrite data) -> bool;
+
 	[[nodiscard]] auto get_buffer() const -> vk::Buffer { return m_buffer.get().resource; }
-	[[nodiscard]] auto get_mapped() const -> void* { return m_mapped; }
+	[[nodiscard]] auto get_mapped() const -> void* { return m_mapped.get(); }
+	[[nodiscard]] auto mapped_span() const -> std::span<std::byte>;
 
 	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize { return m_capacity; }
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize { return m_size; }
 	[[nodiscard]] auto get_info() const -> CreateInfo const& { return m_info; }
+
+	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorBufferInfo;
 
   private:
 	struct Deleter {
@@ -72,7 +80,7 @@ class Buffer : public Resource<vk::Buffer> {
 	klib::Unique<Payload, Deleter> m_buffer{};
 	vk::DeviceSize m_capacity{};
 	vk::DeviceSize m_size{};
-	void* m_mapped{};
+	klib::Unique<void*> m_mapped{};
 };
 
 enum class ImageFlag : std::int8_t {
@@ -102,10 +110,13 @@ class Image : public Resource<vk::Image> {
 
 	Image() = default;
 
-	explicit Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
+	explicit Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent = min_extent_v);
 
 	auto resize(vk::Extent2D extent) -> bool;
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
+
+	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool;
+	auto resize_and_overwrite(Bitmap bitmap) -> bool;
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }
@@ -129,5 +140,45 @@ class Image : public Resource<vk::Image> {
 	vk::UniqueImageView m_view{};
 	vk::Extent2D m_extent{};
 	vk::ImageLayout m_layout{};
+};
+
+[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter) {
+	auto ret = vk::SamplerCreateInfo{};
+	ret.setAddressModeU(wrap)
+		.setAddressModeV(wrap)
+		.setAddressModeW(wrap)
+		.setMinFilter(filter)
+		.setMagFilter(filter)
+		.setMaxLod(VK_LOD_CLAMP_NONE)
+		.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+		.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+	return ret;
+}
+
+constexpr auto sampler_ci_v = create_sampler_ci(vk::SamplerAddressMode::eClampToEdge, vk::Filter::eLinear);
+
+struct TextureCreateInfo {
+	vk::Format format{vk::Format::eR8G8B8A8Srgb};
+	vk::ImageAspectFlagBits aspect{vk::ImageAspectFlagBits::eColor};
+	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
+	ImageFlags flags{ImageFlag::MipMapped};
+	vk::SamplerCreateInfo sampler{sampler_ci_v};
+};
+
+class Texture {
+  public:
+	using CreateInfo = TextureCreateInfo;
+
+	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap = {}, CreateInfo const& create_info = {});
+
+	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_image.get_extent(); }
+	[[nodiscard]] auto get_image() const -> Image const& { return m_image; }
+	[[nodiscard]] auto get_sampler() const -> vk::Sampler { return *m_sampler; }
+
+	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
+
+  private:
+	Image m_image{};
+	vk::UniqueSampler m_sampler{};
 };
 } // namespace kvf::vma

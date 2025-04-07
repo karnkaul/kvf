@@ -55,15 +55,63 @@ struct Rect {
 		return {lt, rb};
 	}
 
-	constexpr auto operator*=(float const scale) -> Rect& {
-		lt *= scale;
-		rb *= scale;
+	constexpr auto operator+=(glm::tvec2<Type> const vec) -> Rect& {
+		lt += vec;
+		rb += vec;
 		return *this;
 	}
 
-	friend constexpr auto operator*(float const scale, Rect const& rect) {
+	constexpr auto operator-=(glm::tvec2<Type> const vec) -> Rect& {
+		lt -= vec;
+		rb -= vec;
+		return *this;
+	}
+
+	constexpr auto operator*=(glm::tvec2<Type> const vec) -> Rect& {
+		lt *= vec;
+		rb *= vec;
+		return *this;
+	}
+
+	constexpr auto operator/=(glm::tvec2<Type> const vec) -> Rect& {
+		lt /= vec;
+		rb /= vec;
+		return *this;
+	}
+
+	friend constexpr auto operator+(Rect const& rect, glm::tvec2<Type> const vec) {
 		auto ret = rect;
-		ret *= scale;
+		ret += vec;
+		return ret;
+	}
+
+	friend constexpr auto operator-(Rect const& rect, glm::tvec2<Type> const vec) {
+		auto ret = rect;
+		ret -= vec;
+		return ret;
+	}
+
+	friend constexpr auto operator*(Rect const& rect, glm::tvec2<Type> const vec) {
+		auto ret = rect;
+		ret *= vec;
+		return ret;
+	}
+
+	friend constexpr auto operator/(Rect const& rect, glm::tvec2<Type> const vec) {
+		auto ret = rect;
+		ret /= vec;
+		return ret;
+	}
+
+	friend constexpr auto operator+(glm::tvec2<Type> const vec, Rect const& rect) {
+		auto ret = rect;
+		ret += vec;
+		return ret;
+	}
+
+	friend constexpr auto operator*(glm::tvec2<Type> const vec, Rect const& rect) {
+		auto ret = rect;
+		ret *= vec;
 		return ret;
 	}
 
@@ -84,16 +132,4 @@ using UvRect = Rect<float>;
 
 /// \brief Default UvRect (entire texture).
 inline constexpr UvRect uv_rect_v{.lt = {0.0f, 0.0f}, .rb = {1.0f, 1.0f}};
-
-/// \brief Convert a normalized point to UV coordinates.
-/// \param n_xy Normalized point in world space (origin at center, +y goes up).
-/// \returns Point in UV space (origin at top-left, +y goes down).
-[[nodiscard]] constexpr auto to_uv_coords(glm::vec2 const n_xy) -> glm::vec2 { return glm::vec2{0.5f + n_xy.x, 0.5f - n_xy.y}; }
-
-/// \brief Convert a normalized Rect to UV coordinates.
-/// \param n_rect Normalized rect in world space (origin at center, +y goes up).
-/// \returns Rect in UV space (origin at top-left, +y goes down).
-[[nodiscard]] constexpr auto to_uv_rect(Rect<> const& n_rect) -> UvRect {
-	return Rect<>{.lt = to_uv_coords(n_rect.top_left()), .rb = to_uv_coords(n_rect.bottom_right())};
-}
 } // namespace kvf

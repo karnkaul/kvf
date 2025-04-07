@@ -3,6 +3,7 @@
 #include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
 #include <klib/debug_trap.hpp>
+#include <klib/file_io.hpp>
 #include <klib/flex_array.hpp>
 #include <klib/scoped_defer.hpp>
 #include <klib/unique.hpp>
@@ -12,10 +13,10 @@
 #include <kvf/is_positive.hpp>
 #include <log.hpp>
 #include <vulkan/vulkan.hpp>
+#include <vulkan/vulkan_hash.hpp>
 #include <charconv>
 #include <chrono>
 #include <cmath>
-#include <fstream>
 #include <mutex>
 #include <ranges>
 
@@ -46,6 +47,11 @@ constexpr void ensure_positive(T&... out) {
 
 namespace {
 void glfw_init() {
+	static auto const on_error = [](int const code, char const* description) {
+		static constexpr std::string_view tag_v{"glfw"};
+		klib::log::error(tag_v, "{} ({})", description, code);
+	};
+	glfwSetErrorCallback(on_error);
 	if (glfwInit() != GLFW_TRUE) { throw kvf::Error{"Failed to initialize GLFW"}; }
 	if (glfwVulkanSupported() != GLFW_TRUE) { throw kvf::Error{"Vulkan not supported"}; }
 	glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
@@ -113,7 +119,7 @@ constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::fi
 }
 
 [[nodiscard]] constexpr auto optimal_present_mode(std::span<vk::PresentModeKHR const> present_modes) {
-	constexpr auto desired_v = std::array{vk::PresentModeKHR::eMailbox, vk::PresentModeKHR::eFifoRelaxed};
+	constexpr auto desired_v = std::array{vk::PresentModeKHR::eFifoRelaxed, vk::PresentModeKHR::eFifo, vk::PresentModeKHR::eMailbox};
 	for (auto const desired : desired_v) {
 		if (std::ranges::find(present_modes, desired) != present_modes.end()) { return desired; }
 	}
@@ -184,88 +190,61 @@ struct GpuList {
 
 class DearImGui {
   public:
-	struct CreateInfo { // NOLINT(cppcoreguidelines-pro-type-member-init)
-		GLFWwindow* window;
-		vk::Instance instance;
-		vk::Device device;
-		vk::PhysicalDevice physical_device;
-		std::uint32_t queue_family;
-		vk::Queue queue;
-		vk::SampleCountFlagBits samples;
-		vk::PipelineRenderingCreateInfo prci;
-		bool srgb_target;
+	struct CreateInfo {
+		GLFWwindow* window{};
+		std::uint32_t api_version{};
+		vk::Instance instance{};
+		vk::PhysicalDevice physical_device{};
+		std::uint32_t queue_family{};
+		vk::Device device{};
+		vk::Queue queue{};
+		vk::Format color_format{};
+		vk::SampleCountFlagBits samples{};
+		bool srgb_target{};
 	};
 
-	DearImGui(DearImGui const&) = delete;
-	DearImGui(DearImGui&&) = delete;
-	auto operator=(DearImGui const&) = delete;
-	auto operator=(DearImGui&&) = delete;
-
-	DearImGui() = default;
-
 	void init(CreateInfo const& create_info) {
-		m_device = create_info.device;
-		static constexpr std::uint32_t max_textures_v{16};
-		auto const pool_sizes = std::array{
-			vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, max_textures_v},
-		};
-		auto dpci = vk::DescriptorPoolCreateInfo{};
-		dpci.flags = vk::DescriptorPoolCreateFlagBits::eFreeDescriptorSet;
-		dpci.maxSets = max_textures_v;
-		dpci.poolSizeCount = static_cast<std::uint32_t>(pool_sizes.size());
-		dpci.pPoolSizes = pool_sizes.data();
-		m_pool = m_device.createDescriptorPoolUnique(dpci);
-
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
-		// ImGuiIO& io = ImGui::GetIO();
-		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard; // Enable Keyboard Controls
-		// io.ConfigFlags |= ImGuiConfigFlags_NavEnableGamepad;  // Enable Gamepad Controls
 
-		ImGui::StyleColorsDark();
-		if (create_info.srgb_target) {
-			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-			for (auto& colour : ImGui::GetStyle().Colors) {
-				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
-				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
-			}
-			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
-		}
-
-		auto load_vk_func = +[](char const* name, void* user_data) {
-			if (std::string_view{name} == "vkCmdBeginRenderingKHR") { name = "vkCmdBeginRendering"; }
-			if (std::string_view{name} == "vkCmdEndRenderingKHR") { name = "vkCmdEndRendering"; }
+		static auto const load_vk_func = +[](char const* name, void* user_data) {
 			return VULKAN_HPP_DEFAULT_DISPATCHER.vkGetInstanceProcAddr(*static_cast<vk::Instance*>(user_data), name);
 		};
 		auto instance = create_info.instance;
-		ImGui_ImplVulkan_LoadFunctions(load_vk_func, &instance);
-		ImGui_ImplGlfw_InitForVulkan(create_info.window, true);
-		ImGui_ImplVulkan_InitInfo init_info = {};
+		ImGui_ImplVulkan_LoadFunctions(create_info.api_version, load_vk_func, &instance);
+
+		if (!ImGui_ImplGlfw_InitForVulkan(create_info.window, true)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
+
+		auto init_info = ImGui_ImplVulkan_InitInfo{};
+		init_info.ApiVersion = create_info.api_version;
 		init_info.Instance = create_info.instance;
 		init_info.PhysicalDevice = create_info.physical_device;
 		init_info.Device = create_info.device;
 		init_info.QueueFamily = create_info.queue_family;
 		init_info.Queue = create_info.queue;
-		init_info.DescriptorPool = *m_pool;
-		init_info.Subpass = 0;
 		init_info.MinImageCount = 2;
-		init_info.ImageCount = resource_buffering_v;
+		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
 		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
+		init_info.DescriptorPoolSize = std::uint32_t(resource_buffering_v);
+		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
+		pipline_rendering_ci.setColorAttachmentCount(1).setColorAttachmentFormats(create_info.color_format);
+		init_info.PipelineRenderingCreateInfo = pipline_rendering_ci;
 		init_info.UseDynamicRendering = true;
-		init_info.PipelineRenderingCreateInfo = create_info.prci;
-
-		ImGui_ImplVulkan_Init(&init_info);
+		if (!ImGui_ImplVulkan_Init(&init_info)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
 		ImGui_ImplVulkan_CreateFontsTexture();
+
+		ImGui::StyleColorsDark();
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+		for (auto& colour : ImGui::GetStyle().Colors) {
+			auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+			colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+		}
+		ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
+
+		m_device = create_info.device;
 	}
 
-	~DearImGui() {
-		if (!m_pool) { return; }
-		ImGui_ImplVulkan_Shutdown();
-		ImGui_ImplGlfw_Shutdown();
-		ImGui::DestroyContext();
-	}
-
-	void new_frame() { // NOLINT(misc-no-recursion)
+	void new_frame() {
 		if (m_state == State::eEndFrame) { end_frame(); }
 		ImGui_ImplVulkan_NewFrame();
 		ImGui_ImplGlfw_NewFrame();
@@ -273,24 +252,35 @@ class DearImGui {
 		m_state = State::eEndFrame;
 	}
 
-	void end_frame() { // NOLINT(misc-no-recursion)
+	void end_frame() {
+		if (m_state == State::eNewFrame) { return; }
 		// ImGui::Render calls ImGui::EndFrame
-		if (m_state == State::eNewFrame) { new_frame(); }
 		ImGui::Render();
 		m_state = State::eNewFrame;
 	}
 
-	void render(vk::CommandBuffer const command_buffer) {
-		if (m_state == State::eEndFrame) { end_frame(); }
+	// NOLINTNEXTLINE(readability-convert-member-functions-to-static)
+	void render(vk::CommandBuffer const command_buffer) const {
 		if (auto* data = ImGui::GetDrawData()) { ImGui_ImplVulkan_RenderDrawData(data, command_buffer); }
 	}
 
+  private:
+	struct Deleter {
+		void operator()(vk::Device device) const {
+			if (!device) { return; }
+			device.waitIdle();
+			ImGui_ImplVulkan_DestroyFontsTexture();
+			ImGui_ImplVulkan_Shutdown();
+			ImGui_ImplGlfw_Shutdown();
+			ImGui::DestroyContext();
+		}
+	};
+
 	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
-	vk::Device m_device{};
-
-	vk::UniqueDescriptorPool m_pool{};
 	State m_state{};
+
+	klib::Unique<vk::Device, Deleter> m_device{};
 };
 
 struct MakeImageView {
@@ -311,23 +301,23 @@ struct MakeImageView {
 };
 
 struct Swapchain {
-	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info, vk::Queue queue) {
+	void init(vk::Device device, vk::PhysicalDevice physical_device, vk::SwapchainCreateInfoKHR const& info) {
 		m_device = device;
 		m_physical_device = physical_device;
 		m_info = info;
-		m_info.imageUsage = vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst;
-		m_info.imageArrayLayers = 1u;
-
-		m_queue = queue;
+		m_info.setImageUsage(vk::ImageUsageFlagBits::eColorAttachment | vk::ImageUsageFlagBits::eTransferDst).setImageArrayLayers(1);
 	}
 
 	void recreate(vk::Extent2D const framebuffer, std::optional<vk::PresentModeKHR> present_mode = {}) {
 		if (framebuffer.width == 0 || framebuffer.height == 0) { return; }
 
 		auto const surface_capabilities = m_physical_device.getSurfaceCapabilitiesKHR(m_info.surface);
-		m_info.imageExtent = Swapchain::get_image_extent(surface_capabilities, framebuffer);
+		m_info.imageExtent = get_image_extent(surface_capabilities, framebuffer);
 		if (present_mode) { m_info.presentMode = *present_mode; }
-		m_info.minImageCount = Swapchain::get_image_count(surface_capabilities);
+		m_info.minImageCount = get_image_count(surface_capabilities);
+		if (m_info.minImageCount <= KVF_RESOURCE_BUFFERING) {
+			throw Error{std::format("Insufficient Swapchain images: {}, KVF_RESOURCE_BUFFERING: {}", m_info.minImageCount, KVF_RESOURCE_BUFFERING)};
+		}
 		m_info.oldSwapchain = *m_swapchain;
 
 		m_device.waitIdle();
@@ -400,6 +390,8 @@ struct Swapchain {
 	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
 
   private:
+	static constexpr std::uint32_t min_images_v{KVF_RESOURCE_BUFFERING + 1};
+
 	[[nodiscard]] static constexpr auto get_image_extent(vk::SurfaceCapabilitiesKHR const& caps, vk::Extent2D framebuffer) -> vk::Extent2D {
 		constexpr auto limitless_v = std::numeric_limits<std::uint32_t>::max();
 		if (caps.currentExtent.width < limitless_v && caps.currentExtent.height < limitless_v) { return caps.currentExtent; }
@@ -409,8 +401,8 @@ struct Swapchain {
 	}
 
 	[[nodiscard]] static constexpr auto get_image_count(vk::SurfaceCapabilitiesKHR const& caps) -> std::uint32_t {
-		if (caps.maxImageCount < caps.minImageCount) { return std::max(3u, caps.minImageCount + 1); }
-		return std::clamp(3u, caps.minImageCount + 1, caps.maxImageCount);
+		if (caps.maxImageCount < caps.minImageCount) { return std::max(min_images_v, caps.minImageCount); }
+		return std::clamp(min_images_v, caps.minImageCount, caps.maxImageCount);
 	}
 
 	vk::PhysicalDevice m_physical_device{};
@@ -424,8 +416,6 @@ struct Swapchain {
 
 	std::optional<std::uint32_t> m_image_index{};
 	vk::ImageLayout m_layout{};
-
-	vk::Queue m_queue;
 };
 
 struct DescriptorAllocator {
@@ -469,22 +459,52 @@ struct DescriptorAllocator {
 	std::vector<vk::UniqueDescriptorPool> m_pools{};
 	std::size_t m_index{};
 };
+
+struct BufferAllocator {
+	[[nodiscard]] auto allocate(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
+		auto& pool = m_pools[usage];
+		if (pool.index >= pool.buffers.size()) {
+			pool.index = pool.buffers.size();
+			auto const ci = vma::BufferCreateInfo{
+				.usage = usage,
+				.type = vma::BufferType::Host,
+			};
+			pool.buffers.emplace_back(&api, ci, size);
+		}
+		auto& ret = pool.buffers.at(pool.index);
+		ret.resize(size);
+		return ret;
+	}
+
+	void reset() {
+		for (auto& [_, pool] : m_pools) { pool.index = 0; }
+	}
+
+  private:
+	struct Pool {
+		std::vector<vma::Buffer> buffers{};
+		std::size_t index{};
+	};
+
+	std::unordered_map<vk::BufferUsageFlags, Pool> m_pools{};
+};
 } // namespace
 
 struct RenderDevice::Impl {
 	using Flag = RenderDeviceFlag;
 
-	Impl(GLFWwindow* window, CreateInfo create_info) : m_window(window), m_flags(create_info.flags), m_pool_sizes(std::move(create_info.custom_pool_sizes)) {
+	Impl(GLFWwindow* window, CreateInfo const& create_info)
+		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
-		if (create_info.gpu_selector == nullptr) { create_info.gpu_selector = &default_gpu_selector; }
+		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
 		log::debug("kvf {}", klib::to_string(build_version_v));
 		create_instance();
 		create_surface();
-		select_gpu(*create_info.gpu_selector);
+		select_gpu(gpu_selector);
 		create_device();
 		create_swapchain();
 		create_allocator();
-		init_set_allocators(create_info.sets_per_pool);
+		init_descriptor_allocators(create_info.sets_per_pool);
 
 		m_imgui.new_frame();
 	}
@@ -527,7 +547,7 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
-	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode const wrap, vk::Filter const filter, float aniso) const -> vk::SamplerCreateInfo {
 		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
 		auto ret = vk::SamplerCreateInfo{};
 		ret.setAddressModeU(wrap)
@@ -611,11 +631,51 @@ struct RenderDevice::Impl {
 		return vk::UniquePipeline{ret, device};
 	}
 
-	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
-		return m_set_allocators.at(m_frame_index).allocate(out_sets, layouts);
+	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
+		auto const create_shader_ci = [&create_info](std::span<std::uint32_t const> spirv) {
+			auto ret = vk::ShaderCreateInfoEXT{};
+			ret.setCodeSize(spirv.size_bytes())
+				.setPCode(spirv.data())
+				.setSetLayouts(create_info.set_layouts)
+				.setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
+				.setPName("main");
+			return ret;
+		};
+
+		auto shader_cis = std::array{
+			create_shader_ci(create_info.vertex_spir_v),
+			create_shader_ci(create_info.fragment_spir_v),
+		};
+		shader_cis[0].setStage(vk::ShaderStageFlagBits::eVertex).setNextStage(vk::ShaderStageFlagBits::eFragment);
+		shader_cis[1].setStage(vk::ShaderStageFlagBits::eFragment);
+
+		auto shaders = std::array<vk::ShaderEXT, 2>{};
+		auto result = m_device->createShadersEXT(std::uint32_t(shader_cis.size()), shader_cis.data(), nullptr, shaders.data());
+		if (result != vk::Result::eSuccess) {
+			log::error("Failed to create ShaderEXT objects");
+			return {};
+		}
+
+		auto ret = std::array<vk::UniqueShaderEXT, 2>{};
+		for (auto [in, out] : std::views::zip(shaders, ret)) { out = vk::UniqueShaderEXT{in, *m_device}; }
+		return ret;
 	}
 
-	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) {
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
+		return m_descriptor_allocators.at(m_frame_index).allocate(out_sets, layouts);
+	}
+
+	auto allocate_scratch_buffer(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
+		return m_buffer_allocators.at(m_frame_index).allocate(api, usage, size);
+	}
+
+	auto scratch_descriptor_info(IRenderApi const& api, vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
+		auto& buffer = allocate_scratch_buffer(api, usage, data.size());
+		buffer.write_in_place(data);
+		return buffer.descriptor_info();
+	}
+
+	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
 	}
@@ -630,16 +690,17 @@ struct RenderDevice::Impl {
 
 		glfwPollEvents();
 		m_imgui.new_frame();
-		m_set_allocators.at(m_frame_index).reset();
+		m_descriptor_allocators.at(m_frame_index).reset();
+		m_buffer_allocators.at(m_frame_index).reset();
 
-		m_current_cmd = m_command_buffers.at(m_frame_index);
-		m_current_cmd.begin(vk::CommandBufferBeginInfo{});
-		return m_current_cmd;
+		m_current_cmd = &m_command_buffers.at(m_frame_index);
+		m_current_cmd->begin();
+		return m_current_cmd->cmd;
 	}
 
 	void render(RenderTarget const& frame, vk::Filter const filter) {
 		m_imgui.end_frame();
-		if (!m_current_cmd) { return; }
+		if (m_current_cmd == nullptr) { return; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
 		if (framebuffer_extent.width == 0 || framebuffer_extent.height == 0) { return; }
@@ -653,7 +714,8 @@ struct RenderDevice::Impl {
 		if (!m_swapchain.acquire_next_image(*sync.draw)) { // out of date
 			lock.unlock();
 			m_swapchain.recreate(framebuffer_extent);
-			m_current_cmd.end();
+			m_current_cmd->end();
+			m_current_cmd = {};
 			return;
 		}
 		lock.unlock();
@@ -673,28 +735,28 @@ struct RenderDevice::Impl {
 
 		if (frame.image && frame.view) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eTransferDstOptimal);
-			util::record_barrier(m_current_cmd, barrier);
-			blit_to_backbuffer(frame, backbuffer, m_current_cmd, filter);
+			util::record_barrier(m_current_cmd->cmd, barrier);
+			blit_to_backbuffer(frame, backbuffer, m_current_cmd->cmd, filter);
 			backbuffer_load_op = vk::AttachmentLoadOp::eLoad;
 		}
 
 		if (should_render_imgui) {
 			barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::eAttachmentOptimal);
-			util::record_barrier(m_current_cmd, barrier);
+			util::record_barrier(m_current_cmd->cmd, barrier);
 			auto cai = vk::RenderingAttachmentInfo{};
 			cai.setImageView(backbuffer.view)
 				.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 				.setLoadOp(backbuffer_load_op)
 				.setStoreOp(vk::AttachmentStoreOp::eStore);
-			render_imgui(m_current_cmd, cai, backbuffer.extent);
+			render_imgui(m_current_cmd->cmd, cai, backbuffer.extent);
 		}
 
 		barrier = transition_backbuffer(backbuffer.image, vk::ImageLayout::ePresentSrcKHR);
-		util::record_barrier(m_current_cmd, barrier);
+		util::record_barrier(m_current_cmd->cmd, barrier);
 
-		m_current_cmd.end();
+		m_current_cmd->end();
 
-		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd};
+		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd->cmd};
 		auto const wssi = vk::SemaphoreSubmitInfo{*sync.draw, 0, vk::PipelineStageFlagBits2::eTopOfPipe};
 		auto const sssi = vk::SemaphoreSubmitInfo{*sync.present, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
 		auto si = vk::SubmitInfo2{};
@@ -708,7 +770,7 @@ struct RenderDevice::Impl {
 		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
 
 		m_frame_index = (m_frame_index + 1) % resource_buffering_v;
-		m_current_cmd = vk::CommandBuffer{};
+		m_current_cmd = nullptr;
 	}
 
 	bool should_render_imgui{true};
@@ -718,6 +780,23 @@ struct RenderDevice::Impl {
 		vk::UniqueSemaphore draw{};
 		vk::UniqueSemaphore present{};
 		vk::UniqueFence drawn{};
+	};
+
+	struct RenderCmd {
+		vk::CommandBuffer cmd{};
+		bool recording{};
+
+		void begin() {
+			if (recording) { end(); }
+			cmd.begin(vk::CommandBufferBeginInfo{});
+			recording = true;
+		}
+
+		void end() {
+			if (!recording) { return; }
+			cmd.end();
+			recording = false;
+		}
 	};
 
 	struct Deleter {
@@ -737,64 +816,18 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan loader (Instance API) version: {}", klib::to_string(m_loader_version));
 
 		auto app_info = vk::ApplicationInfo{};
-		app_info.apiVersion = VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch);
+		app_info.setApiVersion(VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch));
+
 		auto ici = vk::InstanceCreateInfo{};
-		ici.pApplicationInfo = &app_info;
 		auto const wsi_extensions = instance_extensions();
-		auto extensions = std::vector(wsi_extensions.begin(), wsi_extensions.end());
-		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) {
-			static constexpr char const* validation_layer_v = "VK_LAYER_KHRONOS_validation";
-			auto const props = vk::enumerateInstanceLayerProperties();
-			static constexpr auto pred = [](vk::LayerProperties const& p) { return p.layerName == std::string_view{validation_layer_v}; };
-			auto const it = std::ranges::find_if(props, pred);
-			if (it == props.end()) {
-				log::warn("Validation layers requested but {} is not available", validation_layer_v);
-				m_flags &= ~Flag::ValidationLayers;
-			} else {
-				extensions.push_back(VK_EXT_DEBUG_UTILS_EXTENSION_NAME);
-				ici.setPEnabledLayerNames(validation_layer_v);
-			}
-		}
-
-		ici.enabledExtensionCount = std::uint32_t(extensions.size());
-		ici.ppEnabledExtensionNames = extensions.data();
-		try {
-			m_instance = vk::createInstanceUnique(ici);
-		} catch (vk::LayerNotPresentError const& e) {
-			log::error("{}", e.what());
-			ici.enabledLayerCount = 0;
-			m_instance = vk::createInstanceUnique(ici);
-		}
-
+		auto layers = std::vector<char const*>{};
+		if ((m_flags & Flag::ShaderObjectLayer) == Flag::ShaderObjectLayer) { layers.push_back("VK_LAYER_KHRONOS_shader_object"); }
+		ici.setPApplicationInfo(&app_info).setPEnabledExtensionNames(wsi_extensions).setPEnabledLayerNames(layers);
+		m_instance = vk::createInstanceUnique(ici);
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
+
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
 		log::debug("Vulkan {} Instance created", min_ver_str);
-
-		if ((m_flags & Flag::ValidationLayers) == Flag::ValidationLayers) { create_debug_messenger(); }
-	}
-
-	void create_debug_messenger() {
-		auto dmci = vk::DebugUtilsMessengerCreateInfoEXT{};
-		using Severity = vk::DebugUtilsMessageSeverityFlagBitsEXT;
-		using Type = vk::DebugUtilsMessageTypeFlagBitsEXT;
-		using Types = vk::DebugUtilsMessageTypeFlagsEXT;
-		using Data = vk::DebugUtilsMessengerCallbackDataEXT;
-		auto severity_v = Severity::eError | Severity::eWarning;
-		if constexpr (klib::debug_v) { severity_v |= Severity::eInfo; }
-		static constexpr auto types_v = Type::eGeneral | Type::ePerformance | Type::eValidation | Type::eDeviceAddressBinding;
-		static auto const on_msg = [](Severity severity, Types /*unused*/, Data const* data, void* /*unused*/) -> vk::Bool32 {
-			static constexpr std::string_view tag_v{"validation"};
-			switch (severity) {
-			case Severity::eError: klib::log::error(tag_v, "{}", data->pMessage); break;
-			case Severity::eWarning: klib::log::warn(tag_v, "{}", data->pMessage); break;
-			case Severity::eInfo: klib::log::info(tag_v, "{}", data->pMessage); break;
-			default: break;
-			}
-			return vk::False;
-		};
-		dmci.setMessageSeverity(severity_v).setMessageType(types_v).setPfnUserCallback(on_msg);
-		m_debug_messenger = m_instance->createDebugUtilsMessengerEXTUnique(dmci);
-		log::debug("Vulkan Debug Messenger created");
 	}
 
 	void create_surface() {
@@ -826,17 +859,17 @@ struct RenderDevice::Impl {
 		enabled_features.samplerAnisotropy = m_gpu.features.samplerAnisotropy;
 		enabled_features.sampleRateShading = m_gpu.features.sampleRateShading;
 
-		auto sync_feature = vk::PhysicalDeviceSynchronization2Features{vk::True};
 		auto dr_feature = vk::PhysicalDeviceDynamicRenderingFeatures{vk::True};
-		sync_feature.pNext = &dr_feature;
+		auto sync_feature = vk::PhysicalDeviceSynchronization2Features{vk::True, &dr_feature};
+		auto shader_obj_feature = vk::PhysicalDeviceShaderObjectFeaturesEXT{vk::True};
 
 		auto dci = vk::DeviceCreateInfo{};
-		static constexpr auto extensions_v = std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-		dci.setEnabledExtensionCount(std::uint32_t(extensions_v.size()))
-			.setPEnabledExtensionNames(extensions_v)
-			.setQueueCreateInfos(qci)
-			.setPEnabledFeatures(&enabled_features)
-			.setPNext(&sync_feature);
+		auto extensions = std::vector{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+		if ((m_flags & Flag::ShaderObjectFeature) == Flag::ShaderObjectFeature) {
+			dr_feature.setPNext(&shader_obj_feature);
+			extensions.push_back("VK_EXT_shader_object");
+		}
+		dci.setPEnabledExtensionNames(extensions).setQueueCreateInfos(qci).setPEnabledFeatures(&enabled_features).setPNext(&sync_feature);
 
 		m_device = m_gpu.device.createDeviceUnique(dci);
 		if (!m_device) { throw Error{"Failed to create Vulkan Device"}; }
@@ -853,21 +886,20 @@ struct RenderDevice::Impl {
 		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
 		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
-		sci.surface = *m_surface;
-		sci.presentMode = optimal_present_mode(m_present_modes);
-		sci.imageFormat = surface_format.format;
-		sci.queueFamilyIndexCount = 1u;
-		sci.pQueueFamilyIndices = &m_queue_family;
-		sci.imageColorSpace = surface_format.colorSpace;
-		m_swapchain.init(*m_device, m_gpu.device, sci, m_queue);
+		sci.setSurface(*m_surface)
+			.setPresentMode(optimal_present_mode(m_present_modes))
+			.setImageFormat(surface_format.format)
+			.setImageColorSpace(surface_format.colorSpace)
+			.setQueueFamilyIndices(m_queue_family);
+		m_swapchain.init(*m_device, m_gpu.device, sci);
 		m_swapchain.recreate(get_framebuffer_extent());
 
 		auto const cpci = vk::CommandPoolCreateInfo{vk::CommandPoolCreateFlagBits::eResetCommandBuffer, m_queue_family};
 		m_command_pool = m_device->createCommandPoolUnique(cpci);
 		auto const cbai = vk::CommandBufferAllocateInfo{*m_command_pool, vk::CommandBufferLevel::ePrimary, std::uint32_t(resource_buffering_v)};
-		if (m_device->allocateCommandBuffers(&cbai, m_command_buffers.data()) != vk::Result::eSuccess) {
-			throw Error{"Failed to allocate render CommandBuffer(s)"};
-		}
+		auto cmds = Buffered<vk::CommandBuffer>{};
+		if (m_device->allocateCommandBuffers(&cbai, cmds.data()) != vk::Result::eSuccess) { throw Error{"Failed to allocate render CommandBuffer(s)"}; }
+		for (auto [cmd, render_cmd] : std::views::zip(cmds, m_command_buffers)) { render_cmd.cmd = cmd; }
 
 		for (auto& sync : m_syncs) {
 			sync.draw = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
@@ -875,17 +907,15 @@ struct RenderDevice::Impl {
 			sync.drawn = m_device->createFenceUnique(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled});
 		}
 
-		auto prci = vk::PipelineRenderingCreateInfo{};
-		prci.setColorAttachmentCount(1).setColorAttachmentFormats(m_swapchain.get_info().imageFormat);
 		auto const dici = DearImGui::CreateInfo{
 			.window = m_window,
 			.instance = *m_instance,
-			.device = *m_device,
 			.physical_device = m_gpu.device,
 			.queue_family = m_queue_family,
+			.device = *m_device,
 			.queue = m_queue,
+			.color_format = m_swapchain.get_info().imageFormat,
 			.samples = vk::SampleCountFlagBits::e1,
-			.prci = prci,
 			.srgb_target = !linear_backbuffer,
 		};
 		m_imgui.init(dici);
@@ -906,7 +936,7 @@ struct RenderDevice::Impl {
 		log::debug("Vulkan Allocator created");
 	}
 
-	void init_set_allocators(std::uint32_t const sets_per_pool) {
+	void init_descriptor_allocators(std::uint32_t const sets_per_pool) {
 		if (m_pool_sizes.empty()) {
 			static constexpr auto descriptors_per_type_v{8};
 			m_pool_sizes = {
@@ -915,7 +945,7 @@ struct RenderDevice::Impl {
 				vk::DescriptorPoolSize{vk::DescriptorType::eCombinedImageSampler, descriptors_per_type_v},
 			};
 		}
-		for (auto& allocator : m_set_allocators) {
+		for (auto& allocator : m_descriptor_allocators) {
 			allocator.device = *m_device;
 			allocator.pool_sizes = m_pool_sizes;
 			allocator.sets_per_pool = sets_per_pool;
@@ -996,13 +1026,7 @@ struct RenderDevice::Impl {
 				.setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 			break;
 		case vk::ImageLayout::ePresentSrcKHR:
-			if (m_backbuffer_layout == vk::ImageLayout::eUndefined) {
-				// nothing rendered, insert a forced barrier
-				ret.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite);
-			} else {
-				ret.setDstAccessMask(vk::AccessFlagBits2::eNone);
-			}
-			ret.setDstStageMask(vk::PipelineStageFlagBits2::eBottomOfPipe);
+			ret.setDstAccessMask(vk::AccessFlagBits2::eNone).setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 			break;
 		default: KLIB_ASSERT(false);
 		}
@@ -1017,7 +1041,6 @@ struct RenderDevice::Impl {
 	klib::Version m_loader_version{};
 
 	vk::UniqueInstance m_instance{};
-	vk::UniqueDebugUtilsMessengerEXT m_debug_messenger{};
 	vk::UniqueSurfaceKHR m_surface{};
 	Gpu m_gpu{};
 	std::uint32_t m_queue_family{};
@@ -1025,29 +1048,30 @@ struct RenderDevice::Impl {
 
 	vk::UniqueDevice m_device{};
 	vk::Queue m_queue{};
-	std::mutex m_queue_mutex{};
+	mutable std::mutex m_queue_mutex{};
 
 	std::vector<vk::PresentModeKHR> m_present_modes{};
 	Swapchain m_swapchain{};
 	Buffered<Sync> m_syncs{};
 	vk::UniqueCommandPool m_command_pool{};
-	Buffered<vk::CommandBuffer> m_command_buffers{};
+	Buffered<RenderCmd> m_command_buffers{};
 	DearImGui m_imgui{};
 
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
 	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
-	Buffered<DescriptorAllocator> m_set_allocators{};
+	Buffered<DescriptorAllocator> m_descriptor_allocators{};
+	Buffered<BufferAllocator> m_buffer_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
-	vk::CommandBuffer m_current_cmd{};
+	RenderCmd* m_current_cmd{};
 
 	DeviceBlock m_device_block{};
 };
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }
 
-RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo create_info) : m_impl(new Impl(window, std::move(create_info))) {}
+RenderDevice::RenderDevice(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info) : m_impl(new Impl(window, create_info)) {}
 
 auto RenderDevice::get_window() const -> GLFWwindow* { return m_impl->get_window(); }
 auto RenderDevice::get_flags() const -> RenderDeviceFlag { return m_impl->get_flags(); }
@@ -1073,15 +1097,35 @@ auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, 
 	return m_impl->sampler_info(wrap, filter, aniso);
 }
 
+auto RenderDevice::create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize const size) const -> vma::Buffer {
+	return vma::Buffer{this, create_info, size};
+}
+
+auto RenderDevice::create_image(vma::ImageCreateInfo const& create_info, vk::Extent2D const extent) const -> vma::Image {
+	return vma::Image{this, create_info, extent};
+}
+
+auto RenderDevice::create_texture(Bitmap const& bitmap, vma::TextureCreateInfo const& create_info) const -> vma::Texture {
+	return vma::Texture{this, bitmap, create_info};
+}
+
 auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
 	return m_impl->create_pipeline(layout, state, format);
+}
+
+auto RenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
+	return m_impl->create_shader_objects(create_info);
 }
 
 auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 	return m_impl->allocate_sets(out_sets, layouts);
 }
 
-void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) { m_impl->queue_submit(si, fence); }
+auto RenderDevice::write_scratch_buffer(vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
+	return m_impl->scratch_descriptor_info(*this, usage, data);
+}
+
+void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const { m_impl->queue_submit(si, fence); }
 
 auto RenderDevice::get_render_imgui() const -> bool { return m_impl->should_render_imgui; }
 void RenderDevice::set_render_imgui(bool should_render) { m_impl->should_render_imgui = should_render; }
@@ -1095,21 +1139,94 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 
 // vma
 
+#include <kvf/command_buffer.hpp>
 #include <kvf/vma.hpp>
 
 namespace kvf::vma {
+namespace {
+// 4-channels.
+constexpr auto white_pixel_v = std::array{std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
+// fallback bitmap.
+constexpr auto white_bitmap_v = Bitmap{
+	.bytes = white_pixel_v,
+	.size = {1, 1},
+};
+
+struct MakeMipMaps {
+	// NOLINTNEXTLINE
+	vma::Image& out;
+
+	vk::CommandBuffer command_buffer;
+
+	vk::ImageMemoryBarrier2 barrier{};
+	vk::ImageAspectFlags aspect{};
+	std::uint32_t layer_count{};
+
+	auto blit_mips(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) const -> void {
+		auto ib = vk::ImageBlit2{};
+		ib.srcSubresource.setAspectMask(aspect).setMipLevel(src_level).setLayerCount(layer_count);
+		ib.dstSubresource.setAspectMask(aspect).setMipLevel(src_level + 1).setLayerCount(layer_count);
+		ib.srcOffsets[1] = src_offset;
+		ib.dstOffsets[1] = dst_offset;
+		auto bii = vk::BlitImageInfo2{};
+		bii.setSrcImage(barrier.image)
+			.setDstImage(barrier.image)
+			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
+			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
+			.setRegions(ib)
+			.setFilter(vk::Filter::eLinear);
+		command_buffer.blitImage2(bii);
+	}
+
+	auto blit_next_mip(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) -> void {
+		barrier.subresourceRange.setBaseMipLevel(src_level + 1);
+		barrier.setOldLayout(vk::ImageLayout::eUndefined).setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+		util::record_barrier(command_buffer, barrier);
+
+		blit_mips(src_level, src_offset, dst_offset);
+
+		barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal).setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		util::record_barrier(command_buffer, barrier);
+	}
+
+	auto operator()() -> void {
+		barrier = out.get_render_api()->image_barrier(out.get_info().aspect);
+		layer_count = out.get_info().layers;
+		aspect = out.get_info().aspect;
+
+		barrier.setImage(out.get_image())
+			.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+			.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+			.setDstAccessMask(barrier.srcAccessMask)
+			.setDstStageMask(barrier.srcStageMask)
+			.setOldLayout(out.get_layout())
+			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
+		barrier.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(layer_count);
+		util::record_barrier(command_buffer, barrier);
+
+		auto src_extent = vk::Extent3D{out.get_extent(), 1};
+		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
+			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
+			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
+			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
+			blit_next_mip(mip, src_offset, dst_offset);
+			src_extent = dst_extent;
+		}
+	}
+};
+} // namespace
+
 void Buffer::Deleter::operator()(Payload const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.resource, buffer.allocation); }
 
-Buffer::Buffer(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::DeviceSize size)
-	: Resource<vk::Buffer>(render_device), m_info(create_info) {
+Buffer::Buffer(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::DeviceSize size) : Resource<vk::Buffer>(api), m_info(create_info) {
 	if (m_info.type == BufferType::Device) { m_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
 	if (!resize(size)) { throw Error{"Failed to create Vulkan Buffer"}; }
 }
 
 auto Buffer::resize(vk::DeviceSize size) -> bool {
-	if (m_device == nullptr) { return false; }
+	if (m_api == nullptr) { return false; }
 	ensure_positive(size);
-	if (m_capacity >= size) {
+	if (!m_buffer.is_identity() && m_capacity >= size) {
 		m_size = size;
 		return true;
 	}
@@ -1129,11 +1246,11 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	VmaAllocation allocation{};
 	VkBuffer buffer{};
 	auto alloc_info = VmaAllocationInfo{};
-	if (vmaCreateBuffer(m_device->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
+	if (vmaCreateBuffer(m_api->get_allocator(), &vbci, &vaci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) { return false; }
 
 	m_size = m_capacity = size;
 	m_buffer = Payload{
-		.allocator = m_device->get_allocator(),
+		.allocator = m_api->get_allocator(),
 		.allocation = allocation,
 		.resource = buffer,
 	};
@@ -1141,21 +1258,64 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	return true;
 }
 
+auto Buffer::write_in_place(BufferWrite const data, vk::DeviceSize offset) -> bool {
+	if (m_api == nullptr) { return false; }
+
+	if (get_size() < offset + data.size()) { return false; }
+	if (data.is_empty()) { return true; }
+
+	if (auto dst = mapped_span(); !dst.empty()) {
+		KLIB_ASSERT(dst.size() >= offset + data.size());
+		dst = dst.subspan(offset);
+		std::memcpy(dst.data(), data.data(), data.size());
+		return true;
+	}
+
+	if ((get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = Buffer{get_render_api(), bci, data.size()};
+	if (!staging.write_in_place(data)) { return false; }
+
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
+	auto cbi = vk::CopyBufferInfo2{};
+	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(get_buffer()).setRegions(bc);
+	auto cmd = CommandBuffer{get_render_api()};
+	cmd.get().copyBuffer2(cbi);
+	return cmd.submit_and_wait();
+}
+
+auto Buffer::resize_and_overwrite(BufferWrite const data) -> bool { return resize(data.size()) && write_in_place(data); }
+
+auto Buffer::mapped_span() const -> std::span<std::byte> {
+	auto* bytes = get_mapped();
+	if (bytes == nullptr) { return {}; }
+	return {static_cast<std::byte*>(bytes), m_size};
+}
+
+auto Buffer::descriptor_info() const -> vk::DescriptorBufferInfo {
+	auto ret = vk::DescriptorBufferInfo{};
+	ret.setBuffer(get_buffer()).setRange(get_size());
+	return ret;
+}
+
 void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
 
-Image::Image(gsl::not_null<RenderDevice*> render_device, CreateInfo const& create_info, vk::Extent2D extent)
-	: Resource<vk::Image>(render_device), m_info(create_info) {
+Image::Image(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info, vk::Extent2D extent) : Resource<vk::Image>(api), m_info(create_info) {
 	m_info.usage |= CreateInfo::implicit_usage_v;
 	if (!resize(extent)) { throw Error{"Failed to create Vulkan Image"}; }
 }
 
 auto Image::resize(vk::Extent2D extent) -> bool {
-	if (m_device == nullptr) { return false; }
+	if (m_api == nullptr) { return false; }
 	ensure_positive(extent.width, extent.height);
-	if (m_extent == extent) { return true; }
+	if (!m_image.is_identity() && m_extent == extent) { return true; }
 
 	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
-	auto const queue_family = m_device->get_queue_family();
+	auto const queue_family = m_api->get_queue_family();
 	auto ici = vk::ImageCreateInfo{};
 	ici.setExtent({extent.width, extent.height, 1})
 		.setFormat(m_info.format)
@@ -1176,12 +1336,12 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 	}
 	VkImage image{};
 	VmaAllocation allocation{};
-	if (vmaCreateImage(m_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
+	if (vmaCreateImage(m_api->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { return false; }
 
 	m_extent = extent;
 	m_mip_levels = ici.mipLevels;
 	m_image = Payload{
-		.allocator = m_device->get_allocator(),
+		.allocator = m_api->get_allocator(),
 		.allocation = allocation,
 		.resource = image,
 	};
@@ -1191,7 +1351,7 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 		.subresource = subresource_range(),
 		.type = vk::ImageViewType::e2D,
 	};
-	m_view = make_image_view(m_device->get_device());
+	m_view = make_image_view(m_api->get_device());
 	m_layout = vk::ImageLayout::eUndefined;
 
 	return true;
@@ -1199,14 +1359,108 @@ auto Image::resize(vk::Extent2D extent) -> bool {
 
 void Image::transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) {
 	barrier.setImage(get_image())
-		.setSrcQueueFamilyIndex(m_device->get_queue_family())
+		.setSrcQueueFamilyIndex(m_api->get_queue_family())
 		.setDstQueueFamilyIndex(barrier.srcQueueFamilyIndex)
 		.setSubresourceRange(subresource_range());
 	util::record_barrier(command_buffer, barrier);
 	m_layout = barrier.newLayout;
 }
 
+auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
+	if (m_image.is_identity() || m_info.layers != layers.size()) { return false; }
+	if ((m_info.usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
+	auto const size = layers.front().size;
+	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
+	auto const total_size = layers.size() * layer_size;
+	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
+	if (!std::ranges::all_of(layers, check)) { return false; }
+
+	auto const extent = util::to_vk_extent(size);
+	if (!resize(extent)) { return false; }
+	if (layer_size == 0) { return true; }
+
+	auto const original_layout = get_layout();
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = vma::Buffer{get_render_api(), bci, total_size};
+
+	auto cmd = CommandBuffer{get_render_api()};
+	auto barrier = vk::ImageMemoryBarrier2{};
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
+	transition(cmd, barrier);
+
+	auto span = staging.mapped_span();
+	auto buffer_offset = vk::DeviceSize{};
+	auto cbtii = vk::CopyBufferToImageInfo2{};
+	cbtii.setDstImage(get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
+	for (auto const [index, layer] : std::ranges::enumerate_view(layers)) {
+		std::memcpy(span.data(), layer.bytes.data(), layer_size);
+
+		auto bic = vk::BufferImageCopy2{};
+		bic.setImageExtent({extent.width, extent.height, 1})
+			.setImageSubresource(vk::ImageSubresourceLayers{m_info.aspect, 0, std::uint32_t(index), 1})
+			.setBufferOffset(buffer_offset);
+		cbtii.setRegions(bic);
+		cmd.get().copyBufferToImage2(cbtii);
+
+		span = span.subspan(layer_size);
+		buffer_offset += layer_size;
+	}
+
+	auto current_layout = get_layout();
+	if (get_mip_levels() > 1) {
+		MakeMipMaps{.out = *this, .command_buffer = cmd}();
+		current_layout = vk::ImageLayout::eTransferSrcOptimal;
+	}
+
+	auto const final_layout = original_layout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eShaderReadOnlyOptimal : original_layout;
+	barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setOldLayout(current_layout)
+		.setNewLayout(final_layout);
+	transition(cmd, barrier);
+
+	return cmd.submit_and_wait();
+}
+
+auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
+	if (bitmap.bytes.empty() || bitmap.size.x <= 0 || bitmap.size.y <= 0) { bitmap = white_bitmap_v; }
+	return resize_and_overwrite({&bitmap, 1});
+}
+
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
+
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, CreateInfo const& create_info) {
+	auto const image_ci = ImageCreateInfo{
+		.format = create_info.format,
+		.aspect = create_info.aspect,
+		.samples = create_info.samples,
+		.layers = 1,
+		.view_type = vk::ImageViewType::e2D,
+		.flags = create_info.flags,
+	};
+	auto const extent = util::to_vk_extent(bitmap.size);
+	m_image = Image{api, image_ci, extent};
+	m_image.resize_and_overwrite(bitmap);
+
+	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
+}
+
+auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {
+	auto ret = vk::DescriptorImageInfo{};
+	ret.setImageView(m_image.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	return ret;
+}
 } // namespace kvf::vma
 
 // render_pass
@@ -1214,6 +1468,12 @@ auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::
 #include <kvf/render_pass.hpp>
 
 namespace kvf {
+namespace {
+constexpr auto is_norm(float const f) { return f >= 0.0f && f <= 1.0f; }
+constexpr auto is_norm(glm::vec2 const v) { return is_norm(v.x) && is_norm(v.y); }
+constexpr auto is_norm(UvRect const& r) { return is_norm(r.lt) && is_norm(r.rb); }
+} // namespace
+
 RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
@@ -1382,15 +1642,28 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
-auto RenderPass::viewport() const -> vk::Viewport { return vk::Viewport{0.0f, float(m_extent.height), float(m_extent.width), -float(m_extent.height)}; }
+auto RenderPass::to_viewport(UvRect n_rect) const -> vk::Viewport {
+	if (!is_norm(n_rect)) { n_rect = uv_rect_v; }
+	auto const fb_size = util::to_glm_vec(get_extent());
+	auto const rect = UvRect{.lt = n_rect.lt * fb_size, .rb = n_rect.rb * fb_size};
+	auto const vp_size = rect.size();
+	return vk::Viewport{rect.lt.x, rect.rb.y, vp_size.x, -vp_size.y};
+}
 
-auto RenderPass::scissor() const -> vk::Rect2D { return {{}, m_extent}; }
+auto RenderPass::to_scissor(UvRect n_rect) const -> vk::Rect2D {
+	if (!is_norm(n_rect)) { n_rect = uv_rect_v; }
+	auto const fb_size = kvf::util::to_glm_vec(get_extent());
+	auto const rect = kvf::UvRect{.lt = n_rect.lt * fb_size, .rb = n_rect.rb * fb_size};
+	auto const offset = glm::ivec2{rect.lt};
+	auto const extent = glm::uvec2{rect.size()};
+	return vk::Rect2D{vk::Offset2D{offset.x, offset.y}, vk::Extent2D{extent.x, extent.y}};
+}
 
 void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
 	if (!m_command_buffer) { return; }
 	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
-	m_command_buffer.setViewport(0, viewport());
-	m_command_buffer.setScissor(0, scissor());
+	m_command_buffer.setViewport(0, to_viewport(uv_rect_v));
+	m_command_buffer.setScissor(0, to_scissor(uv_rect_v));
 }
 
 void RenderPass::set_render_targets() {
@@ -1409,13 +1682,11 @@ void RenderPass::set_render_targets() {
 
 // command_buffer
 
-#include <kvf/command_buffer.hpp>
-
 namespace kvf {
-CommandBuffer::CommandBuffer(gsl::not_null<RenderDevice*> render_device) : m_device(render_device) {
-	auto const device = render_device->get_device();
+CommandBuffer::CommandBuffer(gsl::not_null<IRenderApi const*> api) : m_api(api) {
+	auto const device = api->get_device();
 	auto cpci = vk::CommandPoolCreateInfo{};
-	cpci.setQueueFamilyIndex(render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
+	cpci.setQueueFamilyIndex(api->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
 	m_pool = device.createCommandPoolUnique(cpci);
 	auto cbai = vk::CommandBufferAllocateInfo{};
 	cbai.setCommandPool(*m_pool).setCommandBufferCount(1);
@@ -1428,9 +1699,9 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 	auto const cbsi = vk::CommandBufferSubmitInfo{m_cmd};
 	auto si = vk::SubmitInfo2{};
 	si.setCommandBufferInfos(cbsi);
-	auto const fence = m_device->get_device().createFenceUnique({});
-	m_device->queue_submit(si, *fence);
-	return util::wait_for_fence(m_device->get_device(), *fence, timeout);
+	auto const fence = m_api->get_device().createFenceUnique({});
+	m_api->queue_submit(si, *fence);
+	return util::wait_for_fence(m_api->get_device(), *fence, timeout);
 }
 } // namespace kvf
 
@@ -1501,82 +1772,17 @@ auto ColorBitmap::bitmap() const -> Bitmap {
 
 namespace kvf {
 namespace {
-template <typename T>
-auto read_from_file(T& out, klib::CString path) -> IoResult {
-	using value_type = T::value_type;
-	auto file = std::ifstream{path.c_str(), std::ios::binary | std::ios::ate};
-	if (!file.is_open()) { return IoResult::OpenFailed; }
-	auto const size = file.tellg();
-	if (std::size_t(size) % sizeof(value_type) != 0) { return IoResult::SizeMismatch; }
-	file.seekg(0, std::ios::beg);
-	out.resize(std::size_t(size) / sizeof(value_type));
-	void* first = out.data();
-	file.read(static_cast<char*>(first), size);
-	return IoResult::Success;
+template <typename DescriptorInfoT>
+[[nodiscard]] auto descriptor_write(vk::DescriptorType const type, DescriptorInfoT const* info, vk::DescriptorSet set, std::uint32_t const binding) {
+	auto ret = vk::WriteDescriptorSet{};
+	ret.setDescriptorCount(1).setDescriptorType(type).setDstSet(set).setDstBinding(binding);
+	if constexpr (std::same_as<DescriptorInfoT, vk::DescriptorBufferInfo>) {
+		ret.setBufferInfo(*info);
+	} else {
+		ret.setImageInfo(*info);
+	}
+	return ret;
 }
-
-struct MakeMipMaps {
-	// NOLINTNEXTLINE
-	vma::Image& out;
-
-	vk::CommandBuffer command_buffer;
-
-	vk::ImageMemoryBarrier2 barrier{};
-	vk::ImageAspectFlags aspect{};
-	std::uint32_t layer_count{};
-
-	auto blit_mips(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) const -> void {
-		auto ib = vk::ImageBlit2{};
-		ib.srcSubresource.setAspectMask(aspect).setMipLevel(src_level).setLayerCount(layer_count);
-		ib.dstSubresource.setAspectMask(aspect).setMipLevel(src_level + 1).setLayerCount(layer_count);
-		ib.srcOffsets[1] = src_offset;
-		ib.dstOffsets[1] = dst_offset;
-		auto bii = vk::BlitImageInfo2{};
-		bii.setSrcImage(barrier.image)
-			.setDstImage(barrier.image)
-			.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
-			.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-			.setRegions(ib)
-			.setFilter(vk::Filter::eLinear);
-		command_buffer.blitImage2(bii);
-	}
-
-	auto blit_next_mip(std::uint32_t const src_level, vk::Offset3D const src_offset, vk::Offset3D const dst_offset) -> void {
-		barrier.subresourceRange.setBaseMipLevel(src_level + 1);
-		barrier.setOldLayout(vk::ImageLayout::eUndefined).setNewLayout(vk::ImageLayout::eTransferDstOptimal);
-		util::record_barrier(command_buffer, barrier);
-
-		blit_mips(src_level, src_offset, dst_offset);
-
-		barrier.setOldLayout(vk::ImageLayout::eTransferDstOptimal).setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
-		util::record_barrier(command_buffer, barrier);
-	}
-
-	auto operator()() -> void {
-		barrier = out.get_render_device()->image_barrier(out.get_info().aspect);
-		layer_count = out.get_info().layers;
-		aspect = out.get_info().aspect;
-
-		barrier.setImage(out.get_image())
-			.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-			.setDstAccessMask(barrier.srcAccessMask)
-			.setDstStageMask(barrier.srcStageMask)
-			.setOldLayout(out.get_layout())
-			.setNewLayout(vk::ImageLayout::eTransferSrcOptimal);
-		barrier.subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(layer_count);
-		util::record_barrier(command_buffer, barrier);
-
-		auto src_extent = vk::Extent3D{out.get_extent(), 1};
-		for (std::uint32_t mip = 0; mip + 1 < out.get_mip_levels(); ++mip) {
-			vk::Extent3D dst_extent = vk::Extent3D(std::max(src_extent.width / 2, 1u), std::max(src_extent.height / 2, 1u), 1u);
-			auto const src_offset = vk::Offset3D{static_cast<int>(src_extent.width), static_cast<int>(src_extent.height), 1};
-			auto const dst_offset = vk::Offset3D{static_cast<int>(dst_extent.width), static_cast<int>(dst_extent.height), 1};
-			blit_next_mip(mip, src_offset, dst_offset);
-			src_extent = dst_extent;
-		}
-	}
-};
 } // namespace
 
 auto util::color_from_hex(std::string_view hex) -> Color {
@@ -1598,6 +1804,18 @@ auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
 }
 
+auto util::ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eUniformBuffer, info.get(), set, binding);
+}
+
+auto util::ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eStorageBuffer, info.get(), set, binding);
+}
+
+auto util::image_write(gsl::not_null<vk::DescriptorImageInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+	return descriptor_write(vk::DescriptorType::eCombinedImageSampler, info.get(), set, binding);
+}
+
 auto util::wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds const timeout) -> bool {
 	return device.waitForFences(fence, vk::True, std::uint64_t(timeout.count())) == vk::Result::eSuccess;
 }
@@ -1609,108 +1827,7 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 	command_buffer.pipelineBarrier2(di);
 }
 
-auto util::string_from_file(std::string& out_string, klib::CString path) -> IoResult { return read_from_file(out_string, path); }
-auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> IoResult { return read_from_file(out_bytes, path); }
-auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> IoResult { return read_from_file(out_code, path); }
-
-auto util::overwrite(vma::Buffer& dst, BufferWrite const bytes, vk::DeviceSize offset) -> bool {
-	if (!dst) { return false; }
-
-	if (dst.get_size() < offset + bytes.size()) { return false; }
-	if (bytes.is_empty()) { return true; }
-
-	if (auto* ptr = static_cast<std::byte*>(dst.get_mapped())) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		std::memcpy(ptr + offset, bytes.data(), bytes.size());
-		return true;
-	}
-
-	if ((dst.get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
-
-	auto const bci = vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eTransferSrc,
-		.type = vma::BufferType::Host,
-	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, bytes.size()};
-	if (!overwrite(staging, bytes)) { return false; }
-
-	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
-	auto cbi = vk::CopyBufferInfo2{};
-	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(dst.get_buffer()).setRegions(bc);
-	auto cmd = CommandBuffer{dst.get_render_device()};
-	cmd.get().copyBuffer2(cbi);
-	return cmd.submit_and_wait();
-}
-
-auto util::write_to(vma::Buffer& dst, BufferWrite const bytes) -> bool {
-	if (!dst.resize(bytes.size())) { return false; }
-	return overwrite(dst, bytes);
-}
-
-auto util::write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool {
-	if (!dst || dst.get_info().layers != layers.size()) { return false; }
-	if ((dst.get_info().usage & vk::ImageUsageFlagBits::eTransferDst) != vk::ImageUsageFlagBits::eTransferDst) { return false; }
-	auto const size = layers.front().size;
-	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
-	auto const total_size = layers.size() * layer_size;
-	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
-	if (!std::ranges::all_of(layers, check)) { return false; }
-
-	if (layer_size == 0) { return true; }
-	auto const extent = to_vk_extent(size);
-	if (!dst.resize(extent)) { return false; }
-
-	auto const original_layout = dst.get_layout();
-
-	auto const bci = vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eTransferSrc,
-		.type = vma::BufferType::Host,
-	};
-	auto staging = vma::Buffer{dst.get_render_device(), bci, total_size};
-
-	auto cmd = CommandBuffer{dst.get_render_device()};
-	auto barrier = vk::ImageMemoryBarrier2{};
-	barrier.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eAllCommands)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setOldLayout(vk::ImageLayout::eUndefined)
-		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
-	dst.transition(cmd, barrier);
-
-	auto span = std::span{static_cast<std::byte*>(staging.get_mapped()), total_size};
-	auto buffer_offset = vk::DeviceSize{};
-	auto cbtii = vk::CopyBufferToImageInfo2{};
-	cbtii.setDstImage(dst.get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
-	for (auto const [index, layer] : std::ranges::enumerate_view(layers)) {
-		std::memcpy(span.data(), layer.bytes.data(), layer_size);
-
-		auto bic = vk::BufferImageCopy2{};
-		bic.setImageExtent({extent.width, extent.height, 1})
-			.setImageSubresource(vk::ImageSubresourceLayers{dst.get_info().aspect, 0, std::uint32_t(index), 1})
-			.setBufferOffset(buffer_offset);
-		cbtii.setRegions(bic);
-		cmd.get().copyBufferToImage2(cbtii);
-
-		span = span.subspan(layer_size);
-		buffer_offset += layer_size;
-	}
-
-	auto current_layout = dst.get_layout();
-	if (dst.get_mip_levels() > 1) {
-		MakeMipMaps{.out = dst, .command_buffer = cmd}();
-		current_layout = vk::ImageLayout::eTransferSrcOptimal;
-	}
-
-	auto const final_layout = original_layout == vk::ImageLayout::eUndefined ? vk::ImageLayout::eShaderReadOnlyOptimal : original_layout;
-	barrier.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead | vk::AccessFlagBits2::eTransferWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eAllCommands)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setOldLayout(current_layout)
-		.setNewLayout(final_layout);
-	dst.transition(cmd, barrier);
-
-	return cmd.submit_and_wait();
-}
+auto util::string_from_file(std::string& out_string, klib::CString path) -> bool { return klib::read_file_bytes_into(out_string, path); }
+auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool { return klib::read_file_bytes_into(out_bytes, path); }
+auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool { return klib::read_file_bytes_into(out_code, path); }
 } // namespace kvf
