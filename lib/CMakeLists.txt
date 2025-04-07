@@ -25,11 +25,16 @@ target_link_libraries(${PROJECT_NAME} PUBLIC
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE
-  klib::klib-warnings
-  klib::klib-ndwerror
   stb-image::stb-image
   $<$<BOOL:${KVF_USE_FREETYPE}>:freetype::freetype>
 )
+
+if(PROJECT_IS_TOP_LEVEL)
+  target_link_libraries(${PROJECT_NAME} PRIVATE
+    klib::klib-warnings
+    klib::klib-ndwerror
+  )
+endif()
 
 target_include_directories(${PROJECT_NAME} PRIVATE
   src

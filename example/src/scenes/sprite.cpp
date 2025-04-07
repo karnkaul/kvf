@@ -41,16 +41,12 @@ struct Quad {
 	}
 };
 
-[[nodiscard]] constexpr auto buffer_info(vk::BufferUsageFlags const usage) {
+[[nodiscard]] constexpr auto vbo_info() {
 	return vma::BufferCreateInfo{
-		.usage = usage,
+		.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
 		.type = vma::BufferType::Device,
 	};
 }
-
-[[nodiscard]] constexpr auto vbo_info() { return buffer_info(vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer); }
-[[nodiscard]] constexpr auto ubo_info() { return buffer_info(vk::BufferUsageFlagBits::eUniformBuffer); }
-[[nodiscard]] constexpr auto ssbo_info() { return buffer_info(vk::BufferUsageFlagBits::eStorageBuffer); }
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
