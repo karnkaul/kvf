@@ -1,5 +1,5 @@
 #pragma once
-#include <kvf/render_device_fwd.hpp>
+#include <kvf/render_api.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <gsl/pointers>
@@ -11,7 +11,7 @@ class CommandBuffer {
   public:
 	static constexpr auto timeout_v{5s};
 
-	explicit CommandBuffer(gsl::not_null<RenderDevice*> render_device);
+	explicit CommandBuffer(gsl::not_null<IRenderApi const*> api);
 
 	[[nodiscard]] auto get() const -> vk::CommandBuffer { return m_cmd; }
 
@@ -20,7 +20,7 @@ class CommandBuffer {
 	operator vk::CommandBuffer() const { return get(); }
 
   private:
-	RenderDevice* m_device;
+	IRenderApi const* m_api;
 
 	vk::UniqueCommandPool m_pool{};
 	vk::CommandBuffer m_cmd{};

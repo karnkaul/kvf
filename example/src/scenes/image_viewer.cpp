@@ -29,7 +29,7 @@ ImageViewer::ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view a
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
 	m_image = vma::Image{device, ici, util::to_vk_extent(bitmap.size)};
-	if (!util::write_to(m_image, bitmap)) { throw Error{"Failed to write to Image"}; }
+	if (!m_image.resize_and_overwrite(bitmap)) { throw Error{"Failed to write to Image"}; }
 	resize_window();
 }
 
@@ -67,7 +67,7 @@ void ImageViewer::try_load(klib::CString const path) {
 		return;
 	}
 	get_render_device().get_device().waitIdle();
-	if (!util::write_to(m_image, rgba_image.bitmap())) {
+	if (!m_image.resize_and_overwrite(rgba_image.bitmap())) {
 		open_error_modal(std::format("Failed to write to Vulkan Image: {}", filename()));
 		return;
 	}

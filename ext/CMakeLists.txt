@@ -33,7 +33,7 @@ add_subdirectory(src/glfw)
 add_library(glfw::glfw ALIAS glfw)
 
 message(STATUS "[dear imgui]")
-add_subdirectory(src/imgui)
+add_subdirectory(src/dear_imgui)
 
 message(STATUS "[stb]")
 add_subdirectory(src/stb)

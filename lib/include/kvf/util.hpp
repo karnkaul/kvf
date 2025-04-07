@@ -4,11 +4,11 @@
 #include <kvf/buffer_write.hpp>
 #include <kvf/color.hpp>
 #include <kvf/rect.hpp>
-#include <kvf/vma_fwd.hpp>
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <gsl/pointers>
 #include <string>
 #include <vector>
 
@@ -47,7 +47,11 @@ constexpr auto uv_to_ndc(UvRect const& rect) { return UvRect{.lt = uv_to_ndc(rec
 [[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
 [[nodiscard]] auto to_hex_string(Color const& color) -> std::string;
 
-auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
+[[nodiscard]] auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
+
+[[nodiscard]] auto ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
+[[nodiscard]] auto ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
+[[nodiscard]] auto image_write(gsl::not_null<vk::DescriptorImageInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
 
 auto wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds timeout = 5s) -> bool;
 
@@ -60,10 +64,4 @@ inline void record_barrier(vk::CommandBuffer const command_buffer, vk::ImageMemo
 auto string_from_file(std::string& out_string, klib::CString path) -> bool;
 auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool;
 auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool;
-
-auto overwrite(vma::Buffer& dst, BufferWrite bytes, vk::DeviceSize offset = 0) -> bool;
-auto write_to(vma::Buffer& dst, BufferWrite bytes) -> bool;
-
-auto write_to(vma::Image& dst, std::span<Bitmap const> layers) -> bool;
-inline auto write_to(vma::Image& dst, Bitmap const& bitmap) -> bool { return write_to(dst, {&bitmap, 1}); }
 } // namespace kvf::util
