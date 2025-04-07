@@ -158,8 +158,6 @@ class Image : public Resource<vk::Image> {
 constexpr auto sampler_ci_v = create_sampler_ci(vk::SamplerAddressMode::eClampToEdge, vk::Filter::eLinear);
 
 struct TextureCreateInfo {
-	Bitmap bitmap;
-
 	vk::Format format{vk::Format::eR8G8B8A8Srgb};
 	vk::ImageAspectFlagBits aspect{vk::ImageAspectFlagBits::eColor};
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
@@ -171,7 +169,11 @@ class Texture {
   public:
 	using CreateInfo = TextureCreateInfo;
 
-	explicit Texture(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info);
+	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap = {}, CreateInfo const& create_info = {});
+
+	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_image.get_extent(); }
+	[[nodiscard]] auto get_image() const -> Image const& { return m_image; }
+	[[nodiscard]] auto get_sampler() const -> vk::Sampler { return *m_sampler; }
 
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
 

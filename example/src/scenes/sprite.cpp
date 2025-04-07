@@ -41,16 +41,14 @@ struct Quad {
 	}
 };
 
-[[nodiscard]] constexpr auto vbo_info() {
-	return vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
-		.type = vma::BufferType::Device,
-	};
-}
+constexpr auto vbo_ci_v = vma::BufferCreateInfo{
+	.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
+	.type = vma::BufferType::Device,
+};
 } // namespace
 
 Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_info(), sizeof(Quad)) {
+	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2), m_vbo(device, vbo_ci_v, sizeof(Quad)) {
 	m_color_pass.set_color_target().set_depth_target();
 	m_color_pass.clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 
@@ -140,10 +138,7 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	auto const texture_ci = vma::Texture::CreateInfo{
-		.bitmap = image.bitmap(),
-	};
-	m_texture.emplace(&get_render_device(), texture_ci);
+	m_texture.emplace(&get_render_device(), image.bitmap());
 
 	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().get_device().createSamplerUnique(sci);

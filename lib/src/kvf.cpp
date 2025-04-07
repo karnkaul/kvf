@@ -1069,7 +1069,9 @@ auto RenderDevice::create_image(vma::ImageCreateInfo const& create_info, vk::Ext
 	return vma::Image{this, create_info, extent};
 }
 
-auto RenderDevice::create_texture(vma::TextureCreateInfo const& create_info) const -> vma::Texture { return vma::Texture{this, create_info}; }
+auto RenderDevice::create_texture(Bitmap const& bitmap, vma::TextureCreateInfo const& create_info) const -> vma::Texture {
+	return vma::Texture{this, bitmap, create_info};
+}
 
 auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
 	return m_impl->create_pipeline(layout, state, format);
@@ -1398,7 +1400,7 @@ auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 
-Texture::Texture(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_info) {
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, CreateInfo const& create_info) {
 	auto const image_ci = ImageCreateInfo{
 		.format = create_info.format,
 		.aspect = create_info.aspect,
@@ -1407,9 +1409,9 @@ Texture::Texture(gsl::not_null<IRenderApi const*> api, CreateInfo const& create_
 		.view_type = vk::ImageViewType::e2D,
 		.flags = create_info.flags,
 	};
-	auto const extent = util::to_vk_extent(create_info.bitmap.size);
+	auto const extent = util::to_vk_extent(bitmap.size);
 	m_image = Image{api, image_ci, extent};
-	m_image.resize_and_overwrite(create_info.bitmap);
+	m_image.resize_and_overwrite(bitmap);
 
 	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
 }
