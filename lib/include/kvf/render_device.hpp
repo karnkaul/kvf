@@ -28,6 +28,8 @@ namespace kvf {
 enum class RenderDeviceFlag : std::int8_t {
 	None = 0,
 	LinearBackbuffer = 1 << 0,
+	ShaderObjectFeature = 1 << 1,
+	ShaderObjectLayer = 1 << 2,
 };
 
 class GpuSelector : public klib::Polymorphic {
@@ -47,6 +49,12 @@ struct RenderDeviceCreateInfo {
 	std::span<vk::DescriptorPoolSize const> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	GpuSelector const* gpu_selector{nullptr};
+};
+
+struct ShaderObjectCreateInfo {
+	std::span<std::uint32_t const> vertex_spir_v{};
+	std::span<std::uint32_t const> fragment_spir_v{};
+	std::span<vk::DescriptorSetLayout const> set_layouts{};
 };
 
 class RenderDevice : public IRenderApi {
@@ -91,6 +99,7 @@ class RenderDevice : public IRenderApi {
 	[[nodiscard]] auto create_texture(Bitmap const& bitmap, vma::TextureCreateInfo const& create_info = {}) const -> vma::Texture;
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
+	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2>;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
 	[[nodiscard]] auto write_scratch_buffer(vk::BufferUsageFlags usage, BufferWrite data) -> vk::DescriptorBufferInfo;
 

@@ -547,7 +547,7 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
-	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
+	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode const wrap, vk::Filter const filter, float aniso) const -> vk::SamplerCreateInfo {
 		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
 		auto ret = vk::SamplerCreateInfo{};
 		ret.setAddressModeU(wrap)
@@ -629,6 +629,36 @@ struct RenderDevice::Impl {
 		if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
 
 		return vk::UniquePipeline{ret, device};
+	}
+
+	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
+		auto const create_shader_ci = [&create_info](std::span<std::uint32_t const> spirv) {
+			auto ret = vk::ShaderCreateInfoEXT{};
+			ret.setCodeSize(spirv.size_bytes())
+				.setPCode(spirv.data())
+				.setSetLayouts(create_info.set_layouts)
+				.setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
+				.setPName("main");
+			return ret;
+		};
+
+		auto shader_cis = std::array{
+			create_shader_ci(create_info.vertex_spir_v),
+			create_shader_ci(create_info.fragment_spir_v),
+		};
+		shader_cis[0].setStage(vk::ShaderStageFlagBits::eVertex).setNextStage(vk::ShaderStageFlagBits::eFragment);
+		shader_cis[1].setStage(vk::ShaderStageFlagBits::eFragment);
+
+		auto shaders = std::array<vk::ShaderEXT, 2>{};
+		auto result = m_device->createShadersEXT(std::uint32_t(shader_cis.size()), shader_cis.data(), nullptr, shaders.data());
+		if (result != vk::Result::eSuccess) {
+			log::error("Failed to create ShaderEXT objects");
+			return {};
+		}
+
+		auto ret = std::array<vk::UniqueShaderEXT, 2>{};
+		for (auto [in, out] : std::views::zip(shaders, ret)) { out = vk::UniqueShaderEXT{in, *m_device}; }
+		return ret;
 	}
 
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
@@ -790,7 +820,9 @@ struct RenderDevice::Impl {
 
 		auto ici = vk::InstanceCreateInfo{};
 		auto const wsi_extensions = instance_extensions();
-		ici.setPApplicationInfo(&app_info).setPEnabledExtensionNames(wsi_extensions);
+		auto layers = std::vector<char const*>{};
+		if ((m_flags & Flag::ShaderObjectLayer) == Flag::ShaderObjectLayer) { layers.push_back("VK_LAYER_KHRONOS_shader_object"); }
+		ici.setPApplicationInfo(&app_info).setPEnabledExtensionNames(wsi_extensions).setPEnabledLayerNames(layers);
 		m_instance = vk::createInstanceUnique(ici);
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
 
@@ -827,13 +859,17 @@ struct RenderDevice::Impl {
 		enabled_features.samplerAnisotropy = m_gpu.features.samplerAnisotropy;
 		enabled_features.sampleRateShading = m_gpu.features.sampleRateShading;
 
-		auto sync_feature = vk::PhysicalDeviceSynchronization2Features{vk::True};
 		auto dr_feature = vk::PhysicalDeviceDynamicRenderingFeatures{vk::True};
-		sync_feature.pNext = &dr_feature;
+		auto sync_feature = vk::PhysicalDeviceSynchronization2Features{vk::True, &dr_feature};
+		auto shader_obj_feature = vk::PhysicalDeviceShaderObjectFeaturesEXT{vk::True};
 
 		auto dci = vk::DeviceCreateInfo{};
-		static constexpr auto extensions_v = std::array{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
-		dci.setPEnabledExtensionNames(extensions_v).setQueueCreateInfos(qci).setPEnabledFeatures(&enabled_features).setPNext(&sync_feature);
+		auto extensions = std::vector{VK_KHR_SWAPCHAIN_EXTENSION_NAME};
+		if ((m_flags & Flag::ShaderObjectFeature) == Flag::ShaderObjectFeature) {
+			dr_feature.setPNext(&shader_obj_feature);
+			extensions.push_back("VK_EXT_shader_object");
+		}
+		dci.setPEnabledExtensionNames(extensions).setQueueCreateInfos(qci).setPEnabledFeatures(&enabled_features).setPNext(&sync_feature);
 
 		m_device = m_gpu.device.createDeviceUnique(dci);
 		if (!m_device) { throw Error{"Failed to create Vulkan Device"}; }
@@ -1075,6 +1111,10 @@ auto RenderDevice::create_texture(Bitmap const& bitmap, vma::TextureCreateInfo c
 
 auto RenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
 	return m_impl->create_pipeline(layout, state, format);
+}
+
+auto RenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
+	return m_impl->create_shader_objects(create_info);
 }
 
 auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
