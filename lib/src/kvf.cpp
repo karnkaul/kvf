@@ -18,6 +18,7 @@
 #include <chrono>
 #include <cmath>
 #include <mutex>
+#include <numeric>
 #include <ranges>
 
 // common
@@ -469,10 +470,10 @@ struct BufferAllocator {
 				.usage = usage,
 				.type = vma::BufferType::Host,
 			};
-			pool.buffers.emplace_back(&api, ci, size);
+			pool.buffers.push_back(std::make_unique<vma::Buffer>(&api, ci, size));
 		}
-		auto& ret = pool.buffers.at(pool.index);
-		ret.resize(size);
+		auto& ret = *pool.buffers.at(pool.index++);
+		if (size > 0) { ret.resize(size); }
 		return ret;
 	}
 
@@ -482,7 +483,7 @@ struct BufferAllocator {
 
   private:
 	struct Pool {
-		std::vector<vma::Buffer> buffers{};
+		std::vector<std::unique_ptr<vma::Buffer>> buffers{};
 		std::size_t index{};
 	};
 
@@ -669,9 +670,9 @@ struct RenderDevice::Impl {
 		return m_buffer_allocators.at(m_frame_index).allocate(api, usage, size);
 	}
 
-	auto scratch_descriptor_info(IRenderApi const& api, vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
-		auto& buffer = allocate_scratch_buffer(api, usage, data.size());
-		buffer.write_in_place(data);
+	auto scratch_descriptor_buffer(IRenderApi const& api, vk::BufferUsageFlags const usage, BufferWrite const write) -> vk::DescriptorBufferInfo {
+		auto& buffer = allocate_scratch_buffer(api, usage, 0);
+		buffer.overwrite(write);
 		return buffer.descriptor_info();
 	}
 
@@ -1121,8 +1122,12 @@ auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::spa
 	return m_impl->allocate_sets(out_sets, layouts);
 }
 
-auto RenderDevice::write_scratch_buffer(vk::BufferUsageFlags const usage, BufferWrite const data) -> vk::DescriptorBufferInfo {
-	return m_impl->scratch_descriptor_info(*this, usage, data);
+auto RenderDevice::allocate_scratch_buffer(vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
+	return m_impl->allocate_scratch_buffer(*this, usage, size);
+}
+
+auto RenderDevice::scratch_descriptor_buffer(vk::BufferUsageFlags const usage, BufferWrite write) -> vk::DescriptorBufferInfo {
+	return m_impl->scratch_descriptor_buffer(*this, usage, write);
 }
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const { m_impl->queue_submit(si, fence); }
@@ -1258,37 +1263,18 @@ auto Buffer::resize(vk::DeviceSize size) -> bool {
 	return true;
 }
 
-auto Buffer::write_in_place(BufferWrite const data, vk::DeviceSize offset) -> bool {
+auto Buffer::write_in_place(BufferWrite const write, vk::DeviceSize offset) -> bool {
 	if (m_api == nullptr) { return false; }
-
-	if (get_size() < offset + data.size()) { return false; }
-	if (data.is_empty()) { return true; }
-
-	if (auto dst = mapped_span(); !dst.empty()) {
-		KLIB_ASSERT(dst.size() >= offset + data.size());
-		dst = dst.subspan(offset);
-		std::memcpy(dst.data(), data.data(), data.size());
-		return true;
-	}
-
-	if ((get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
-
-	auto const bci = vma::BufferCreateInfo{
-		.usage = vk::BufferUsageFlagBits::eTransferSrc,
-		.type = vma::BufferType::Host,
-	};
-	auto staging = Buffer{get_render_api(), bci, data.size()};
-	if (!staging.write_in_place(data)) { return false; }
-
-	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
-	auto cbi = vk::CopyBufferInfo2{};
-	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(get_buffer()).setRegions(bc);
-	auto cmd = CommandBuffer{get_render_api()};
-	cmd.get().copyBuffer2(cbi);
-	return cmd.submit_and_wait();
+	return write_contiguous({&write, 1}, write.size(), offset);
 }
 
-auto Buffer::resize_and_overwrite(BufferWrite const data) -> bool { return resize(data.size()) && write_in_place(data); }
+auto Buffer::overwrite_contiguous(std::span<BufferWrite const> writes) -> bool {
+	auto const total_size = std::accumulate(writes.begin(), writes.end(), 0uz, [](std::size_t i, BufferWrite const& w) { return i + w.size(); });
+	if (!resize(total_size)) { return false; }
+	return write_contiguous(writes, total_size, 0);
+}
+
+auto Buffer::overwrite(BufferWrite const write) -> bool { return overwrite_contiguous({&write, 1}); }
 
 auto Buffer::mapped_span() const -> std::span<std::byte> {
 	auto* bytes = get_mapped();
@@ -1300,6 +1286,40 @@ auto Buffer::descriptor_info() const -> vk::DescriptorBufferInfo {
 	auto ret = vk::DescriptorBufferInfo{};
 	ret.setBuffer(get_buffer()).setRange(get_size());
 	return ret;
+}
+
+auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
+	if (m_api == nullptr) { return false; }
+
+	if (get_size() < offset + write_size) { return false; }
+	if (write_size == 0) { return true; }
+
+	if (auto dst = mapped_span(); !dst.empty()) {
+		KLIB_ASSERT(dst.size() >= offset + write_size);
+		dst = dst.subspan(offset);
+		for (auto const write : writes) {
+			if (write.is_empty()) { continue; }
+			std::memcpy(dst.data(), write.data(), write.size());
+			dst = dst.subspan(write.size());
+		}
+		return true;
+	}
+
+	if ((get_info().usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+
+	auto const bci = vma::BufferCreateInfo{
+		.usage = vk::BufferUsageFlagBits::eTransferSrc,
+		.type = vma::BufferType::Host,
+	};
+	auto staging = Buffer{get_render_api(), bci, write_size};
+	if (!staging.write_contiguous(writes, write_size, 0)) { return false; }
+
+	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
+	auto cbi = vk::CopyBufferInfo2{};
+	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(get_buffer()).setRegions(bc);
+	auto cmd = CommandBuffer{get_render_api()};
+	cmd.get().copyBuffer2(cbi);
+	return cmd.submit_and_wait();
 }
 
 void Image::Deleter::operator()(Payload const& image) const noexcept { vmaDestroyImage(image.allocator, image.resource, image.allocation); }
