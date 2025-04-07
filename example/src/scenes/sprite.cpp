@@ -174,7 +174,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto const half_extent = 0.5f * extent;
 	auto const projection = glm::ortho(-half_extent.x, half_extent.x, -half_extent.y, half_extent.y);
-	auto const view_dbi = get_render_device().write_scratch_buffer(vk::BufferUsageFlagBits::eUniformBuffer, projection);
+	auto const view_dbi = get_render_device().scratch_descriptor_buffer(vk::BufferUsageFlagBits::eUniformBuffer, projection);
 	wds[0] = util::ubo_write(&view_dbi, sets[0], 0);
 
 	m_instance_buffer.clear();
@@ -184,7 +184,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 		auto const r = glm::rotate(glm::mat4{1.0f}, glm::radians(instance.rotation), glm::vec3{0.0f, 0.0f, 1.0f});
 		m_instance_buffer.push_back(Std430Instance{.mat_world = t * r, .tint = instance.tint.to_vec4()});
 	}
-	auto const instances_dbi = get_render_device().write_scratch_buffer(vk::BufferUsageFlagBits::eStorageBuffer, std::span{m_instance_buffer});
+	auto const instances_dbi = get_render_device().scratch_descriptor_buffer(vk::BufferUsageFlagBits::eStorageBuffer, std::span{m_instance_buffer});
 	wds[1] = util::ssbo_write(&instances_dbi, sets[1], 0);
 
 	auto const texture_dii = m_texture->descriptor_info();

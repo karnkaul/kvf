@@ -58,8 +58,9 @@ class Buffer : public Resource<vk::Buffer> {
 
 	auto resize(vk::DeviceSize size) -> bool;
 
-	auto write_in_place(BufferWrite data, vk::DeviceSize offset = 0) -> bool;
-	auto resize_and_overwrite(BufferWrite data) -> bool;
+	auto write_in_place(BufferWrite write, vk::DeviceSize offset = 0) -> bool;
+	auto overwrite(BufferWrite write) -> bool;
+	auto overwrite_contiguous(std::span<BufferWrite const> writes) -> bool;
 
 	[[nodiscard]] auto get_buffer() const -> vk::Buffer { return m_buffer.get().resource; }
 	[[nodiscard]] auto get_mapped() const -> void* { return m_mapped.get(); }
@@ -72,6 +73,8 @@ class Buffer : public Resource<vk::Buffer> {
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorBufferInfo;
 
   private:
+	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool;
+
 	struct Deleter {
 		void operator()(Payload const& buffer) const noexcept;
 	};
