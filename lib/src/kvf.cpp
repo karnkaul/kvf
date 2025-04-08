@@ -1759,8 +1759,8 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 #include <kvf/color_bitmap.hpp>
 
 namespace kvf {
-auto Color::to_srgb() const -> glm::vec4 { return glm::convertLinearToSRGB(to_vec4()); }
-auto Color::to_linear() const -> glm::vec4 { return glm::convertSRGBToLinear(to_vec4()); }
+auto Color::linear_to_srgb(glm::vec4 const& channels) -> glm::vec4 { return glm::convertLinearToSRGB(channels); }
+auto Color::srgb_to_linear(glm::vec4 const& channels) -> glm::vec4 { return glm::convertSRGBToLinear(channels); }
 
 void ColorBitmap::resize(glm::ivec2 size) {
 	if (size.x < 0 || size.y < 0) { return; }
