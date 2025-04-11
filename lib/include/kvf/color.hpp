@@ -1,5 +1,7 @@
 #pragma once
 #include <glm/vec4.hpp>
+#include <klib/byte_cast.hpp>
+#include <kvf/bitmap.hpp>
 #include <cstdint>
 
 namespace kvf {
@@ -44,5 +46,10 @@ constexpr auto blue_v = Color{0x0000ffff};
 constexpr auto cyan_v = Color{green_v | blue_v};
 constexpr auto yellow_v = Color{red_v | green_v};
 constexpr auto magenta_v = Color{blue_v | red_v};
-// constexpr auto yellow_v =
+
+template <Color C>
+inline constexpr auto pixel_bytes_v = klib::byte_cast(C);
+
+template <Color C>
+inline constexpr auto pixel_bitmap_v = Bitmap{.bytes = pixel_bytes_v<C>, .size = {1, 1}};
 } // namespace kvf

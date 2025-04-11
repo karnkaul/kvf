@@ -1149,14 +1149,6 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 
 namespace kvf::vma {
 namespace {
-// 4-channels.
-constexpr auto white_pixel_v = std::array{std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
-// fallback bitmap.
-constexpr auto white_bitmap_v = Bitmap{
-	.bytes = white_pixel_v,
-	.size = {1, 1},
-};
-
 struct MakeMipMaps {
 	// NOLINTNEXTLINE
 	vma::Image& out;
@@ -1454,7 +1446,7 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 }
 
 auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
-	if (bitmap.bytes.empty() || bitmap.size.x <= 0 || bitmap.size.y <= 0) { bitmap = white_bitmap_v; }
+	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = pixel_bitmap_v<white_v>; }
 	return resize_and_overwrite({&bitmap, 1});
 }
 
