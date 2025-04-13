@@ -87,7 +87,7 @@ void App::draw_error_modal() const {
 
 	if (modal.set_open) {
 		ImGui::OpenPopup("Error!");
-		log::error("{}", modal.message);
+		log.error("{}", modal.message);
 		modal.set_open = false;
 	}
 
