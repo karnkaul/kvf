@@ -345,6 +345,10 @@ struct Swapchain {
 			m_image_views.push_back(make_image_view(m_device));
 		}
 
+		m_present_sems.clear();
+		m_present_sems.resize(m_images.size());
+		for (auto& semaphore : m_present_sems) { semaphore = m_device.createSemaphoreUnique({}); }
+
 		m_image_index.reset();
 		m_layout = vk::ImageLayout::eUndefined;
 
@@ -370,11 +374,12 @@ struct Swapchain {
 		}
 	}
 
-	auto present(vk::Queue queue, vk::Semaphore const wait) -> bool {
+	auto present(vk::Queue queue) -> bool {
 		KLIB_ASSERT(m_image_index);
 
+		auto const semaphore = *m_present_sems.at(*m_image_index);
 		auto pi = vk::PresentInfoKHR{};
-		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
+		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(semaphore);
 		auto const result = queue.presentKHR(&pi);
 		m_image_index.reset();
 
@@ -387,8 +392,9 @@ struct Swapchain {
 	}
 
 	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
-	[[nodiscard]] auto get_image() const -> vk::Image { return m_image_index ? m_images[*m_image_index] : vk::Image{}; }
-	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
+	[[nodiscard]] auto get_image() const -> vk::Image { return m_images.at(m_image_index.value()); }
+	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return *m_image_views.at(m_image_index.value()); }
+	[[nodiscard]] auto get_present_semaphore() const -> vk::Semaphore { return *m_present_sems.at(m_image_index.value()); }
 
   private:
 	static constexpr std::uint32_t min_images_v{KVF_RESOURCE_BUFFERING + 1};
@@ -414,6 +420,7 @@ struct Swapchain {
 	vk::UniqueSwapchainKHR m_swapchain{};
 	std::vector<vk::Image> m_images{};
 	std::vector<vk::UniqueImageView> m_image_views{};
+	std::vector<vk::UniqueSemaphore> m_present_sems{};
 
 	std::optional<std::uint32_t> m_image_index{};
 	vk::ImageLayout m_layout{};
@@ -498,7 +505,7 @@ struct RenderDevice::Impl {
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
-		log::debug("kvf {}", klib::to_string(build_version_v));
+		log::debug("kvf {}", build_version_v);
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
@@ -757,15 +764,16 @@ struct RenderDevice::Impl {
 
 		m_current_cmd->end();
 
+		auto const present_sempahore = m_swapchain.get_present_semaphore();
 		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd->cmd};
 		auto const wssi = vk::SemaphoreSubmitInfo{*sync.draw, 0, vk::PipelineStageFlagBits2::eTopOfPipe};
-		auto const sssi = vk::SemaphoreSubmitInfo{*sync.present, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
+		auto const sssi = vk::SemaphoreSubmitInfo{present_sempahore, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
 		auto si = vk::SubmitInfo2{};
 		si.setCommandBufferInfos(cbsi).setWaitSemaphoreInfos(wssi).setSignalSemaphoreInfos(sssi);
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		auto const present_sucess = m_swapchain.present(m_queue, *sync.present);
+		auto const present_sucess = m_swapchain.present(m_queue);
 		lock.unlock();
 
 		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
@@ -779,7 +787,6 @@ struct RenderDevice::Impl {
   private:
 	struct Sync {
 		vk::UniqueSemaphore draw{};
-		vk::UniqueSemaphore present{};
 		vk::UniqueFence drawn{};
 	};
 
@@ -807,14 +814,13 @@ struct RenderDevice::Impl {
 	void create_instance() {
 		VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
-		static auto const min_ver_str = klib::to_string(vk_api_version_v);
 		auto const vk_api_version = vk::enumerateInstanceVersion();
 		m_loader_version = klib::Version{
 			.major = VK_VERSION_MAJOR(vk_api_version),
 			.minor = VK_VERSION_MINOR(vk_api_version),
 			.patch = VK_VERSION_PATCH(vk_api_version),
 		};
-		log::debug("Vulkan loader (Instance API) version: {}", klib::to_string(m_loader_version));
+		log::debug("Vulkan loader (Instance API) version: {}", m_loader_version);
 
 		auto app_info = vk::ApplicationInfo{};
 		app_info.setApiVersion(VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch));
@@ -828,7 +834,7 @@ struct RenderDevice::Impl {
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
-		log::debug("Vulkan {} Instance created", min_ver_str);
+		log::debug("Vulkan {} Instance created", vk_api_version_v);
 	}
 
 	void create_surface() {
@@ -904,7 +910,6 @@ struct RenderDevice::Impl {
 
 		for (auto& sync : m_syncs) {
 			sync.draw = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
-			sync.present = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 			sync.drawn = m_device->createFenceUnique(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled});
 		}
 
@@ -1149,14 +1154,6 @@ void RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) { 
 
 namespace kvf::vma {
 namespace {
-// 4-channels.
-constexpr auto white_pixel_v = std::array{std::byte{0xff}, std::byte{0xff}, std::byte{0xff}, std::byte{0xff}};
-// fallback bitmap.
-constexpr auto white_bitmap_v = Bitmap{
-	.bytes = white_pixel_v,
-	.size = {1, 1},
-};
-
 struct MakeMipMaps {
 	// NOLINTNEXTLINE
 	vma::Image& out;
@@ -1454,7 +1451,7 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 }
 
 auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
-	if (bitmap.bytes.empty() || bitmap.size.x <= 0 || bitmap.size.y <= 0) { bitmap = white_bitmap_v; }
+	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = pixel_bitmap_v<white_v>; }
 	return resize_and_overwrite({&bitmap, 1});
 }
 
@@ -1759,8 +1756,8 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 #include <kvf/color_bitmap.hpp>
 
 namespace kvf {
-auto Color::to_srgb() const -> glm::vec4 { return glm::convertLinearToSRGB(to_vec4()); }
-auto Color::to_linear() const -> glm::vec4 { return glm::convertSRGBToLinear(to_vec4()); }
+auto Color::linear_to_srgb(glm::vec4 const& channels) -> glm::vec4 { return glm::convertLinearToSRGB(channels); }
+auto Color::srgb_to_linear(glm::vec4 const& channels) -> glm::vec4 { return glm::convertSRGBToLinear(channels); }
 
 void ColorBitmap::resize(glm::ivec2 size) {
 	if (size.x < 0 || size.y < 0) { return; }

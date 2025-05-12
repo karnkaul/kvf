@@ -1,5 +1,7 @@
 #pragma once
 #include <glm/vec4.hpp>
+#include <klib/byte_cast.hpp>
+#include <kvf/bitmap.hpp>
 #include <cstdint>
 
 namespace kvf {
@@ -29,8 +31,11 @@ class Color : public GlmColor {
 
 	[[nodiscard]] constexpr auto to_vec4() const -> glm::vec4 { return {to_f32(x), to_f32(y), to_f32(z), to_f32(w)}; }
 
-	[[nodiscard]] auto to_srgb() const -> glm::vec4;
-	[[nodiscard]] auto to_linear() const -> glm::vec4;
+	[[nodiscard]] static auto linear_to_srgb(glm::vec4 const& channels) -> glm::vec4;
+	[[nodiscard]] static auto srgb_to_linear(glm::vec4 const& channels) -> glm::vec4;
+
+	[[nodiscard]] auto to_srgb() const -> glm::vec4 { return linear_to_srgb(to_vec4()); }
+	[[nodiscard]] auto to_linear() const -> glm::vec4 { return srgb_to_linear(to_vec4()); }
 };
 
 constexpr auto black_v = Color{0x0000000ff};
@@ -41,5 +46,10 @@ constexpr auto blue_v = Color{0x0000ffff};
 constexpr auto cyan_v = Color{green_v | blue_v};
 constexpr auto yellow_v = Color{red_v | green_v};
 constexpr auto magenta_v = Color{blue_v | red_v};
-// constexpr auto yellow_v =
+
+template <Color C>
+inline constexpr auto pixel_bytes_v = klib::byte_cast(C);
+
+template <Color C>
+inline constexpr auto pixel_bitmap_v = Bitmap{.bytes = pixel_bytes_v<C>, .size = {1, 1}};
 } // namespace kvf

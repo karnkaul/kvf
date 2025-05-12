@@ -38,10 +38,6 @@ add_subdirectory(src/dear_imgui)
 message(STATUS "[stb]")
 add_subdirectory(src/stb)
 
-if(CMAKE_C_COMPILER_ID STREQUAL GNU)
-  target_compile_options(stb-image PRIVATE -w)
-endif()
-
 if(NOT TARGET glm)
   set(GLM_ENABLE_CXX_20 ON)
   message(STATUS "[glm]")

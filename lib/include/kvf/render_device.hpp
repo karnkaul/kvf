@@ -57,7 +57,7 @@ struct ShaderObjectCreateInfo {
 	std::span<vk::DescriptorSetLayout const> set_layouts{};
 };
 
-class RenderDevice : public IRenderApi {
+class RenderDevice : public IRenderApi, public klib::Pinned {
   public:
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
 
