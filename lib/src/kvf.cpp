@@ -505,7 +505,7 @@ struct RenderDevice::Impl {
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
-		log::debug("kvf {}", klib::to_string(build_version_v));
+		log::debug("kvf {}", build_version_v);
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
@@ -814,14 +814,13 @@ struct RenderDevice::Impl {
 	void create_instance() {
 		VULKAN_HPP_DEFAULT_DISPATCHER.init();
 
-		static auto const min_ver_str = klib::to_string(vk_api_version_v);
 		auto const vk_api_version = vk::enumerateInstanceVersion();
 		m_loader_version = klib::Version{
 			.major = VK_VERSION_MAJOR(vk_api_version),
 			.minor = VK_VERSION_MINOR(vk_api_version),
 			.patch = VK_VERSION_PATCH(vk_api_version),
 		};
-		log::debug("Vulkan loader (Instance API) version: {}", klib::to_string(m_loader_version));
+		log::debug("Vulkan loader (Instance API) version: {}", m_loader_version);
 
 		auto app_info = vk::ApplicationInfo{};
 		app_info.setApiVersion(VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch));
@@ -835,7 +834,7 @@ struct RenderDevice::Impl {
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
-		log::debug("Vulkan {} Instance created", min_ver_str);
+		log::debug("Vulkan {} Instance created", vk_api_version_v);
 	}
 
 	void create_surface() {
