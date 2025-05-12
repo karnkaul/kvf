@@ -345,6 +345,10 @@ struct Swapchain {
 			m_image_views.push_back(make_image_view(m_device));
 		}
 
+		m_present_sems.clear();
+		m_present_sems.resize(m_images.size());
+		for (auto& semaphore : m_present_sems) { semaphore = m_device.createSemaphoreUnique({}); }
+
 		m_image_index.reset();
 		m_layout = vk::ImageLayout::eUndefined;
 
@@ -370,11 +374,12 @@ struct Swapchain {
 		}
 	}
 
-	auto present(vk::Queue queue, vk::Semaphore const wait) -> bool {
+	auto present(vk::Queue queue) -> bool {
 		KLIB_ASSERT(m_image_index);
 
+		auto const semaphore = *m_present_sems.at(*m_image_index);
 		auto pi = vk::PresentInfoKHR{};
-		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(wait);
+		pi.setImageIndices(*m_image_index).setSwapchains(*m_swapchain).setWaitSemaphores(semaphore);
 		auto const result = queue.presentKHR(&pi);
 		m_image_index.reset();
 
@@ -387,8 +392,9 @@ struct Swapchain {
 	}
 
 	[[nodiscard]] auto get_info() const -> vk::SwapchainCreateInfoKHR const& { return m_info; }
-	[[nodiscard]] auto get_image() const -> vk::Image { return m_image_index ? m_images[*m_image_index] : vk::Image{}; }
-	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return m_image_index ? *m_image_views[*m_image_index] : vk::ImageView{}; }
+	[[nodiscard]] auto get_image() const -> vk::Image { return m_images.at(m_image_index.value()); }
+	[[nodiscard]] auto get_image_view() const -> vk::ImageView { return *m_image_views.at(m_image_index.value()); }
+	[[nodiscard]] auto get_present_semaphore() const -> vk::Semaphore { return *m_present_sems.at(m_image_index.value()); }
 
   private:
 	static constexpr std::uint32_t min_images_v{KVF_RESOURCE_BUFFERING + 1};
@@ -414,6 +420,7 @@ struct Swapchain {
 	vk::UniqueSwapchainKHR m_swapchain{};
 	std::vector<vk::Image> m_images{};
 	std::vector<vk::UniqueImageView> m_image_views{};
+	std::vector<vk::UniqueSemaphore> m_present_sems{};
 
 	std::optional<std::uint32_t> m_image_index{};
 	vk::ImageLayout m_layout{};
@@ -757,15 +764,16 @@ struct RenderDevice::Impl {
 
 		m_current_cmd->end();
 
+		auto const present_sempahore = m_swapchain.get_present_semaphore();
 		auto const cbsi = vk::CommandBufferSubmitInfo{m_current_cmd->cmd};
 		auto const wssi = vk::SemaphoreSubmitInfo{*sync.draw, 0, vk::PipelineStageFlagBits2::eTopOfPipe};
-		auto const sssi = vk::SemaphoreSubmitInfo{*sync.present, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
+		auto const sssi = vk::SemaphoreSubmitInfo{present_sempahore, 0, vk::PipelineStageFlagBits2::eColorAttachmentOutput};
 		auto si = vk::SubmitInfo2{};
 		si.setCommandBufferInfos(cbsi).setWaitSemaphoreInfos(wssi).setSignalSemaphoreInfos(sssi);
 
 		lock.lock();
 		m_queue.submit2(si, *sync.drawn);
-		auto const present_sucess = m_swapchain.present(m_queue, *sync.present);
+		auto const present_sucess = m_swapchain.present(m_queue);
 		lock.unlock();
 
 		if (!present_sucess) { m_swapchain.recreate(get_framebuffer_extent()); }
@@ -779,7 +787,6 @@ struct RenderDevice::Impl {
   private:
 	struct Sync {
 		vk::UniqueSemaphore draw{};
-		vk::UniqueSemaphore present{};
 		vk::UniqueFence drawn{};
 	};
 
@@ -904,7 +911,6 @@ struct RenderDevice::Impl {
 
 		for (auto& sync : m_syncs) {
 			sync.draw = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
-			sync.present = m_device->createSemaphoreUnique(vk::SemaphoreCreateInfo{});
 			sync.drawn = m_device->createFenceUnique(vk::FenceCreateInfo{vk::FenceCreateFlagBits::eSignaled});
 		}
 
