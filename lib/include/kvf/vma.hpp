@@ -119,7 +119,7 @@ class Image : public Resource<vk::Image> {
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
 
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool;
-	auto resize_and_overwrite(Bitmap bitmap) -> bool;
+	auto resize_and_overwrite(Bitmap const& bitmap) -> bool;
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }
@@ -172,7 +172,7 @@ class Texture {
   public:
 	using CreateInfo = TextureCreateInfo;
 
-	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap = {}, CreateInfo const& create_info = {});
+	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap = {}, CreateInfo const& create_info = {});
 
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_image.get_extent(); }
 	[[nodiscard]] auto get_image() const -> Image const& { return m_image; }
@@ -180,8 +180,11 @@ class Texture {
 
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
 
+	[[nodiscard]] auto is_loaded() const -> bool { return m_loaded; }
+
   private:
 	Image m_image{};
 	vk::UniqueSampler m_sampler{};
+	bool m_loaded{};
 };
 } // namespace kvf::vma

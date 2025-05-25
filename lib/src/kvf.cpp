@@ -1450,14 +1450,16 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	return cmd.submit_and_wait();
 }
 
-auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
-	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = pixel_bitmap_v<white_v>; }
-	return resize_and_overwrite({&bitmap, 1});
-}
+auto Image::resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_and_overwrite({&bitmap, 1}); }
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 
-Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, CreateInfo const& create_info) {
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) {
+	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
+
+	auto const valid_bitmap = !bitmap.bytes.empty() && is_positive(bitmap.size);
+	if (!valid_bitmap) { bitmap = pixel_bitmap_v<white_v>; }
+
 	auto const image_ci = ImageCreateInfo{
 		.format = create_info.format,
 		.aspect = create_info.aspect,
@@ -1468,9 +1470,9 @@ Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, Cre
 	};
 	auto const extent = util::to_vk_extent(bitmap.size);
 	m_image = Image{api, image_ci, extent};
-	m_image.resize_and_overwrite(bitmap);
+	auto const overwritten = m_image.resize_and_overwrite(bitmap);
 
-	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
+	m_loaded = valid_bitmap && overwritten;
 }
 
 auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {
