@@ -16,16 +16,14 @@
 #include <span>
 
 namespace kvf {
-enum class RenderDeviceFlag : std::int8_t;
-}
+enum class RenderDeviceFlag : std::uint8_t;
+} // namespace kvf
 
-namespace klib {
 template <>
-inline constexpr auto enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
-}
+inline constexpr auto klib::enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
 
 namespace kvf {
-enum class RenderDeviceFlag : std::int8_t {
+enum class RenderDeviceFlag : std::uint8_t {
 	None = 0,
 	LinearBackbuffer = 1 << 0,
 	ShaderObjectFeature = 1 << 1,
