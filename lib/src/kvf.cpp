@@ -65,19 +65,19 @@ void kvf::WindowDeleter::operator()(GLFWwindow* ptr) const noexcept {
 	glfwTerminate();
 }
 
-auto kvf::create_window(glm::ivec2 const size, klib::CString const title, bool const decorated) -> UniqueWindow {
+auto kvf::create_window(glm::ivec2 const size, klib::CString const title, std::span<WindowHint const> hints) -> UniqueWindow {
 	glfw_init();
-	glfwWindowHint(GLFW_DECORATED, decorated ? GLFW_TRUE : GLFW_FALSE);
+	for (auto const& hint : hints) { glfwWindowHint(hint.hint, hint.value); }
 	auto* window = glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr);
 	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
 	glfwSetWindowSize(window, size.x, size.y);
 	return UniqueWindow{window};
 }
 
-auto kvf::create_fullscreen_window(klib::CString const title, GLFWmonitor* target) -> UniqueWindow {
+auto kvf::create_fullscreen_window(klib::CString const title) -> UniqueWindow {
 	glfw_init();
-	if (target == nullptr) { target = glfwGetPrimaryMonitor(); }
-	auto const* mode = glfwGetVideoMode(target);
+	GLFWmonitor* target = glfwGetPrimaryMonitor();
+	GLFWvidmode const* mode = glfwGetVideoMode(target);
 	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
 	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
 	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
