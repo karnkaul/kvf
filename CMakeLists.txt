@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.23)
 
-project(kvf VERSION "0.4.1")
+project(kvf VERSION "0.4.2")
 
 set(KVF_RESOURCE_BUFFERING 2 CACHE STRING "[Int] kvf resource buffering [2-8]")
 option(KVF_USE_FREETYPE "Build and use freetype" ON)

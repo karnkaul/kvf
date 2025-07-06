@@ -65,19 +65,19 @@ void kvf::WindowDeleter::operator()(GLFWwindow* ptr) const noexcept {
 	glfwTerminate();
 }
 
-auto kvf::create_window(glm::ivec2 const size, klib::CString const title, bool const decorated) -> UniqueWindow {
+auto kvf::create_window(glm::ivec2 const size, klib::CString const title, std::span<WindowHint const> hints) -> UniqueWindow {
 	glfw_init();
-	glfwWindowHint(GLFW_DECORATED, decorated ? GLFW_TRUE : GLFW_FALSE);
+	for (auto const& hint : hints) { glfwWindowHint(hint.hint, hint.value); }
 	auto* window = glfwCreateWindow(size.x, size.y, title.c_str(), nullptr, nullptr);
 	if (window == nullptr) { throw Error{"Failed to create GLFW Window"}; }
 	glfwSetWindowSize(window, size.x, size.y);
 	return UniqueWindow{window};
 }
 
-auto kvf::create_fullscreen_window(klib::CString const title, GLFWmonitor* target) -> UniqueWindow {
+auto kvf::create_fullscreen_window(klib::CString const title) -> UniqueWindow {
 	glfw_init();
-	if (target == nullptr) { target = glfwGetPrimaryMonitor(); }
-	auto const* mode = glfwGetVideoMode(target);
+	GLFWmonitor* target = glfwGetPrimaryMonitor();
+	GLFWvidmode const* mode = glfwGetVideoMode(target);
 	glfwWindowHint(GLFW_RED_BITS, mode->redBits);
 	glfwWindowHint(GLFW_GREEN_BITS, mode->greenBits);
 	glfwWindowHint(GLFW_BLUE_BITS, mode->blueBits);
@@ -1450,14 +1450,16 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	return cmd.submit_and_wait();
 }
 
-auto Image::resize_and_overwrite(Bitmap bitmap) -> bool {
-	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = pixel_bitmap_v<white_v>; }
-	return resize_and_overwrite({&bitmap, 1});
-}
+auto Image::resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_and_overwrite({&bitmap, 1}); }
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 
-Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, CreateInfo const& create_info) {
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) {
+	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
+
+	auto const valid_bitmap = !bitmap.bytes.empty() && is_positive(bitmap.size);
+	if (!valid_bitmap) { bitmap = pixel_bitmap_v<white_v>; }
+
 	auto const image_ci = ImageCreateInfo{
 		.format = create_info.format,
 		.aspect = create_info.aspect,
@@ -1469,8 +1471,6 @@ Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap, Cre
 	auto const extent = util::to_vk_extent(bitmap.size);
 	m_image = Image{api, image_ci, extent};
 	m_image.resize_and_overwrite(bitmap);
-
-	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
 }
 
 auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {

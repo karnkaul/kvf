@@ -1,7 +1,7 @@
 #pragma once
 #include <vk_mem_alloc.h>
 #include <klib/base_types.hpp>
-#include <klib/enum_flags.hpp>
+#include <klib/enum_ops.hpp>
 #include <klib/unique.hpp>
 #include <kvf/bitmap.hpp>
 #include <kvf/buffer_write.hpp>
@@ -21,6 +21,8 @@ class Resource : public klib::Polymorphic {
 	Resource() = default;
 
 	[[nodiscard]] auto get_render_api() const -> IRenderApi const* { return m_api; }
+
+	[[nodiscard]] virtual auto is_identity() const -> bool = 0;
 
 	explicit operator bool() const { return m_api != nullptr; }
 
@@ -72,6 +74,8 @@ class Buffer : public Resource<vk::Buffer> {
 
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorBufferInfo;
 
+	[[nodiscard]] auto is_identity() const -> bool final { return m_buffer.is_identity(); }
+
   private:
 	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool;
 
@@ -91,7 +95,6 @@ enum class ImageFlag : std::int8_t {
 	DedicatedAlloc = 1 << 0,
 	MipMapped = 1 << 1,
 };
-using ImageFlags = klib::EnumFlags<ImageFlag>;
 
 struct ImageCreateInfo {
 	static constexpr auto implicit_usage_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
@@ -102,7 +105,7 @@ struct ImageCreateInfo {
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
 	std::uint32_t layers{1};
 	vk::ImageViewType view_type{vk::ImageViewType::e2D};
-	ImageFlags flags{};
+	ImageFlag flags{};
 };
 
 class Image : public Resource<vk::Image> {
@@ -119,7 +122,7 @@ class Image : public Resource<vk::Image> {
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier);
 
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool;
-	auto resize_and_overwrite(Bitmap bitmap) -> bool;
+	auto resize_and_overwrite(Bitmap const& bitmap) -> bool;
 
 	[[nodiscard]] auto get_image() const -> vk::Image { return m_image.get().resource; }
 	[[nodiscard]] auto get_view() const -> vk::ImageView { return *m_view; }
@@ -131,6 +134,8 @@ class Image : public Resource<vk::Image> {
 	[[nodiscard]] auto subresource_range() const -> vk::ImageSubresourceRange;
 
 	[[nodiscard]] auto render_target() const -> RenderTarget { return RenderTarget{.image = get_image(), .view = get_view(), .extent = get_extent()}; }
+
+	[[nodiscard]] auto is_identity() const -> bool final { return m_image.is_identity(); }
 
   private:
 	struct Deleter {
@@ -164,7 +169,7 @@ struct TextureCreateInfo {
 	vk::Format format{vk::Format::eR8G8B8A8Srgb};
 	vk::ImageAspectFlagBits aspect{vk::ImageAspectFlagBits::eColor};
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
-	ImageFlags flags{ImageFlag::MipMapped};
+	ImageFlag flags{ImageFlag::MipMapped};
 	vk::SamplerCreateInfo sampler{sampler_ci_v};
 };
 
@@ -172,7 +177,9 @@ class Texture {
   public:
 	using CreateInfo = TextureCreateInfo;
 
-	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap const& bitmap = {}, CreateInfo const& create_info = {});
+	Texture() = default;
+
+	explicit Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap = {}, CreateInfo const& create_info = {});
 
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_image.get_extent(); }
 	[[nodiscard]] auto get_image() const -> Image const& { return m_image; }
@@ -180,8 +187,13 @@ class Texture {
 
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
 
+	[[nodiscard]] auto is_ready() const -> bool { return !m_image.is_identity() && m_sampler; }
+
   private:
 	Image m_image{};
 	vk::UniqueSampler m_sampler{};
 };
 } // namespace kvf::vma
+
+template <>
+inline constexpr auto klib::enable_enum_ops_v<kvf::vma::ImageFlag> = true;

@@ -5,16 +5,14 @@
 #include <span>
 
 namespace kvf {
-enum class PipelineFlag : std::int8_t;
-}
+enum class PipelineFlag : std::uint8_t;
+} // namespace kvf
 
-namespace klib {
 template <>
-inline constexpr auto enable_enum_ops_v<kvf::PipelineFlag> = true;
-}
+inline constexpr auto klib::enable_enum_ops_v<kvf::PipelineFlag> = true;
 
 namespace kvf {
-enum class PipelineFlag : std::int8_t {
+enum class PipelineFlag : std::uint8_t {
 	None = 0,
 	AlphaBlend = 1 << 0,
 	DepthTest = 1 << 1,
