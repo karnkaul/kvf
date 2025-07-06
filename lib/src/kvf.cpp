@@ -1470,9 +1470,7 @@ Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo
 	};
 	auto const extent = util::to_vk_extent(bitmap.size);
 	m_image = Image{api, image_ci, extent};
-	auto const overwritten = m_image.resize_and_overwrite(bitmap);
-
-	m_loaded = valid_bitmap && overwritten;
+	m_image.resize_and_overwrite(bitmap);
 }
 
 auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {

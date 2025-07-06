@@ -4,7 +4,6 @@
 #include <kvf/color.hpp>
 #include <kvf/render_pass.hpp>
 #include <scene.hpp>
-#include <optional>
 
 namespace kvf::example {
 class Sprite : public Scene {
@@ -49,7 +48,7 @@ class Sprite : public Scene {
 
 	std::vector<Std430Instance> m_instance_buffer{};
 
-	std::optional<vma::Texture> m_texture{};
+	vma::Texture m_texture{};
 	vk::UniqueSampler m_sampler{};
 
 	std::vector<RenderInstance> m_instances{};

@@ -1,6 +1,7 @@
 #include <imgui.h>
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
+#include <klib/assert.hpp>
 #include <klib/random.hpp>
 #include <kvf/error.hpp>
 #include <kvf/image_bitmap.hpp>
@@ -138,7 +139,7 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	m_texture.emplace(&get_render_device(), image.bitmap());
+	m_texture = vma::Texture{&get_render_device(), image.bitmap()};
 
 	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().get_device().createSamplerUnique(sci);
@@ -187,7 +188,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto const instances_dbi = get_render_device().scratch_descriptor_buffer(vk::BufferUsageFlagBits::eStorageBuffer, std::span{m_instance_buffer});
 	wds[1] = util::ssbo_write(&instances_dbi, sets[1], 0);
 
-	auto const texture_dii = m_texture->descriptor_info();
+	auto const texture_dii = m_texture.descriptor_info();
 	wds[2] = util::image_write(&texture_dii, sets[1], 1);
 
 	get_render_device().get_device().updateDescriptorSets(wds, {});
