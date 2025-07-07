@@ -555,20 +555,10 @@ struct RenderDevice::Impl {
 		return ret;
 	}
 
-	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode const wrap, vk::Filter const filter, float aniso) const -> vk::SamplerCreateInfo {
-		aniso = std::min(aniso, m_gpu.properties.limits.maxSamplerAnisotropy);
-		auto ret = vk::SamplerCreateInfo{};
-		ret.setAddressModeU(wrap)
-			.setAddressModeV(wrap)
-			.setAddressModeW(wrap)
-			.setAnisotropyEnable(aniso > 0.0f ? vk::True : vk::False)
-			.setMaxAnisotropy(aniso)
-			.setMinFilter(filter)
-			.setMagFilter(filter)
-			.setMaxLod(VK_LOD_CLAMP_NONE)
-			.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
-			.setMipmapMode(vk::SamplerMipmapMode::eNearest);
-		return ret;
+	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo create_info) const -> vk::UniqueSampler {
+		auto const aniso = std::min(create_info.maxAnisotropy, m_gpu.properties.limits.maxSamplerAnisotropy);
+		create_info.setAnisotropyEnable(aniso > 0.0f ? vk::True : vk::False).setMaxAnisotropy(aniso);
+		return m_device->createSamplerUnique(create_info);
 	}
 
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout const layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
@@ -1099,9 +1089,8 @@ auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
-auto RenderDevice::sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso) const -> vk::SamplerCreateInfo {
-	return m_impl->sampler_info(wrap, filter, aniso);
-}
+
+auto RenderDevice::create_sampler(vk::SamplerCreateInfo const& create_info) const -> vk::UniqueSampler { return m_impl->create_sampler(create_info); }
 
 auto RenderDevice::create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize const size) const -> vma::Buffer {
 	return vma::Buffer{this, create_info, size};
@@ -1454,9 +1443,7 @@ auto Image::resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_a
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 
-Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) {
-	m_sampler = api->get_device().createSamplerUnique(create_info.sampler);
-
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) : m_sampler(api->create_sampler(create_info.sampler)) {
 	auto const valid_bitmap = !bitmap.bytes.empty() && is_positive(bitmap.size);
 	if (!valid_bitmap) { bitmap = pixel_bitmap_v<white_v>; }
 
@@ -1491,7 +1478,9 @@ constexpr auto is_norm(glm::vec2 const v) { return is_norm(v.x) && is_norm(v.y);
 constexpr auto is_norm(UvRect const& r) { return is_norm(r.lt) && is_norm(r.rb); }
 } // namespace
 
-RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
+RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples)
+	: m_device(render_device), m_samples(samples),
+	  m_sampler(render_device->create_sampler(vma::create_sampler_ci(vk::SamplerAddressMode::eClampToBorder, vk::Filter::eLinear, 0.0f))) {}
 
 auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
@@ -1681,6 +1670,14 @@ void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
 	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 	m_command_buffer.setViewport(0, to_viewport(uv_rect_v));
 	m_command_buffer.setScissor(0, to_scissor(uv_rect_v));
+}
+
+auto RenderPass::render_texture_descriptor_info() const -> vk::DescriptorImageInfo {
+	auto const& rt = render_target();
+	if (!rt.view) { return {}; }
+	auto ret = vk::DescriptorImageInfo{};
+	ret.setImageView(rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	return ret;
 }
 
 void RenderPass::set_render_targets() {

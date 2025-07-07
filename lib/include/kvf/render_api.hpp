@@ -17,7 +17,8 @@ class IRenderApi : public klib::Polymorphic {
 	[[nodiscard]] virtual auto get_depth_format() const -> vk::Format = 0;
 
 	[[nodiscard]] virtual auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 = 0;
-	[[nodiscard]] virtual auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo = 0;
+
+	[[nodiscard]] virtual auto create_sampler(vk::SamplerCreateInfo const& create_info) const -> vk::UniqueSampler = 0;
 
 	virtual void queue_submit(vk::SubmitInfo2 const& submit_info, vk::Fence signal) const = 0;
 };

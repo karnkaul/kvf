@@ -90,8 +90,8 @@ class RenderDevice : public IRenderApi, public klib::Pinned {
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format final;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format final;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 final;
-	[[nodiscard]] auto sampler_info(vk::SamplerAddressMode wrap, vk::Filter filter, float aniso = aniso_v) const -> vk::SamplerCreateInfo final;
 
+	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo const& create_info) const -> vk::UniqueSampler final;
 	[[nodiscard]] auto create_buffer(vma::BufferCreateInfo const& create_info, vk::DeviceSize size) const -> vma::Buffer;
 	[[nodiscard]] auto create_image(vma::ImageCreateInfo const& create_info, vk::Extent2D extent) const -> vma::Image;
 	[[nodiscard]] auto create_texture(Bitmap const& bitmap, vma::TextureCreateInfo const& create_info = {}) const -> vma::Texture;
