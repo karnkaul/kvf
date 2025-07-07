@@ -92,7 +92,7 @@ auto kvf::create_fullscreen_window(klib::CString const title) -> UniqueWindow {
 
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-#include <kvf/device_block.hpp>
+#include <kvf/device_waiter.hpp>
 #include <kvf/render_device.hpp>
 #include <kvf/util.hpp>
 
@@ -885,7 +885,7 @@ struct RenderDevice::Impl {
 		m_queue = m_device->getQueue(m_queue_family, 0);
 		log::debug("Vulkan Device created");
 
-		m_device_block.get() = *m_device;
+		m_device_waiter.get() = *m_device;
 	}
 
 	void create_swapchain() {
@@ -1072,7 +1072,7 @@ struct RenderDevice::Impl {
 	std::size_t m_frame_index{};
 	RenderCmd* m_current_cmd{};
 
-	DeviceBlock m_device_block{};
+	DeviceWaiter m_device_waiter{};
 };
 
 void RenderDevice::Deleter::operator()(Impl* ptr) const noexcept { std::default_delete<Impl>{}(ptr); }

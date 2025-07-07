@@ -59,7 +59,7 @@ class RenderPass {
 
 	void set_render_targets();
 
-	RenderDevice* m_device{};
+	gsl::not_null<RenderDevice*> m_device;
 	vk::SampleCountFlagBits m_samples{};
 
 	Buffered<Framebuffer> m_framebuffers{};

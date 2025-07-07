@@ -1,6 +1,6 @@
 #pragma once
 #include <klib/c_string.hpp>
-#include <kvf/device_block.hpp>
+#include <kvf/device_waiter.hpp>
 #include <kvf/render_device.hpp>
 #include <kvf/window.hpp>
 #include <scene.hpp>
@@ -43,6 +43,6 @@ class App {
 	std::unique_ptr<Scene> m_scene;
 	DeltaTime m_delta_time{};
 
-	DeviceBlock m_blocker;
+	DeviceWaiter m_blocker;
 };
 } // namespace kvf::example

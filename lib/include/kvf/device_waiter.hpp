@@ -3,8 +3,8 @@
 #include <vulkan/vulkan.hpp>
 
 namespace kvf {
-struct DeviceBlockDeleter {
+struct DeviceWaiterDeleter {
 	void operator()(vk::Device device) const { device.waitIdle(); }
 };
-using DeviceBlock = klib::Unique<vk::Device, DeviceBlockDeleter>;
+using DeviceWaiter = klib::Unique<vk::Device, DeviceWaiterDeleter>;
 } // namespace kvf
