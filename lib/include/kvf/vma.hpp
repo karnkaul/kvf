@@ -150,13 +150,14 @@ class Image : public Resource<vk::Image> {
 	vk::ImageLayout m_layout{};
 };
 
-[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter) {
+[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter, float const aniso = 16.0f) {
 	auto ret = vk::SamplerCreateInfo{};
 	ret.setAddressModeU(wrap)
 		.setAddressModeV(wrap)
 		.setAddressModeW(wrap)
 		.setMinFilter(filter)
 		.setMagFilter(filter)
+		.setMaxAnisotropy(aniso)
 		.setMaxLod(VK_LOD_CLAMP_NONE)
 		.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
 		.setMipmapMode(vk::SamplerMipmapMode::eNearest);

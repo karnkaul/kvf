@@ -141,8 +141,8 @@ void Sprite::create_texture() {
 	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
 	m_texture = vma::Texture{&get_render_device(), image.bitmap()};
 
-	auto const sci = get_render_device().sampler_info(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
-	m_sampler = get_render_device().get_device().createSamplerUnique(sci);
+	auto const sci = vma::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
+	m_sampler = get_render_device().create_sampler(sci);
 }
 
 void Sprite::write_vbo() {

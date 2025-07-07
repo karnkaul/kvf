@@ -40,6 +40,8 @@ class RenderPass {
 
 	void bind_pipeline(vk::Pipeline pipeline) const;
 
+	[[nodiscard]] auto render_texture_descriptor_info() const -> vk::DescriptorImageInfo;
+
 	glm::vec4 clear_color{0.0f};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
 	vk::AttachmentStoreOp depth_store_op{vk::AttachmentStoreOp::eDontCare};
@@ -59,8 +61,9 @@ class RenderPass {
 
 	void set_render_targets();
 
-	RenderDevice* m_device{};
+	gsl::not_null<RenderDevice*> m_device;
 	vk::SampleCountFlagBits m_samples{};
+	vk::UniqueSampler m_sampler{};
 
 	Buffered<Framebuffer> m_framebuffers{};
 
