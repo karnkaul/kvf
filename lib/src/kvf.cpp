@@ -574,23 +574,15 @@ struct RenderDevice::Impl {
 
 		auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
 		auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
-		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare);
+		auto const depth_write = (state.flags & PipelineFlag::DepthWrite) == PipelineFlag::DepthWrite;
+		pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False)
+			.setDepthCompareOp(state.depth_compare)
+			.setDepthWriteEnable(depth_write ? vk::True : vk::False);
 
 		auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
 
-		auto pcbas = vk::PipelineColorBlendAttachmentState{};
-		auto const alpha_blend = (state.flags & PipelineFlag::AlphaBlend) == PipelineFlag::AlphaBlend;
-		using CCF = vk::ColorComponentFlagBits;
-		pcbas.setColorWriteMask(CCF::eR | CCF::eG | CCF::eB | CCF::eA)
-			.setBlendEnable(alpha_blend ? vk::True : vk::False)
-			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-			.setColorBlendOp(vk::BlendOp::eAdd)
-			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
-			.setAlphaBlendOp(vk::BlendOp::eAdd);
 		auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
-		pcbsci.setAttachments(pcbas);
+		pcbsci.setAttachments(state.blend_state);
 
 		auto const pdscis = std::array{
 			vk::DynamicState::eViewport,
