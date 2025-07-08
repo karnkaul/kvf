@@ -586,8 +586,8 @@ struct RenderDevice::Impl {
 			.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
 			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
 			.setColorBlendOp(vk::BlendOp::eAdd)
-			.setSrcAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eOne)
 			.setAlphaBlendOp(vk::BlendOp::eAdd);
 		auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
 		pcbsci.setAttachments(pcbas);
