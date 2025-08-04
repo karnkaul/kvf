@@ -47,6 +47,17 @@ constexpr void ensure_positive(T&... out) {
 #include <kvf/window.hpp>
 
 namespace {
+[[nodiscard]] constexpr auto glfw_platform_str(int const platform) -> std::string_view {
+	switch (platform) {
+	case GLFW_PLATFORM_NULL: return "Null";
+	case GLFW_PLATFORM_WIN32: return "Win32";
+	case GLFW_PLATFORM_X11: return "X11";
+	case GLFW_PLATFORM_WAYLAND: return "Wayland";
+	case GLFW_PLATFORM_COCOA: return "Cocoa";
+	default: return "[unknown]";
+	}
+}
+
 void glfw_init() {
 	static auto const on_error = [](int const code, char const* description) {
 		static constexpr std::string_view tag_v{"glfw"};
@@ -505,7 +516,7 @@ struct RenderDevice::Impl {
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
-		log::debug("kvf {}", build_version_v);
+		log::debug("kvf {}, platform: {}", build_version_v, glfw_platform_str(glfwGetPlatform()));
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
