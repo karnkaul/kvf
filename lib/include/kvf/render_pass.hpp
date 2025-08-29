@@ -19,6 +19,8 @@ class RenderPass {
 	auto set_color_target(vk::Format format = vk::Format::eUndefined) -> RenderPass&; // undefined = RGBA with swapchain color space
 	auto set_depth_target() -> RenderPass&;
 
+	void recreate(vk::SampleCountFlagBits samples = samples_v);
+
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline;
 
 	[[nodiscard]] auto has_color_target() const -> bool { return bool(m_framebuffers.front().color); }

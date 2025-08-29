@@ -8,10 +8,13 @@ class Triangle : public Scene {
 	explicit Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_dir);
 
   private:
+	void on_key(KeyInput const& ki) final;
 	void update(vk::CommandBuffer command_buffer) final;
 	[[nodiscard]] auto get_render_target() const -> RenderTarget final;
 
 	void create_pipeline();
+
+	void recreate(vk::SampleCountFlagBits samples);
 
 	void draw_controls();
 

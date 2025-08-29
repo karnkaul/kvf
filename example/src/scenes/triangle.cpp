@@ -12,6 +12,13 @@ Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_
 	create_pipeline();
 }
 
+void Triangle::on_key(KeyInput const& ki) {
+	if (ki.key == GLFW_KEY_1 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e1); }
+	if (ki.key == GLFW_KEY_2 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e2); }
+	if (ki.key == GLFW_KEY_4 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e4); }
+	if (ki.key == GLFW_KEY_8 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e8); }
+}
+
 void Triangle::update(vk::CommandBuffer const command_buffer) {
 	ImGui::SetNextWindowSize({150.0f, 80.0f}, ImGuiCond_Once);
 	if (ImGui::Begin("Controls")) { draw_controls(); }
@@ -42,6 +49,11 @@ void Triangle::create_pipeline() {
 	};
 	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
+}
+
+void Triangle::recreate(vk::SampleCountFlagBits samples) {
+	m_color_pass.recreate(samples);
+	create_pipeline();
 }
 
 void Triangle::draw_controls() {

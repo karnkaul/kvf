@@ -1499,6 +1499,7 @@ auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 		ret.samples = vk::SampleCountFlagBits::e1;
 		return ret;
 	}();
+	if (has_color_target()) { m_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
 		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
@@ -1516,6 +1517,18 @@ auto RenderPass::set_depth_target() -> RenderPass& {
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
 	return *this;
+}
+
+void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
+	auto const had_color = has_color_target();
+	auto const had_depth = has_depth_target();
+	m_samples = samples;
+	if (had_color) { set_color_target(get_color_format()); }
+	if (had_depth) { set_depth_target(); }
+	if (m_samples == vk::SampleCountFlagBits::e1) {
+		for (auto& framebuffer : m_framebuffers) { framebuffer.resolve = vma::Image{}; }
+	}
+	m_targets = {};
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
