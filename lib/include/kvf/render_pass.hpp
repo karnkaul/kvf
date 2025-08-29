@@ -4,6 +4,7 @@
 #include <kvf/pipeline_state.hpp>
 #include <kvf/rect.hpp>
 #include <kvf/render_device_fwd.hpp>
+#include <kvf/render_pass_fwd.hpp>
 #include <kvf/vma.hpp>
 
 namespace kvf {
