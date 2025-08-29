@@ -47,6 +47,17 @@ constexpr void ensure_positive(T&... out) {
 #include <kvf/window.hpp>
 
 namespace {
+[[nodiscard]] constexpr auto glfw_platform_str(int const platform) -> std::string_view {
+	switch (platform) {
+	case GLFW_PLATFORM_NULL: return "Null";
+	case GLFW_PLATFORM_WIN32: return "Win32";
+	case GLFW_PLATFORM_X11: return "X11";
+	case GLFW_PLATFORM_WAYLAND: return "Wayland";
+	case GLFW_PLATFORM_COCOA: return "Cocoa";
+	default: return "[unknown]";
+	}
+}
+
 void glfw_init() {
 	static auto const on_error = [](int const code, char const* description) {
 		static constexpr std::string_view tag_v{"glfw"};
@@ -505,7 +516,7 @@ struct RenderDevice::Impl {
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
-		log::debug("kvf {}", build_version_v);
+		log::debug("kvf {}, platform: {}", build_version_v, glfw_platform_str(glfwGetPlatform()));
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
@@ -1488,6 +1499,7 @@ auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 		ret.samples = vk::SampleCountFlagBits::e1;
 		return ret;
 	}();
+	if (has_color_target()) { m_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
 		framebuffer.color = vma::Image{m_device, color_ici, m_extent};
 		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = vma::Image{m_device, resolve_ici, m_extent}; }
@@ -1505,6 +1517,18 @@ auto RenderPass::set_depth_target() -> RenderPass& {
 	};
 	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = vma::Image{m_device, depth_ici, m_extent}; }
 	return *this;
+}
+
+void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
+	auto const had_color = has_color_target();
+	auto const had_depth = has_depth_target();
+	m_samples = samples;
+	if (had_color) { set_color_target(get_color_format()); }
+	if (had_depth) { set_depth_target(); }
+	if (m_samples == vk::SampleCountFlagBits::e1) {
+		for (auto& framebuffer : m_framebuffers) { framebuffer.resolve = vma::Image{}; }
+	}
+	m_targets = {};
 }
 
 auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
