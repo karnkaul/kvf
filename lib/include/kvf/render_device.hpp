@@ -110,8 +110,8 @@ class RenderDevice : public IRenderApi, public klib::Pinned {
 	[[nodiscard]] auto is_window_closing() const -> bool;
 	void set_window_closing(bool value) const;
 
-	[[nodiscard]] auto next_frame() -> vk::CommandBuffer;
-	void render(RenderTarget const& frame, vk::Filter filter = vk::Filter::eLinear);
+	auto next_frame() -> vk::CommandBuffer;
+	auto render(RenderTarget const& frame, vk::Filter filter = vk::Filter::eLinear) -> bool;
 
   private:
 	struct Impl;
