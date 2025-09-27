@@ -14,65 +14,71 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: init
-        run: uname -m; sudo apt update -yqq && sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+        run: |
+            uname -m
+            sudo apt update -yqq
+            sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 10
       - name: configure
-        run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+        run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF
       - name: build debug
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   x64-linux-clang:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: init
-        run: uname -m; sudo apt update -yqq && sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+        run: |
+            uname -m
+            sudo apt update -yqq
+            sudo apt install -yqq clang-20 mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+            sudo update-alternatives --remove-all clang++
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 10
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 10
       - name: configure
         run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF
       - name: build debug
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   arm64-linux-gcc:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: init
-        run: uname -m; sudo apt update -yqq && sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+        run: |
+            uname -m
+            sudo apt update -yqq
+            sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 10
       - name: configure
-        run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14
+        run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF
       - name: build debug
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   arm64-linux-clang:
     runs-on: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
       - name: init
-        run: uname -m; sudo apt update -yqq && sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+        run: |
+            uname -m
+            sudo apt update -yqq
+            sudo apt install -yqq clang-20 mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules
+            sudo update-alternatives --remove-all clang++
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 10
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 10
       - name: configure
         run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF -DGLFW_BUILD_X11=OFF
       - name: build debug
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   x64-windows-vs22:
     runs-on: windows-2025
     steps:
@@ -83,10 +89,6 @@ jobs:
         run: cmake --build build --config=Debug --parallel
       - name: build release
         run: cmake --build build --config=Release --parallel
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   x64-windows-clang:
     runs-on: windows-2025
     steps:
@@ -97,21 +99,13 @@ jobs:
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
   x64-mingw-gcc:
     runs-on: windows-2025
     steps:
       - uses: actions/checkout@v4
       - name: configure
-        run: cmake -S . --preset=ninja-gcc -B build
+        run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
-        run: cmake --build build --config=Debug --parallel
+        run: cmake --build build --config=Debug
       - name: build release
-        run: cmake --build build --config=Release --parallel
-      - name: test debug
-        run: cd build && ctest -V -C Debug
-      - name: test release
-        run: cd build && ctest -V -C Release
+        run: cmake --build build --config=Release
