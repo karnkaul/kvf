@@ -365,7 +365,7 @@ struct Swapchain {
 
 		auto const extent = m_info.imageExtent;
 		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
-		log::debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
+		log.debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
 	}
 
 	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
@@ -516,7 +516,7 @@ struct RenderDevice::Impl {
 		: m_window(window), m_flags(create_info.flags), m_pool_sizes(create_info.custom_pool_sizes.begin(), create_info.custom_pool_sizes.end()) {
 		static auto const default_gpu_selector = GpuSelector{};
 		auto const& gpu_selector = create_info.gpu_selector == nullptr ? default_gpu_selector : *create_info.gpu_selector;
-		log::debug("kvf {}, platform: {}", build_version_v, glfw_platform_str(glfwGetPlatform()));
+		log.debug("kvf {}, platform: {}", build_version_v, glfw_platform_str(glfwGetPlatform()));
 		create_instance();
 		create_surface();
 		select_gpu(gpu_selector);
@@ -653,7 +653,7 @@ struct RenderDevice::Impl {
 		auto shaders = std::array<vk::ShaderEXT, 2>{};
 		auto result = m_device->createShadersEXT(std::uint32_t(shader_cis.size()), shader_cis.data(), nullptr, shaders.data());
 		if (result != vk::Result::eSuccess) {
-			log::error("Failed to create ShaderEXT objects");
+			log.error("Failed to create ShaderEXT objects");
 			return {};
 		}
 
@@ -727,7 +727,7 @@ struct RenderDevice::Impl {
 			.minor = VK_VERSION_MINOR(vk_api_version),
 			.patch = VK_VERSION_PATCH(vk_api_version),
 		};
-		log::debug("Vulkan loader (Instance API) version: {}", m_loader_version);
+		log.debug("Vulkan loader (Instance API) version: {}", m_loader_version);
 
 		auto app_info = vk::ApplicationInfo{};
 		app_info.setApiVersion(VK_MAKE_VERSION(vk_api_version_v.major, vk_api_version_v.minor, vk_api_version_v.patch));
@@ -741,7 +741,7 @@ struct RenderDevice::Impl {
 		if (!m_instance) { throw Error{"Failed to create Vulkan Instance"}; }
 
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_instance);
-		log::debug("Vulkan {} Instance created", vk_api_version_v);
+		log.debug("Vulkan {} Instance created", vk_api_version_v);
 	}
 
 	void create_surface() {
@@ -759,7 +759,7 @@ struct RenderDevice::Impl {
 		m_queue_family = list.get_queue_family(selected);
 		m_gpu = *selected;
 		m_depth_format = optimal_depth_format(m_gpu.device);
-		log::debug("Using GPU: {}, queue family: {}", m_gpu.properties.deviceName.data(), m_queue_family);
+		log.debug("Using GPU: {}, queue family: {}", m_gpu.properties.deviceName.data(), m_queue_family);
 	}
 
 	void create_device() {
@@ -790,7 +790,7 @@ struct RenderDevice::Impl {
 		VULKAN_HPP_DEFAULT_DISPATCHER.init(*m_device);
 
 		m_queue = m_device->getQueue(m_queue_family, 0);
-		log::debug("Vulkan Device created");
+		log.debug("Vulkan Device created");
 
 		m_device_waiter.get() = *m_device;
 	}
@@ -834,7 +834,7 @@ struct RenderDevice::Impl {
 			.srgb_target = !linear_backbuffer,
 		};
 		m_imgui.init(dici);
-		log::debug("Dear ImGui initialized");
+		log.debug("Dear ImGui initialized");
 	}
 
 	void create_allocator() {
@@ -848,7 +848,7 @@ struct RenderDevice::Impl {
 		vkFunc.vkGetDeviceProcAddr = dl.vkGetDeviceProcAddr;
 		vaci.pVulkanFunctions = &vkFunc;
 		if (vmaCreateAllocator(&vaci, &m_allocator.get()) != VK_SUCCESS) { throw Error{"Failed to create Vulkan Allocator"}; }
-		log::debug("Vulkan Allocator created");
+		log.debug("Vulkan Allocator created");
 	}
 
 	void init_descriptor_allocators(std::uint32_t const sets_per_pool) {
