@@ -1,15 +1,39 @@
 file(ARCHIVE_EXTRACT INPUT "${CMAKE_CURRENT_SOURCE_DIR}/src.zip" DESTINATION "${CMAKE_CURRENT_SOURCE_DIR}")
 
-if(NOT TARGET klib)
+if (NOT TARGET glfw)
+  set(GLFW_INSTALL OFF)
+  set(GLFW_BUILD_DOCS OFF)
+  message(STATUS "[glfw]")
+  add_subdirectory(src/glfw)
+  add_library(glfw::glfw ALIAS glfw)
+endif()
+
+if(NOT TARGET glm)
+  set(GLM_ENABLE_CXX_20 ON)
+  message(STATUS "[glm]")
+  add_subdirectory(src/glm)
+  target_compile_definitions(glm PUBLIC
+    GLM_FORCE_XYZW_ONLY
+    GLM_FORCE_RADIANS
+    GLM_FORCE_DEPTH_ZERO_TO_ONE
+    GLM_FORCE_SILENT_WARNINGS
+    GLM_ENABLE_EXPERIMENTAL
+    GLM_EXT_INCLUDED
+  )
+endif()
+
+if(NOT TARGET klib::klib)
   message(STATUS "[klib]")
   add_subdirectory(src/klib)
 endif()
 
+if (NOT TARGET dyvk::dyvk)
+  message(STATUS "[dyvk]")
+  add_subdirectory(src/dyvk)
+endif()
+
 message(STATUS "[gsl]")
 add_subdirectory(src/gsl)
-
-message(STATUS "[dyvk]")
-add_subdirectory(src/dyvk)
 
 message(STATUS "[vma]")
 add_subdirectory(src/vma)
@@ -26,31 +50,11 @@ target_compile_definitions(vma PUBLIC
   VMA_DYNAMIC_VULKAN_FUNCTIONS=1
 )
 
-set(GLFW_INSTALL OFF)
-set(GLFW_BUILD_DOCS OFF)
-message(STATUS "[glfw]")
-add_subdirectory(src/glfw)
-add_library(glfw::glfw ALIAS glfw)
-
 message(STATUS "[dear imgui]")
 add_subdirectory(src/dear_imgui)
 
 message(STATUS "[stb]")
 add_subdirectory(src/stb)
-
-if(NOT TARGET glm)
-  set(GLM_ENABLE_CXX_20 ON)
-  message(STATUS "[glm]")
-  add_subdirectory(src/glm)
-  target_compile_definitions(glm PUBLIC
-    GLM_FORCE_XYZW_ONLY
-    GLM_FORCE_RADIANS
-    GLM_FORCE_DEPTH_ZERO_TO_ONE
-    GLM_FORCE_SILENT_WARNINGS
-    GLM_ENABLE_EXPERIMENTAL
-    GLM_EXT_INCLUDED
-  )
-endif()
 
 if(KVF_USE_FREETYPE)
   if(NOT TARGET freetype)
