@@ -106,6 +106,6 @@ jobs:
       - name: configure
         run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
-        run: cmake --build build --config=Debug
+        run: cmake --build build --config=Debug -- -v
       - name: build release
-        run: cmake --build build --config=Release
+        run: cmake --build build --config=Release -- -v
