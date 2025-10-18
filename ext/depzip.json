@@ -1,0 +1,49 @@
+{
+  "packages": [
+    {
+      "uri": "karnkaul/dyvk"
+    },
+    {
+      "uri": "karnkaul/klib",
+      "branch": "v0.5.4"
+    },
+    {
+      "uri": "freetype/freetype",
+      "branch": "VER-2-14-1",
+      "remove_subpaths": [
+        "docs"
+      ]
+    },
+    {
+      "uri": "glfw/glfw",
+      "remove_subpaths": [
+        "docs",
+        "tests",
+        "examples"
+      ]
+    },
+    {
+      "uri": "g-truc/glm",
+      "branch": "1.0.2",
+      "remove_subpaths": [
+        "doc"
+      ]
+    },
+    {
+      "uri": "GPUOpen-LibrariesAndSDKs/VulkanMemoryAllocator",
+      "branch": "v3.3.0",
+      "subdir": "vma",
+      "remove_subpaths": [
+        "docs"
+      ]
+    },
+    {
+      "uri": "ocornut/imgui",
+      "branch": "v1.92.4",
+      "subdir": "dear_imgui",
+      "remove_subpaths": [
+        "examples"
+      ]
+    }
+  ]
+}

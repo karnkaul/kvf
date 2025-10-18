@@ -236,14 +236,13 @@ class DearImGui {
 		init_info.Queue = create_info.queue;
 		init_info.MinImageCount = 2;
 		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
-		init_info.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
-		init_info.DescriptorPoolSize = std::uint32_t(resource_buffering_v);
+		init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+		init_info.UseDynamicRendering = true;
+		init_info.PipelineInfoMain.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
 		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
 		pipline_rendering_ci.setColorAttachmentCount(1).setColorAttachmentFormats(create_info.color_format);
-		init_info.PipelineRenderingCreateInfo = pipline_rendering_ci;
-		init_info.UseDynamicRendering = true;
+		init_info.PipelineInfoMain.PipelineRenderingCreateInfo = pipline_rendering_ci;
 		if (!ImGui_ImplVulkan_Init(&init_info)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
-		ImGui_ImplVulkan_CreateFontsTexture();
 
 		ImGui::StyleColorsDark();
 		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
@@ -281,7 +280,6 @@ class DearImGui {
 		void operator()(vk::Device device) const {
 			if (!device) { return; }
 			device.waitIdle();
-			ImGui_ImplVulkan_DestroyFontsTexture();
 			ImGui_ImplVulkan_Shutdown();
 			ImGui_ImplGlfw_Shutdown();
 			ImGui::DestroyContext();
