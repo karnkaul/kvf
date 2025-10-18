@@ -1807,6 +1807,7 @@ auto util::color_from_hex(std::string_view hex) -> Color {
 	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
 	hex = hex.substr(1);
 	auto const next = [&](std::uint8_t& out) {
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
 		auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + 2, out, 16);
 		hex = hex.substr(2);
 		return ec == std::errc{} && ptr == hex.data();
