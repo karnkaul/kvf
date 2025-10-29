@@ -20,7 +20,8 @@
         "docs",
         "tests",
         "examples"
-      ]
+      ],
+      "custom_command": "cmake -P src/glfw/CMake/GenerateMappings.cmake src/glfw/src/mappings.h.in src/glfw/src/mappings.h"
     },
     {
       "uri": "g-truc/glm",
