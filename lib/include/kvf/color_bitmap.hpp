@@ -1,6 +1,6 @@
 #pragma once
-#include <kvf/bitmap.hpp>
-#include <kvf/color.hpp>
+#include "kvf/bitmap.hpp"
+#include "kvf/color.hpp"
 #include <vector>
 
 namespace kvf {

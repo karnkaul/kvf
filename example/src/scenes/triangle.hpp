@@ -1,5 +1,5 @@
 #pragma once
-#include <kvf/render_pass.hpp>
+#include "kvf/render_pass.hpp"
 #include <scene.hpp>
 
 namespace kvf::example {

@@ -1,7 +1,7 @@
 #pragma once
+#include "kvf/bitmap.hpp"
 #include <glm/vec4.hpp>
 #include <klib/byte_cast.hpp>
-#include <kvf/bitmap.hpp>
 #include <cstdint>
 
 namespace kvf {

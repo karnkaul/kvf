@@ -1,7 +1,7 @@
+#include "kvf/build_version.hpp"
 #include <app.hpp>
 #include <klib/args/parse.hpp>
 #include <klib/version_str.hpp>
-#include <kvf/build_version.hpp>
 #include <log.hpp>
 
 auto main(int argc, char** argv) -> int {

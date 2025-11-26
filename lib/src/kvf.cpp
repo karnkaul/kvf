@@ -1,4 +1,6 @@
-#include <vk_mem_alloc.h>
+#include "kvf/build_version.hpp"
+#include "kvf/error.hpp"
+#include "kvf/is_positive.hpp"
 #include <glm/gtc/color_space.hpp>
 #include <glm/mat4x4.hpp>
 #include <klib/assert.hpp>
@@ -8,10 +10,8 @@
 #include <klib/scoped_defer.hpp>
 #include <klib/unique.hpp>
 #include <klib/version_str.hpp>
-#include <kvf/build_version.hpp>
-#include <kvf/error.hpp>
-#include <kvf/is_positive.hpp>
 #include <log.hpp>
+#include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 #include <vulkan/vulkan_hash.hpp>
 #include <charconv>
@@ -44,7 +44,7 @@ constexpr void ensure_positive(T&... out) {
 
 // window
 
-#include <kvf/window.hpp>
+#include "kvf/window.hpp"
 
 namespace {
 [[nodiscard]] constexpr auto glfw_platform_str(int const platform) -> std::string_view {
@@ -101,11 +101,11 @@ auto kvf::create_fullscreen_window(klib::CString const title) -> UniqueWindow {
 
 // render_device
 
+#include "kvf/device_waiter.hpp"
+#include "kvf/render_device.hpp"
+#include "kvf/util.hpp"
 #include <backends/imgui_impl_glfw.h>
 #include <backends/imgui_impl_vulkan.h>
-#include <kvf/device_waiter.hpp>
-#include <kvf/render_device.hpp>
-#include <kvf/util.hpp>
 
 namespace kvf {
 namespace {
@@ -1129,8 +1129,8 @@ auto RenderDevice::render(RenderTarget const& frame, vk::Filter const filter) ->
 
 // vma
 
-#include <kvf/command_buffer.hpp>
-#include <kvf/vma.hpp>
+#include "kvf/command_buffer.hpp"
+#include "kvf/vma.hpp"
 
 namespace kvf::vma {
 namespace {
@@ -1460,7 +1460,7 @@ auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {
 
 // render_pass
 
-#include <kvf/render_pass.hpp>
+#include "kvf/render_pass.hpp"
 
 namespace kvf {
 namespace {
@@ -1725,8 +1725,8 @@ auto CommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -> bool 
 
 // image_bitmap
 
+#include "kvf/image_bitmap.hpp"
 #include <stb/stb_image.h>
-#include <kvf/image_bitmap.hpp>
 
 namespace kvf {
 void ImageBitmap::Deleter::operator()(Bitmap const& bitmap) const noexcept {
@@ -1754,7 +1754,7 @@ auto ImageBitmap::decompress(std::span<std::byte const> compressed) -> bool {
 
 // color_bitmap
 
-#include <kvf/color_bitmap.hpp>
+#include "kvf/color_bitmap.hpp"
 
 namespace kvf {
 auto Color::linear_to_srgb(glm::vec4 const& channels) -> glm::vec4 { return glm::convertLinearToSRGB(channels); }

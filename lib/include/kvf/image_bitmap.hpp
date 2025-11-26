@@ -1,6 +1,6 @@
 #pragma once
+#include "kvf/bitmap.hpp"
 #include <klib/unique.hpp>
-#include <kvf/bitmap.hpp>
 
 namespace kvf {
 class ImageBitmap {

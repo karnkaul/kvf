@@ -1,8 +1,8 @@
 #pragma once
+#include "kvf/color.hpp"
+#include "kvf/render_pass.hpp"
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
-#include <kvf/color.hpp>
-#include <kvf/render_pass.hpp>
 #include <scene.hpp>
 
 namespace kvf::example {
