@@ -5,18 +5,12 @@
 #include <span>
 
 namespace kvf {
-enum class PipelineFlag : std::uint8_t;
-} // namespace kvf
-
-template <>
-inline constexpr auto klib::enable_enum_ops_v<kvf::PipelineFlag> = true;
-
-namespace kvf {
 enum class PipelineFlag : std::uint8_t {
 	None = 0,
 	DepthTest = 1 << 0,
 	DepthWrite = 1 << 1,
 };
+constexpr auto enable_enum_bitops(PipelineFlag /*unused*/) { return true; }
 
 struct PipelineState {
 	using Flag = PipelineFlag;

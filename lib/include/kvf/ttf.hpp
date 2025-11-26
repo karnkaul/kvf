@@ -1,8 +1,8 @@
 #pragma once
+#include "kvf/codepoint.hpp"
+#include "kvf/color_bitmap.hpp"
+#include "kvf/rect.hpp"
 #include <klib/c_string.hpp>
-#include <kvf/codepoint.hpp>
-#include <kvf/color_bitmap.hpp>
-#include <kvf/rect.hpp>
 #include <cstddef>
 #include <cstdint>
 #include <gsl/pointers>

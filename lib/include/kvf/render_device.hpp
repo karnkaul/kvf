@@ -1,26 +1,19 @@
 #pragma once
+#include "kvf/buffered.hpp"
+#include "kvf/gpu.hpp"
+#include "kvf/pipeline_state.hpp"
+#include "kvf/render_api.hpp"
+#include "kvf/render_device_fwd.hpp"
+#include "kvf/render_target.hpp"
+#include "kvf/vma.hpp"
 #include <GLFW/glfw3.h>
 #include <klib/base_types.hpp>
 #include <klib/constants.hpp>
 #include <klib/version.hpp>
-#include <kvf/buffered.hpp>
-#include <kvf/gpu.hpp>
-#include <kvf/pipeline_state.hpp>
-#include <kvf/render_api.hpp>
-#include <kvf/render_device_fwd.hpp>
-#include <kvf/render_target.hpp>
-#include <kvf/vma.hpp>
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
 #include <span>
-
-namespace kvf {
-enum class RenderDeviceFlag : std::uint8_t;
-} // namespace kvf
-
-template <>
-inline constexpr auto klib::enable_enum_ops_v<kvf::RenderDeviceFlag> = true;
 
 namespace kvf {
 enum class RenderDeviceFlag : std::uint8_t {
@@ -29,6 +22,7 @@ enum class RenderDeviceFlag : std::uint8_t {
 	ShaderObjectFeature = 1 << 1,
 	ShaderObjectLayer = 1 << 2,
 };
+constexpr auto enable_enum_bitops(RenderDeviceFlag /*unused*/) { return true; }
 
 class GpuSelector : public klib::Polymorphic {
   public:

@@ -1,7 +1,7 @@
 #pragma once
-#include <vk_mem_alloc.h>
+#include "kvf/gpu.hpp"
 #include <klib/base_types.hpp>
-#include <kvf/gpu.hpp>
+#include <vk_mem_alloc.h>
 
 namespace kvf {
 class IRenderApi : public klib::Polymorphic {

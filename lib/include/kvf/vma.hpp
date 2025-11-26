@@ -1,13 +1,13 @@
 #pragma once
-#include <vk_mem_alloc.h>
+#include "kvf/bitmap.hpp"
+#include "kvf/buffer_write.hpp"
+#include "kvf/render_api.hpp"
+#include "kvf/render_target.hpp"
+#include "kvf/vma_fwd.hpp"
 #include <klib/base_types.hpp>
 #include <klib/enum_ops.hpp>
 #include <klib/unique.hpp>
-#include <kvf/bitmap.hpp>
-#include <kvf/buffer_write.hpp>
-#include <kvf/render_api.hpp>
-#include <kvf/render_target.hpp>
-#include <kvf/vma_fwd.hpp>
+#include <vk_mem_alloc.h>
 #include <cstdint>
 #include <gsl/pointers>
 
@@ -95,6 +95,7 @@ enum class ImageFlag : std::int8_t {
 	DedicatedAlloc = 1 << 0,
 	MipMapped = 1 << 1,
 };
+constexpr auto enable_enum_bitops(ImageFlag /*unused*/) { return true; }
 
 struct ImageCreateInfo {
 	static constexpr auto implicit_usage_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
@@ -195,6 +196,3 @@ class Texture {
 	vk::UniqueSampler m_sampler{};
 };
 } // namespace kvf::vma
-
-template <>
-inline constexpr auto klib::enable_enum_ops_v<kvf::vma::ImageFlag> = true;

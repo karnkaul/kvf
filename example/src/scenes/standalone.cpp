@@ -1,6 +1,6 @@
-#include <kvf/color_bitmap.hpp>
-#include <kvf/error.hpp>
-#include <kvf/util.hpp>
+#include "kvf/color_bitmap.hpp"
+#include "kvf/error.hpp"
+#include "kvf/util.hpp"
 #include <scenes/standalone.hpp>
 
 namespace kvf::example {

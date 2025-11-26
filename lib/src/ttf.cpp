@@ -1,6 +1,6 @@
+#include "kvf/ttf.hpp"
+#include "kvf/constants.hpp"
 #include <klib/unique.hpp>
-#include <kvf/constants.hpp>
-#include <kvf/ttf.hpp>
 #include <log.hpp>
 #include <algorithm>
 #include <cmath>
