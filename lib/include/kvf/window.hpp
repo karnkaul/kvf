@@ -1,7 +1,7 @@
 #pragma once
+#include "klib/string/c_string.hpp"
 #include <GLFW/glfw3.h>
 #include <glm/vec2.hpp>
-#include <klib/c_string.hpp>
 #include <memory>
 #include <span>
 

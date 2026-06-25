@@ -1,7 +1,7 @@
 #pragma once
+#include "klib/compat.hpp"
 #include <glm/vec2.hpp>
 #include <glm/vec3.hpp>
-#include <klib/compat.hpp>
 
 namespace kvf {
 /// \brief Axis aligned rectangle specified by top-left and bottom-right points.

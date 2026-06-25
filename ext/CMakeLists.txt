@@ -106,3 +106,8 @@ if(KVF_USE_FREETYPE)
     add_library(freetype::freetype ALIAS freetype)
   endif()
 endif()
+
+if(KVF_BUILD_EXAMPLE AND NOT TARGET clap)
+  message(STATUS "[clap]")
+  add_subdirectory(src/clap)
+endif()
