@@ -2,15 +2,21 @@ name: ci-pr
 on: [pull_request, workflow_dispatch]
 jobs:
   format-check:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
+      - name: init
+        run: |
+            uname -m
+            sudo update-alternatives --remove-all clang-format
+            sudo update-alternatives --install /usr/bin/clang-format clang-format /usr/bin/clang-format-22 10
+            clang-format --version
       - name: format code
         run: scripts/format_code.sh
       - name: check diff
         run: .github/format_check_diff.sh
   x64-linux-gcc:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - name: init
@@ -18,8 +24,8 @@ jobs:
             uname -m
             sudo apt update -yqq
             sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
-            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
-            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 10
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 10
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 10
       - name: configure
         run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
@@ -27,25 +33,7 @@ jobs:
       - name: build release
         run: cmake --build build --config=Release -- -v
   x64-linux-clang:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-      - name: init
-        run: |
-            uname -m
-            sudo apt update -yqq
-            sudo apt install -yqq clang-20 mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
-            sudo update-alternatives --remove-all clang++
-            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 10
-            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 10
-      - name: configure
-        run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF
-      - name: build debug
-        run: cmake --build build --config=Debug -- -v
-      - name: build release
-        run: cmake --build build --config=Release -- -v
-  arm64-linux-gcc:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04
     steps:
       - uses: actions/checkout@v6
       - name: init
@@ -53,8 +41,26 @@ jobs:
             uname -m
             sudo apt update -yqq
             sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
-            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 10
-            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-14 10
+            sudo update-alternatives --remove-all clang++
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 10
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 10
+      - name: configure
+        run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF
+      - name: build debug
+        run: cmake --build build --config=Debug -- -v
+      - name: build release
+        run: cmake --build build --config=Release -- -v
+  arm64-linux-gcc:
+    runs-on: ubuntu-26.04-arm
+    steps:
+      - uses: actions/checkout@v6
+      - name: init
+        run: |
+            uname -m
+            sudo apt update -yqq
+            sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
+            sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-15 10
+            sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-15 10
       - name: configure
         run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
@@ -62,17 +68,17 @@ jobs:
       - name: build release
         run: cmake --build build --config=Release -- -v
   arm64-linux-clang:
-    runs-on: ubuntu-24.04-arm
+    runs-on: ubuntu-26.04-arm
     steps:
       - uses: actions/checkout@v6
       - name: init
         run: |
             uname -m
             sudo apt update -yqq
-            sudo apt install -yqq clang-20 mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
+            sudo apt install -yqq mesa-common-dev libwayland-dev libxkbcommon-dev wayland-protocols extra-cmake-modules xorg-dev
             sudo update-alternatives --remove-all clang++
-            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-20 10
-            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-20 10
+            sudo update-alternatives --install /usr/bin/clang clang /usr/bin/clang-22 10
+            sudo update-alternatives --install /usr/bin/clang++ clang++ /usr/bin/clang++-22 10
       - name: configure
         run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug

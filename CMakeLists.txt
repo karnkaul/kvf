@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.23)
+cmake_minimum_required(VERSION 4.3)
 
 project(kvf VERSION "0.4.12")
 

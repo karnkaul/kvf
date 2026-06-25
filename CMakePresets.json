@@ -121,7 +121,7 @@
     {
       "name": "vs26",
       "displayName": "Visual Studio 2026",
-      "description": "Build configuration using Visual Studio 17 (2026)",
+      "description": "Build configuration using Visual Studio 18 (2026)",
       "generator": "Visual Studio 18 2026",
       "binaryDir": "${sourceDir}/out/vs",
       "cacheVariables": {
