@@ -1,6 +1,6 @@
 #pragma once
+#include "klib/concepts.hpp"
 #include <glm/vec2.hpp>
-#include <klib/concepts.hpp>
 
 namespace kvf {
 template <klib::NumberT Type>

@@ -1,7 +1,7 @@
 #pragma once
 #include "kvf/bitmap.hpp"
+#include "kvf/byte_array.hpp"
 #include <glm/vec4.hpp>
-#include <klib/byte_cast.hpp>
 #include <cstdint>
 
 namespace kvf {
@@ -48,7 +48,7 @@ constexpr auto yellow_v = Color{red_v | green_v};
 constexpr auto magenta_v = Color{blue_v | red_v};
 
 template <Color C>
-inline constexpr auto pixel_bytes_v = klib::byte_cast(C);
+inline constexpr auto pixel_bytes_v = to_byte_array(C);
 
 template <Color C>
 inline constexpr auto pixel_bitmap_v = Bitmap{.bytes = pixel_bytes_v<C>, .size = {1, 1}};

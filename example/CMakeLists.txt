@@ -4,6 +4,7 @@ add_executable(${PROJECT_NAME}-example)
 
 target_link_libraries(${PROJECT_NAME}-example PRIVATE
   kvf::kvf
+  clap::clap
 )
 
 target_include_directories(${PROJECT_NAME}-example PRIVATE

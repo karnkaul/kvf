@@ -1,4 +1,7 @@
 #pragma once
+#include "klib/base_types.hpp"
+#include "klib/constants.hpp"
+#include "klib/version.hpp"
 #include "kvf/buffered.hpp"
 #include "kvf/gpu.hpp"
 #include "kvf/pipeline_state.hpp"
@@ -7,9 +10,6 @@
 #include "kvf/render_target.hpp"
 #include "kvf/vma.hpp"
 #include <GLFW/glfw3.h>
-#include <klib/base_types.hpp>
-#include <klib/constants.hpp>
-#include <klib/version.hpp>
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>

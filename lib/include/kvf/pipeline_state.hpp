@@ -1,5 +1,5 @@
 #pragma once
-#include <klib/enum_ops.hpp>
+#include "klib/enum/bitops.hpp"
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 #include <span>
