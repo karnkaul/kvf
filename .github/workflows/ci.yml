@@ -4,7 +4,7 @@ jobs:
   format-check:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: format code
         run: scripts/format_code.sh
       - name: check diff
@@ -12,7 +12,7 @@ jobs:
   x64-linux-gcc:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: init
         run: |
             uname -m
@@ -29,7 +29,7 @@ jobs:
   x64-linux-clang:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: init
         run: |
             uname -m
@@ -47,7 +47,7 @@ jobs:
   arm64-linux-gcc:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: init
         run: |
             uname -m
@@ -64,7 +64,7 @@ jobs:
   arm64-linux-clang:
     runs-on: ubuntu-24.04-arm
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: init
         run: |
             uname -m
@@ -79,20 +79,20 @@ jobs:
         run: cmake --build build --config=Debug -- -v
       - name: build release
         run: cmake --build build --config=Release -- -v
-  x64-windows-vs22:
-    runs-on: windows-2025
+  x64-windows-vs26:
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: configure
-        run: cmake -S . --preset=vs22 -B build -DKVF_USE_FREETYPE=OFF
+        run: cmake -S . --preset=vs26 -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
         run: cmake --build build --config=Debug --parallel
       - name: build release
         run: cmake --build build --config=Release --parallel
   x64-windows-clang:
-    runs-on: windows-2025
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: configure
         run: cmake -S . --preset=ninja-clang -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
@@ -100,9 +100,9 @@ jobs:
       - name: build release
         run: cmake --build build --config=Release -- -v
   x64-mingw-gcc:
-    runs-on: windows-2025
+    runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
       - name: configure
         run: cmake -S . --preset=ninja-gcc -B build -DKVF_USE_FREETYPE=OFF
       - name: build debug
