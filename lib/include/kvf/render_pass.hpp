@@ -1,11 +1,11 @@
 #pragma once
 #include "kvf/buffered.hpp"
-#include "kvf/color.hpp"
 #include "kvf/pipeline_state.hpp"
 #include "kvf/rect.hpp"
 #include "kvf/render_device_fwd.hpp"
 #include "kvf/render_pass_fwd.hpp"
 #include "kvf/vma.hpp"
+#include <glm/vec4.hpp>
 
 namespace kvf {
 class RenderPass {
@@ -43,7 +43,7 @@ class RenderPass {
 
 	void bind_pipeline(vk::Pipeline pipeline) const;
 
-	[[nodiscard]] auto render_texture_descriptor_info() const -> vk::DescriptorImageInfo;
+	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo;
 
 	glm::vec4 clear_color{0.0f};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};
@@ -66,7 +66,6 @@ class RenderPass {
 
 	gsl::not_null<RenderDevice*> m_device;
 	vk::SampleCountFlagBits m_samples{};
-	vk::UniqueSampler m_sampler{};
 
 	Buffered<Framebuffer> m_framebuffers{};
 

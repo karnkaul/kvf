@@ -1430,7 +1430,7 @@ auto Image::resize_and_overwrite(Bitmap const& bitmap) -> bool { return resize_a
 
 auto Image::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{m_info.aspect, 0, m_mip_levels, 0, m_info.layers}; }
 
-Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) : m_sampler(api->create_sampler(create_info.sampler)) {
+Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo const& create_info) {
 	auto const valid_bitmap = !bitmap.bytes.empty() && is_positive(bitmap.size);
 	if (!valid_bitmap) { bitmap = pixel_bitmap_v<white_v>; }
 
@@ -1447,9 +1447,9 @@ Texture::Texture(gsl::not_null<IRenderApi const*> api, Bitmap bitmap, CreateInfo
 	m_image.resize_and_overwrite(bitmap);
 }
 
-auto Texture::descriptor_info() const -> vk::DescriptorImageInfo {
+auto Texture::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
 	auto ret = vk::DescriptorImageInfo{};
-	ret.setImageView(m_image.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	ret.setImageView(m_image.get_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
 } // namespace kvf::vma
@@ -1465,9 +1465,7 @@ constexpr auto is_norm(glm::vec2 const v) { return is_norm(v.x) && is_norm(v.y);
 constexpr auto is_norm(UvRect const& r) { return is_norm(r.lt) && is_norm(r.rb); }
 } // namespace
 
-RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples)
-	: m_device(render_device), m_samples(samples),
-	  m_sampler(render_device->create_sampler(vma::create_sampler_ci(vk::SamplerAddressMode::eClampToBorder, vk::Filter::eLinear, 0.0f))) {}
+RenderPass::RenderPass(gsl::not_null<RenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 auto RenderPass::set_color_target(vk::Format format) -> RenderPass& {
 	if (format == vk::Format::eUndefined) { format = is_srgb(m_device->get_swapchain_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm; }
@@ -1672,11 +1670,11 @@ void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
 	m_command_buffer.setScissor(0, to_scissor(uv_rect_v));
 }
 
-auto RenderPass::render_texture_descriptor_info() const -> vk::DescriptorImageInfo {
+auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
 	auto const& rt = render_target();
 	if (!rt.view) { return {}; }
 	auto ret = vk::DescriptorImageInfo{};
-	ret.setImageView(rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(*m_sampler);
+	ret.setImageView(rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
 
