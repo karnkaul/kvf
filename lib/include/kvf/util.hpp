@@ -1,7 +1,5 @@
 #pragma once
 #include "klib/string/c_string.hpp"
-#include "kvf/bitmap.hpp"
-#include "kvf/buffer_write.hpp"
 #include "kvf/color.hpp"
 #include "kvf/rect.hpp"
 #include <vulkan/vulkan.hpp>
@@ -43,6 +41,20 @@ constexpr auto ndc_to_uv(glm::vec2 const ndc) -> glm::vec2 { return {ndc.x + 0.5
 constexpr auto uv_to_ndc(glm::vec2 const ndc) -> glm::vec2 { return {ndc.x - 0.5f, 0.5f - ndc.y}; }
 constexpr auto ndc_to_uv(UvRect const& rect) { return UvRect{.lt = ndc_to_uv(rect.lt), .rb = ndc_to_uv(rect.rb)}; }
 constexpr auto uv_to_ndc(UvRect const& rect) { return UvRect{.lt = uv_to_ndc(rect.lt), .rb = uv_to_ndc(rect.rb)}; }
+
+[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter, float const aniso = 16.0f) {
+	auto ret = vk::SamplerCreateInfo{};
+	ret.setAddressModeU(wrap)
+		.setAddressModeV(wrap)
+		.setAddressModeW(wrap)
+		.setMinFilter(filter)
+		.setMagFilter(filter)
+		.setMaxAnisotropy(aniso)
+		.setMaxLod(VK_LOD_CLAMP_NONE)
+		.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
+		.setMipmapMode(vk::SamplerMipmapMode::eNearest);
+	return ret;
+}
 
 [[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
 [[nodiscard]] auto to_hex_string(Color const& color) -> std::string;

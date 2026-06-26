@@ -151,28 +151,11 @@ class Image : public Resource<vk::Image> {
 	vk::ImageLayout m_layout{};
 };
 
-[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter, float const aniso = 16.0f) {
-	auto ret = vk::SamplerCreateInfo{};
-	ret.setAddressModeU(wrap)
-		.setAddressModeV(wrap)
-		.setAddressModeW(wrap)
-		.setMinFilter(filter)
-		.setMagFilter(filter)
-		.setMaxAnisotropy(aniso)
-		.setMaxLod(VK_LOD_CLAMP_NONE)
-		.setBorderColor(vk::BorderColor::eFloatTransparentBlack)
-		.setMipmapMode(vk::SamplerMipmapMode::eNearest);
-	return ret;
-}
-
-constexpr auto sampler_ci_v = create_sampler_ci(vk::SamplerAddressMode::eClampToEdge, vk::Filter::eLinear);
-
 struct TextureCreateInfo {
 	vk::Format format{vk::Format::eR8G8B8A8Srgb};
 	vk::ImageAspectFlagBits aspect{vk::ImageAspectFlagBits::eColor};
 	vk::SampleCountFlagBits samples{vk::SampleCountFlagBits::e1};
 	ImageFlag flags{ImageFlag::MipMapped};
-	vk::SamplerCreateInfo sampler{sampler_ci_v};
 };
 
 class Texture {
@@ -185,14 +168,12 @@ class Texture {
 
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D { return m_image.get_extent(); }
 	[[nodiscard]] auto get_image() const -> Image const& { return m_image; }
-	[[nodiscard]] auto get_sampler() const -> vk::Sampler { return *m_sampler; }
 
-	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorImageInfo;
+	[[nodiscard]] auto descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo;
 
-	[[nodiscard]] auto is_ready() const -> bool { return !m_image.is_identity() && m_sampler; }
+	[[nodiscard]] auto is_ready() const -> bool { return !m_image.is_identity(); }
 
   private:
 	Image m_image{};
-	vk::UniqueSampler m_sampler{};
 };
 } // namespace kvf::vma
