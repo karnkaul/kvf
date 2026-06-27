@@ -1,7 +1,7 @@
 #pragma once
 #include "klib/string/c_string.hpp"
 #include "kvf/render_device.hpp"
-#include <scene.hpp>
+#include "scene.hpp"
 
 namespace kvf::example {
 class ImageViewer : public Scene {

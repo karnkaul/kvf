@@ -1,7 +1,7 @@
+#include "scenes/standalone.hpp"
 #include "kvf/color_bitmap.hpp"
 #include "kvf/error.hpp"
 #include "kvf/util.hpp"
-#include <scenes/standalone.hpp>
 
 namespace kvf::example {
 Standalone::Standalone(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {

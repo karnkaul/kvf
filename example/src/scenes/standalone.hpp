@@ -1,6 +1,6 @@
 #pragma once
 #include "kvf/render_device.hpp"
-#include <scene.hpp>
+#include "scene.hpp"
 
 namespace kvf::example {
 class Standalone : public Scene {

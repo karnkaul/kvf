@@ -3,7 +3,7 @@
 #include "kvf/device_waiter.hpp"
 #include "kvf/render_device.hpp"
 #include "kvf/window.hpp"
-#include <scene.hpp>
+#include "scene.hpp"
 #include <functional>
 #include <memory>
 

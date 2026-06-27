@@ -1,9 +1,8 @@
+#include "scenes/image_viewer.hpp"
 #include "klib/debug/assert.hpp"
 #include "kvf/error.hpp"
 #include "kvf/image_bitmap.hpp"
 #include "kvf/util.hpp"
-#include <log.hpp>
-#include <scenes/image_viewer.hpp>
 #include <algorithm>
 #include <filesystem>
 

@@ -1,6 +1,6 @@
 #pragma once
 #include "kvf/render_pass.hpp"
-#include <scene.hpp>
+#include "scene.hpp"
 
 namespace kvf::example {
 class Triangle : public Scene {
