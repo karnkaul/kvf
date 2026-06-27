@@ -1,14 +1,12 @@
-#include "klib/debug/assert.hpp"
+#include "scenes/sprite.hpp"
 #include "klib/random.hpp"
 #include "kvf/error.hpp"
 #include "kvf/image_bitmap.hpp"
 #include "kvf/util.hpp"
+#include "shader_loader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <imgui.h>
-#include <log.hpp>
-#include <scenes/sprite.hpp>
-#include <shader_loader.hpp>
 #include <filesystem>
 #include <ranges>
 

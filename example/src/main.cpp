@@ -1,8 +1,8 @@
+#include "app.hpp"
 #include "clap/parser.hpp"
 #include "klib/log/file.hpp"
 #include "kvf/build_version.hpp"
-#include <app.hpp>
-#include <log.hpp>
+#include "log.hpp"
 
 auto main(int argc, char** argv) -> int {
 	auto const log_file = klib::log::File{"kvf-example.log"};

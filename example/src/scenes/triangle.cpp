@@ -1,8 +1,8 @@
+#include "scenes/triangle.hpp"
 #include "kvf/error.hpp"
 #include "kvf/util.hpp"
+#include "shader_loader.hpp"
 #include <imgui.h>
-#include <scenes/triangle.hpp>
-#include <shader_loader.hpp>
 
 namespace kvf::example {
 Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)

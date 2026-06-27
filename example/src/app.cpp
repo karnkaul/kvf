@@ -1,12 +1,12 @@
 #include "klib/string/fixed_string.hpp"
 #include "kvf/error.hpp"
+#include "log.hpp"
+#include "scenes/image_viewer.hpp"
+#include "scenes/sprite.hpp"
+#include "scenes/standalone.hpp"
+#include "scenes/triangle.hpp"
 #include <app.hpp>
 #include <imgui.h>
-#include <log.hpp>
-#include <scenes/image_viewer.hpp>
-#include <scenes/sprite.hpp>
-#include <scenes/standalone.hpp>
-#include <scenes/triangle.hpp>
 
 namespace kvf::example {
 App::App(std::string_view const build_version) : m_window(make_window(build_version)), m_device(m_window.get()), m_blocker(m_device.get_device()) {
