@@ -478,11 +478,7 @@ struct BufferAllocator {
 		auto& pool = m_pools[usage];
 		if (pool.index >= pool.buffers.size()) {
 			pool.index = pool.buffers.size();
-			auto const ci = vma::BufferCreateInfo{
-				.usage = usage,
-				.type = vma::BufferType::Host,
-			};
-			pool.buffers.push_back(std::make_unique<vma::Buffer>(&api, ci, size));
+			pool.grow(api, usage, 1.2f);
 		}
 		auto& ret = *pool.buffers.at(pool.index++);
 		if (size > 0) { ret.resize(size); }
@@ -495,6 +491,22 @@ struct BufferAllocator {
 
   private:
 	struct Pool {
+		void grow(IRenderApi const& api, vk::BufferUsageFlags const usage, float const factor) {
+			auto const fcap = float(std::max(buffers.size(), 1uz));
+			auto capacity = std::size_t(factor * fcap);
+			if (capacity <= buffers.size()) {
+				++capacity;
+			} else if (capacity > 4096) {
+				capacity = buffers.size() + 1;
+			}
+			buffers.reserve(capacity);
+			auto const ci = vma::BufferCreateInfo{
+				.usage = usage,
+				.type = vma::BufferType::Host,
+			};
+			while (buffers.size() < capacity) { buffers.push_back(std::make_unique<vma::Buffer>(&api, ci)); }
+		}
+
 		std::vector<std::unique_ptr<vma::Buffer>> buffers{};
 		std::size_t index{};
 	};
