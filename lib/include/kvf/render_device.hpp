@@ -1,6 +1,5 @@
 #pragma once
 #include "klib/base_types.hpp"
-#include "klib/constants.hpp"
 #include "klib/version.hpp"
 #include "kvf/buffered.hpp"
 #include "kvf/gpu.hpp"
