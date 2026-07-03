@@ -4,6 +4,7 @@
 #include "kvf/build_version.hpp"
 #include "kvf/error.hpp"
 #include "kvf/is_positive.hpp"
+#include "kvf/scratch_buffer.hpp"
 #include <glm/gtc/color_space.hpp>
 #include <glm/mat4x4.hpp>
 #include <log.hpp>
@@ -1789,6 +1790,60 @@ auto ColorBitmap::bitmap() const -> Bitmap {
 		.bytes = std::span{static_cast<std::byte const*>(first), sizeof(Color) * m_bitmap.size()},
 		.size = m_size,
 	};
+}
+} // namespace kvf
+
+// scratch_buffer
+
+namespace kvf {
+namespace {
+[[nodiscard]] constexpr auto render_buffer_ci(vk::BufferUsageFlags const usage) {
+	return vma::Buffer::CreateInfo{
+		.usage = usage,
+		.type = vma::BufferType::Host,
+	};
+}
+
+[[nodiscard]] constexpr auto grow_capacity(std::size_t const current, float const factor = 1.5f) {
+	auto const fcap = float(std::max(current, 1uz));
+	auto capacity = std::size_t(factor * fcap);
+	if (capacity <= current) {
+		++capacity;
+	} else if (capacity > 8192) {
+		capacity = current + 1;
+	}
+	return capacity;
+}
+} // namespace
+
+ScratchBuffer::ScratchBuffer(gsl::not_null<IRenderApi const*> api, vk::BufferUsageFlags const usage)
+	: m_usage(usage), m_buffer(api, render_buffer_ci(m_usage)) {}
+
+ScratchBuffer::Allocator::Allocator(gsl::not_null<RenderDevice const*> render_device, UsageLayout usage_layout)
+	: m_render_device(render_device), m_usage_layout(std::move(usage_layout)) {}
+
+void ScratchBuffer::Allocator::next_frame() {
+	auto const frame_index = m_render_device->get_frame_index();
+	m_pools.at(std::size_t(frame_index)).index = 0;
+	m_frame_index = frame_index;
+}
+
+auto ScratchBuffer::Allocator::allocate_next() -> std::span<ScratchBuffer> {
+	auto const frame_index = m_render_device->get_frame_index();
+	if (frame_index != m_frame_index) { next_frame(); }
+	auto& pool = m_pools.at(std::size_t(frame_index));
+	if (pool.index >= pool.layouts.size()) {
+		pool.index = pool.layouts.size();
+		auto const new_capacity = grow_capacity(pool.layouts.size());
+		pool.layouts.reserve(new_capacity);
+		while (pool.layouts.size() < new_capacity) {
+			auto layout = BufferLayout{};
+			layout.reserve(m_usage_layout.size());
+			for (auto const usage : m_usage_layout) { layout.emplace_back(m_render_device, usage); }
+			pool.layouts.push_back(std::move(layout));
+		}
+	}
+	return pool.layouts.at(pool.index++);
 }
 } // namespace kvf
 

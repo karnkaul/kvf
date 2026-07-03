@@ -1,6 +1,7 @@
 #pragma once
 #include "kvf/color.hpp"
 #include "kvf/render_pass.hpp"
+#include "kvf/scratch_buffer.hpp"
 #include "scene.hpp"
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
@@ -37,6 +38,7 @@ class Sprite : public Scene {
 	void write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 extent);
 
 	kvf::RenderPass m_color_pass;
+	ScratchBuffer::Allocator m_scratch_buffers;
 
 	std::array<vk::UniqueDescriptorSetLayout, 2> m_set_layout_storage{};
 	std::array<vk::DescriptorSetLayout, 2> m_set_layouts{};
