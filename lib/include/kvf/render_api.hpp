@@ -15,6 +15,7 @@ class IRenderApi : public klib::Polymorphic {
 
 	[[nodiscard]] virtual auto get_swapchain_format() const -> vk::Format = 0;
 	[[nodiscard]] virtual auto get_depth_format() const -> vk::Format = 0;
+	[[nodiscard]] virtual auto is_linear_backbuffer() const -> bool = 0;
 
 	[[nodiscard]] virtual auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 = 0;
 

@@ -82,6 +82,7 @@ class RenderDevice : public IRenderApi, public klib::Pinned {
 
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format final;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format final;
+	[[nodiscard]] auto is_linear_backbuffer() const -> bool final;
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 final;
 
 	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo const& create_info) const -> vk::UniqueSampler final;

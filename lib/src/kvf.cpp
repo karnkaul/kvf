@@ -242,12 +242,14 @@ class DearImGui {
 		if (!ImGui_ImplVulkan_Init(&init_info)) { throw std::runtime_error{"Failed to initialize Dear ImGui"}; }
 
 		ImGui::StyleColorsDark();
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
-		for (auto& colour : ImGui::GetStyle().Colors) {
-			auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
-			colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+		if (create_info.srgb_target) {
+			// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-array-to-pointer-decay)
+			for (auto& colour : ImGui::GetStyle().Colors) {
+				auto const linear = glm::convertSRGBToLinear(glm::vec4{colour.x, colour.y, colour.z, colour.w});
+				colour = ImVec4{linear.x, linear.y, linear.z, linear.w};
+			}
+			ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
 		}
-		ImGui::GetStyle().Colors[ImGuiCol_WindowBg].w = 0.99f; // more opaque
 
 		m_device = create_info.device;
 	}
@@ -524,6 +526,7 @@ struct RenderDevice::Impl {
 
 	[[nodiscard]] auto get_swapchain_format() const -> vk::Format { return m_swapchain.get_info().imageFormat; }
 	[[nodiscard]] auto get_depth_format() const -> vk::Format { return m_depth_format; }
+	[[nodiscard]] auto is_linear_backbuffer() const -> bool { return (m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer; }
 
 	[[nodiscard]] auto image_barrier(vk::ImageAspectFlags const aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2 {
 		auto ret = vk::ImageMemoryBarrier2{};
@@ -751,8 +754,7 @@ struct RenderDevice::Impl {
 	}
 
 	void create_swapchain() {
-		auto const linear_backbuffer = (m_flags & Flag::LinearBackbuffer) == Flag::LinearBackbuffer;
-		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), linear_backbuffer);
+		auto const surface_format = compatible_surface_format(m_gpu.device.getSurfaceFormatsKHR(*m_surface), is_linear_backbuffer());
 		m_present_modes = filter_modes(m_gpu.device.getSurfacePresentModesKHR(*m_surface));
 		auto sci = vk::SwapchainCreateInfoKHR{};
 		sci.setSurface(*m_surface)
@@ -786,7 +788,7 @@ struct RenderDevice::Impl {
 			.queue = m_queue,
 			.color_format = m_swapchain.get_info().imageFormat,
 			.samples = vk::SampleCountFlagBits::e1,
-			.srgb_target = !linear_backbuffer,
+			.srgb_target = !is_linear_backbuffer(),
 		};
 		m_imgui.init(dici);
 		log.debug("Dear ImGui initialized");
@@ -1035,6 +1037,7 @@ auto RenderDevice::set_present_mode(vk::PresentModeKHR const desired) -> bool { 
 
 auto RenderDevice::get_swapchain_format() const -> vk::Format { return m_impl->get_swapchain_format(); }
 auto RenderDevice::get_depth_format() const -> vk::Format { return m_impl->get_depth_format(); }
+auto RenderDevice::is_linear_backbuffer() const -> bool { return m_impl->is_linear_backbuffer(); }
 auto RenderDevice::image_barrier(vk::ImageAspectFlags const aspect) const -> vk::ImageMemoryBarrier2 { return m_impl->image_barrier(aspect); }
 
 auto RenderDevice::create_sampler(vk::SamplerCreateInfo const& create_info) const -> vk::UniqueSampler { return m_impl->create_sampler(create_info); }
