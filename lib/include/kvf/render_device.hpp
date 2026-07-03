@@ -1,6 +1,5 @@
 #pragma once
 #include "klib/base_types.hpp"
-#include "klib/constants.hpp"
 #include "klib/version.hpp"
 #include "kvf/buffered.hpp"
 #include "kvf/gpu.hpp"
@@ -93,8 +92,6 @@ class RenderDevice : public IRenderApi, public klib::Pinned {
 	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2>;
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool;
-	[[nodiscard]] auto allocate_scratch_buffer(vk::BufferUsageFlags usage, vk::DeviceSize size) -> vma::Buffer&;
-	[[nodiscard]] auto scratch_descriptor_buffer(vk::BufferUsageFlags usage, BufferWrite write) -> vk::DescriptorBufferInfo;
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {}) const final;
 
