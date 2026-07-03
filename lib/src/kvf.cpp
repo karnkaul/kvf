@@ -433,7 +433,7 @@ struct Swapchain {
 };
 
 struct DescriptorAllocator {
-	void reset() {
+	void reset_pools() {
 		for (auto& pool : m_pools) { device.resetDescriptorPool(*pool); }
 		m_index = 0;
 	}
@@ -472,47 +472,6 @@ struct DescriptorAllocator {
 
 	std::vector<vk::UniqueDescriptorPool> m_pools{};
 	std::size_t m_index{};
-};
-
-struct BufferAllocator {
-	[[nodiscard]] auto allocate(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
-		auto& pool = m_pools[usage];
-		if (pool.index >= pool.buffers.size()) {
-			pool.index = pool.buffers.size();
-			pool.grow(api, usage, 1.2f);
-		}
-		auto& ret = *pool.buffers.at(pool.index++);
-		if (size > 0) { ret.resize(size); }
-		return ret;
-	}
-
-	void reset() {
-		for (auto& [_, pool] : m_pools) { pool.index = 0; }
-	}
-
-  private:
-	struct Pool {
-		void grow(IRenderApi const& api, vk::BufferUsageFlags const usage, float const factor) {
-			auto const fcap = float(std::max(buffers.size(), 1uz));
-			auto capacity = std::size_t(factor * fcap);
-			if (capacity <= buffers.size()) {
-				++capacity;
-			} else if (capacity > 4096) {
-				capacity = buffers.size() + 1;
-			}
-			buffers.reserve(capacity);
-			auto const ci = vma::BufferCreateInfo{
-				.usage = usage,
-				.type = vma::BufferType::Host,
-			};
-			while (buffers.size() < capacity) { buffers.push_back(std::make_unique<vma::Buffer>(&api, ci)); }
-		}
-
-		std::vector<std::unique_ptr<vma::Buffer>> buffers{};
-		std::size_t index{};
-	};
-
-	std::unordered_map<vk::BufferUsageFlags, Pool> m_pools{};
 };
 } // namespace
 
@@ -673,16 +632,6 @@ struct RenderDevice::Impl {
 		return m_descriptor_allocators.at(m_frame_index).allocate(out_sets, layouts);
 	}
 
-	auto allocate_scratch_buffer(IRenderApi const& api, vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
-		return m_buffer_allocators.at(m_frame_index).allocate(api, usage, size);
-	}
-
-	auto scratch_descriptor_buffer(IRenderApi const& api, vk::BufferUsageFlags const usage, BufferWrite const write) -> vk::DescriptorBufferInfo {
-		auto& buffer = allocate_scratch_buffer(api, usage, 0);
-		buffer.overwrite(write);
-		return buffer.descriptor_info();
-	}
-
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const {
 		auto lock = std::scoped_lock{m_queue_mutex};
 		m_queue.submit2(si, fence);
@@ -698,8 +647,7 @@ struct RenderDevice::Impl {
 
 		glfwPollEvents();
 		m_imgui.new_frame();
-		m_descriptor_allocators.at(m_frame_index).reset();
-		m_buffer_allocators.at(m_frame_index).reset();
+		m_descriptor_allocators.at(m_frame_index).reset_pools();
 
 		m_current_cmd = m_command_buffers.at(m_frame_index);
 		m_current_cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
@@ -1056,7 +1004,6 @@ struct RenderDevice::Impl {
 	klib::Unique<VmaAllocator, Deleter> m_allocator{};
 	std::vector<vk::DescriptorPoolSize> m_pool_sizes{};
 	Buffered<DescriptorAllocator> m_descriptor_allocators{};
-	Buffered<BufferAllocator> m_buffer_allocators{};
 
 	vk::ImageLayout m_backbuffer_layout{};
 	std::size_t m_frame_index{};
@@ -1114,14 +1061,6 @@ auto RenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_in
 
 auto RenderDevice::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> bool {
 	return m_impl->allocate_sets(out_sets, layouts);
-}
-
-auto RenderDevice::allocate_scratch_buffer(vk::BufferUsageFlags const usage, vk::DeviceSize const size) -> vma::Buffer& {
-	return m_impl->allocate_scratch_buffer(*this, usage, size);
-}
-
-auto RenderDevice::scratch_descriptor_buffer(vk::BufferUsageFlags const usage, BufferWrite write) -> vk::DescriptorBufferInfo {
-	return m_impl->scratch_descriptor_buffer(*this, usage, write);
 }
 
 void RenderDevice::queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) const { m_impl->queue_submit(si, fence); }
