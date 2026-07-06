@@ -1,7 +1,7 @@
 #include "detail/render_pass.hpp"
 #include "kvf/util.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 RenderPass::RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 void RenderPass::set_color_target(vk::Format format) {
@@ -226,9 +226,9 @@ void RenderPass::set_render_targets() {
 		m_targets.depth = framebuffer.depth->render_target();
 	}
 }
-} // namespace kvf::two::detail
+} // namespace kvf::detail
 
-namespace kvf::two {
+namespace kvf {
 auto IRenderPass::to_viewport(UvRect n_rect) const -> vk::Viewport {
 	if (!util::is_norm(n_rect)) { n_rect = uv_rect_v; }
 	auto const fb_size = util::to_glm_vec(get_extent());
@@ -245,4 +245,4 @@ auto IRenderPass::to_scissor(UvRect n_rect) const -> vk::Rect2D {
 	auto const extent = glm::uvec2{rect.size()};
 	return vk::Rect2D{vk::Offset2D{offset.x, offset.y}, vk::Extent2D{extent.x, extent.y}};
 }
-} // namespace kvf::two
+} // namespace kvf

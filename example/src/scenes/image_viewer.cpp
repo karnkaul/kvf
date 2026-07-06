@@ -1,7 +1,7 @@
 #include "scenes/image_viewer.hpp"
 #include "klib/debug/assert.hpp"
-#include "kvf/error.hpp"
 #include "kvf/image_bitmap.hpp"
+#include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 #include <algorithm>
 #include <filesystem>
@@ -23,12 +23,12 @@ namespace fs = std::filesystem;
 }
 } // namespace
 
-ImageViewer::ImageViewer(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
-	auto const ici = two::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .extent = {1, 1}};
+ImageViewer::ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
+	auto const ici = ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .extent = {1, 1}};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
 	m_image = device->create_image(ici);
-	if (!m_image->resize_and_overwrite(bitmap)) { throw Error{"Failed to write to Image"}; }
+	if (!m_image->resize_and_overwrite(bitmap)) { throw Panic{"Failed to write to Image"}; }
 	resize_window();
 }
 

@@ -4,7 +4,7 @@
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 
-namespace kvf::two {
+namespace kvf {
 enum class BufferType : std::uint8_t { Host, Device };
 
 struct BufferCreateInfo {
@@ -41,4 +41,4 @@ class IBuffer : public klib::Polymorphic {
   protected:
 	virtual auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool = 0;
 };
-} // namespace kvf::two
+} // namespace kvf

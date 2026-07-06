@@ -6,7 +6,7 @@
 namespace kvf::example {
 class ImageViewer : public Scene {
   public:
-	explicit ImageViewer(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir);
+	explicit ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir);
 
   private:
 	void on_drop(std::span<char const* const> paths) final;
@@ -16,6 +16,6 @@ class ImageViewer : public Scene {
 	void resize_window();
 	void try_load(klib::CString path);
 
-	std::unique_ptr<two::IImage> m_image{};
+	std::unique_ptr<IImage> m_image{};
 };
 } // namespace kvf::example

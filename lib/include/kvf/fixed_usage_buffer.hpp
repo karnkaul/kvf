@@ -4,7 +4,7 @@
 #include <gsl/pointers>
 #include <span>
 
-namespace kvf::two {
+namespace kvf {
 using BufferUsageLayout = std::span<vk::BufferUsageFlags const>;
 
 class FixedUsageBuffer {
@@ -25,4 +25,4 @@ class FixedUsageBuffer {
 	BufferType m_type{};
 	std::unique_ptr<IBuffer> m_buffer{};
 };
-} // namespace kvf::two
+} // namespace kvf

@@ -6,7 +6,7 @@
 #include <algorithm>
 #include <ranges>
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 namespace {
 class MipMapCreator {
   public:
@@ -164,29 +164,28 @@ void ResourceImage::transition(vk::CommandBuffer const command_buffer, vk::Image
 	m_layout = barrier.newLayout;
 }
 
-void ResourceImage::recreate_impl(CreateInfo const& create_info) {
-	m_info = create_info;
-	m_info.usage |= CreateInfo::implicit_usage_v;
-	if (m_info.format == vk::Format::eUndefined) { m_info.format = vk::Format::eR8G8B8A8Srgb; }
-	util::ensure_positive(m_info.extent);
+void ResourceImage::recreate_impl(CreateInfo create_info) {
+	create_info.usage |= CreateInfo::implicit_usage_v;
+	if (create_info.format == vk::Format::eUndefined) { create_info.format = vk::Format::eR8G8B8A8Srgb; }
+	util::ensure_positive(create_info.extent);
 
-	auto const mip_mapped = (m_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
+	auto const mip_mapped = (create_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
 	auto const queue_family = m_render_device->get_queue_family();
 	auto image_ci = vk::ImageCreateInfo{};
-	image_ci.setExtent({m_info.extent.width, m_info.extent.height, 1})
-		.setFormat(m_info.format)
-		.setUsage(m_info.usage)
+	image_ci.setExtent({create_info.extent.width, create_info.extent.height, 1})
+		.setFormat(create_info.format)
+		.setUsage(create_info.usage)
 		.setImageType(vk::ImageType::e2D)
-		.setArrayLayers(m_info.layers)
-		.setMipLevels(mip_mapped ? util::compute_mip_levels(m_info.extent) : 1)
-		.setSamples(m_info.samples)
+		.setArrayLayers(create_info.layers)
+		.setMipLevels(mip_mapped ? util::compute_mip_levels(create_info.extent) : 1)
+		.setSamples(create_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)
 		.setQueueFamilyIndices(queue_family);
 	auto const vici = static_cast<VkImageCreateInfo>(image_ci);
 	auto vaci = VmaAllocationCreateInfo{};
 	vaci.usage = VMA_MEMORY_USAGE_AUTO;
-	if ((m_info.flags & ImageFlag::DedicatedAlloc) == ImageFlag::DedicatedAlloc) {
+	if ((create_info.flags & ImageFlag::DedicatedAlloc) == ImageFlag::DedicatedAlloc) {
 		vaci.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 		vaci.priority = 1.0f;
 	}
@@ -196,6 +195,7 @@ void ResourceImage::recreate_impl(CreateInfo const& create_info) {
 
 	destroy();
 
+	m_info = create_info;
 	m_image = image;
 	m_allocation = allocation;
 	m_mip_levels = image_ci.mipLevels;
@@ -218,10 +218,12 @@ void ResourceImage::destroy() {
 	m_allocation = {};
 	m_layout = vk::ImageLayout::eUndefined;
 	m_mip_levels = 0;
-}
-} // namespace kvf::two::detail
 
-namespace kvf::two {
+	m_info = {};
+}
+} // namespace kvf::detail
+
+namespace kvf {
 auto IImage::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{get_aspect(), 0, get_mip_levels(), 0, get_layers()}; }
 
 auto IImage::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
@@ -229,4 +231,4 @@ auto IImage::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorI
 	ret.setImageView(get_image_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
-} // namespace kvf::two
+} // namespace kvf

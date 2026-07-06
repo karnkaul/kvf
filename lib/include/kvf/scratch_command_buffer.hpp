@@ -6,7 +6,7 @@
 
 using namespace std::chrono_literals;
 
-namespace kvf::two {
+namespace kvf {
 class ScratchCommandBuffer {
   public:
 	static constexpr auto timeout_v{5s};
@@ -25,4 +25,4 @@ class ScratchCommandBuffer {
 	vk::UniqueCommandPool m_pool{};
 	vk::CommandBuffer m_cmd{};
 };
-} // namespace kvf::two
+} // namespace kvf

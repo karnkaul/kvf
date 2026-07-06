@@ -1,11 +1,11 @@
 #include "scenes/triangle.hpp"
-#include "kvf/error.hpp"
+#include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 #include "shader_loader.hpp"
 #include <imgui.h>
 
 namespace kvf::example {
-Triangle::Triangle(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir)
+Triangle::Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device->create_render_pass(vk::SampleCountFlagBits::e2)) {
 	m_color_pass->set_color_target();
 	// m_color_pass->set_depth_target();
@@ -49,7 +49,7 @@ void Triangle::create_pipeline() {
 		.fragment_shader = *fragment_shader,
 	};
 	m_pipeline = m_color_pass->create_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
+	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
 }
 
 void Triangle::recreate(vk::SampleCountFlagBits samples) {

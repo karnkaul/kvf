@@ -3,7 +3,7 @@
 #include "kvf/render_pass.hpp"
 #include "kvf/ring.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 class RenderPass : public IRenderPass {
   public:
 	static constexpr auto samples_v = vk::SampleCountFlagBits::e1;
@@ -65,4 +65,4 @@ class RenderPass : public IRenderPass {
 	Targets m_targets{};
 	std::vector<vk::ImageMemoryBarrier2> m_barriers{};
 };
-} // namespace kvf::two::detail
+} // namespace kvf::detail

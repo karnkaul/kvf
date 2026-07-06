@@ -3,7 +3,7 @@
 #include "kvf/ring.hpp"
 #include "kvf/ring_buffer_allocator.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 class RingBufferAllocator : public IRingBufferAllocator, public INextFrameListener {
   public:
 	explicit RingBufferAllocator(gsl::not_null<IRenderDevice*> render_device, BufferUsageLayout const& usage_layout);
@@ -26,4 +26,4 @@ class RingBufferAllocator : public IRingBufferAllocator, public INextFrameListen
 	FrameIndex m_frame_index{};
 	Ring<Pool> m_pools{};
 };
-} // namespace kvf::two::detail
+} // namespace kvf::detail

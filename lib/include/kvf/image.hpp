@@ -4,7 +4,7 @@
 #include "kvf/render_target.hpp"
 #include <cstdint>
 
-namespace kvf::two {
+namespace kvf {
 enum class ImageFlag : std::int8_t {
 	None = 0,
 	DedicatedAlloc = 1 << 0,
@@ -58,4 +58,4 @@ class IImage : public klib::Polymorphic {
 
 	[[nodiscard]] auto descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo;
 };
-} // namespace kvf::two
+} // namespace kvf

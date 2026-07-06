@@ -1,5 +1,5 @@
 #include "klib/string/fixed_string.hpp"
-#include "kvf/error.hpp"
+#include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 #include "log.hpp"
 #include "scenes/image_viewer.hpp"
@@ -11,7 +11,7 @@
 
 namespace kvf::example {
 App::App(std::string_view const build_version)
-	: m_window(make_window(build_version)), m_device(two::IRenderDevice::create(m_window.get(), {})), m_blocker(m_device->get_device()) {
+	: m_window(make_window(build_version)), m_device(IRenderDevice::create(m_window.get(), {})), m_blocker(m_device->get_device()) {
 	add_factory<Standalone>("Standalone");
 	add_factory<ImageViewer>("Image Viewer");
 	add_factory<Triangle>("Triangle");
@@ -74,7 +74,7 @@ void App::draw_menu() {
 				m_scene = std::move(new_scene);
 				m_current_factory = new_factory;
 				m_delta_time.reset();
-			} catch (Error const& e) {
+			} catch (Panic const& e) {
 				auto const message = std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());
 				m_scene->open_error_modal(message);
 			}

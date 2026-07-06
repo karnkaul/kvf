@@ -1,8 +1,8 @@
 #include "scenes/sprite.hpp"
 #include "klib/debug/assert.hpp"
 #include "klib/random.hpp"
-#include "kvf/error.hpp"
 #include "kvf/image_bitmap.hpp"
+#include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 #include "shader_loader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
@@ -42,9 +42,9 @@ struct Quad {
 	}
 };
 
-constexpr auto vbo_ci_v = two::BufferCreateInfo{
+constexpr auto vbo_ci_v = BufferCreateInfo{
 	.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
-	.type = two::BufferType::Device,
+	.type = BufferType::Device,
 	.size = sizeof(Quad),
 };
 
@@ -54,7 +54,7 @@ constexpr auto buffer_usage_layout_v = std::array<vk::BufferUsageFlags, 2>{
 };
 } // namespace
 
-Sprite::Sprite(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir)
+Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(device->create_render_pass(vk::SampleCountFlagBits::e2)),
 	  m_scratch_buffers(device->create_buffer_allocator(buffer_usage_layout_v)), m_vbo(device->create_buffer(vbo_ci_v)) {
 	m_color_pass->set_color_target();
@@ -138,15 +138,15 @@ void Sprite::create_pipeline() {
 		.flags = PipelineFlag::None,
 	};
 	m_pipeline = m_color_pass->create_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
+	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
 }
 
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
-	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
+	if (!util::bytes_from_file(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
-	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
+	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
 	m_texture = get_render_device().create_texture(image.bitmap());
 
 	auto const sci = util::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
@@ -158,11 +158,11 @@ void Sprite::write_vbo() {
 	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
-	if (!m_vbo->write_in_place(vertices)) { throw Error{"Failed to write vertices to Buffer"}; }
+	if (!m_vbo->write_in_place(vertices)) { throw Panic{"Failed to write vertices to Buffer"}; }
 
 	m_index_offset = vertices.size_bytes();
 	auto const indices = std::span{quad.indices};
-	if (!m_vbo->write_in_place(indices, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
+	if (!m_vbo->write_in_place(indices, m_index_offset)) { throw Panic{"Failed to write indices to Buffer"}; }
 }
 
 void Sprite::create_instances() {

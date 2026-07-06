@@ -1,7 +1,7 @@
 #include "detail/ring_buffer_allocator.hpp"
 #include "klib/debug/assert.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 namespace {
 [[nodiscard]] constexpr auto grow_capacity(std::size_t const current, float const factor = 1.5f) {
 	auto const fcap = float(std::max(current, 1uz));
@@ -40,4 +40,4 @@ void RingBufferAllocator::on_next_frame(FrameIndex const frame_index) {
 	m_pools.at(std::size_t(frame_index)).index = 0;
 	m_frame_index = frame_index;
 }
-} // namespace kvf::two::detail
+} // namespace kvf::detail

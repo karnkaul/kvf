@@ -2,7 +2,7 @@
 #include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 class ResourceImage : public IImage {
   public:
 	ResourceImage(ResourceImage const&) = delete;
@@ -33,7 +33,7 @@ class ResourceImage : public IImage {
 
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) final;
 
-	void recreate_impl(CreateInfo const& create_info);
+	void recreate_impl(CreateInfo create_info);
 	void destroy();
 
 	gsl::not_null<IRenderDevice*> m_render_device;
@@ -46,7 +46,5 @@ class ResourceImage : public IImage {
 
 	std::uint32_t m_mip_levels{};
 	vk::ImageLayout m_layout{};
-
-	int m_id{};
 };
-} // namespace kvf::two::detail
+} // namespace kvf::detail

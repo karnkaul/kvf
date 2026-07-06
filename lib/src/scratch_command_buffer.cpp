@@ -2,7 +2,7 @@
 #include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 
-namespace kvf::two {
+namespace kvf {
 ScratchCommandBuffer::ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device) : m_render_device(render_device) {
 	auto cpci = vk::CommandPoolCreateInfo{};
 	cpci.setQueueFamilyIndex(m_render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
@@ -24,4 +24,4 @@ auto ScratchCommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -
 	m_render_device->queue_submit(si, *fence);
 	return util::wait_for_fence(m_render_device->get_device(), *fence, timeout);
 }
-} // namespace kvf::two
+} // namespace kvf

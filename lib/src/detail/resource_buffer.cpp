@@ -5,7 +5,7 @@
 #include "kvf/util.hpp"
 #include <numeric>
 
-namespace kvf::two {
+namespace kvf {
 namespace detail {
 ResourceBuffer::ResourceBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
 	recreate_impl(create_info);
@@ -51,29 +51,25 @@ auto ResourceBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::D
 	auto cbi = vk::CopyBufferInfo2{};
 	cbi.setSrcBuffer(staging.get_buffer()).setDstBuffer(get_buffer()).setRegions(bc);
 
-	auto cmd = two::ScratchCommandBuffer{m_render_device};
+	auto cmd = ScratchCommandBuffer{m_render_device};
 	cmd.get().copyBuffer2(cbi);
 	return cmd.submit_and_wait();
 }
 
-void ResourceBuffer::recreate_impl(CreateInfo const& info) {
-	m_usage = info.usage;
-	m_type = info.type;
-	if (m_type == BufferType::Device) { m_usage |= vk::BufferUsageFlagBits::eTransferDst; }
-
-	m_size = info.size;
-	util::ensure_positive(m_size);
+void ResourceBuffer::recreate_impl(CreateInfo info) {
+	if (info.type == BufferType::Device) { info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
+	util::ensure_positive(info.size);
 
 	auto allocation_ci = VmaAllocationCreateInfo{};
 	allocation_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-	if (m_type == BufferType::Device) {
+	if (info.type == BufferType::Device) {
 		allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
 	} else {
 		allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
 		allocation_ci.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
 	}
 
-	auto const buffer_ci = vk::BufferCreateInfo{{}, m_size, m_usage};
+	auto const buffer_ci = vk::BufferCreateInfo{{}, info.size, info.usage};
 	auto c_buffer_ci = static_cast<VkBufferCreateInfo>(buffer_ci);
 
 	VmaAllocation allocation{};
@@ -85,7 +81,9 @@ void ResourceBuffer::recreate_impl(CreateInfo const& info) {
 
 	destroy();
 
-	m_capacity = m_size;
+	m_usage = info.usage;
+	m_type = info.type;
+	m_capacity = m_size = info.size;
 	m_buffer = buffer;
 	m_allocation = allocation;
 	m_mapped = alloc_info.pMappedData;
@@ -120,4 +118,4 @@ auto IBuffer::descriptor_info() const -> vk::DescriptorBufferInfo {
 	ret.setBuffer(get_buffer()).setRange(get_size());
 	return ret;
 }
-} // namespace kvf::two
+} // namespace kvf

@@ -1,9 +1,5 @@
 #pragma once
 
 namespace kvf {
-class RenderPass;
+class IRenderPass;
 } // namespace kvf
-
-namespace kvf::two {
-class RenderPass;
-} // namespace kvf::two

@@ -2,7 +2,7 @@
 #include "kvf/buffer.hpp"
 #include "kvf/render_device.hpp"
 
-namespace kvf::two::detail {
+namespace kvf::detail {
 class ResourceBuffer : public IBuffer {
   public:
 	ResourceBuffer(ResourceBuffer const&) = delete;
@@ -27,7 +27,7 @@ class ResourceBuffer : public IBuffer {
 
 	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool final;
 
-	void recreate_impl(CreateInfo const& create_info);
+	void recreate_impl(CreateInfo create_info);
 	void destroy();
 
 	gsl::not_null<IRenderDevice*> m_render_device;
@@ -41,4 +41,4 @@ class ResourceBuffer : public IBuffer {
 	vk::Buffer m_buffer{};
 	void* m_mapped{};
 };
-} // namespace kvf::two::detail
+} // namespace kvf::detail

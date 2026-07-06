@@ -42,20 +42,10 @@ target_sources(${PROJECT_NAME} PUBLIC FILE_SET HEADERS
   "${CMAKE_CURRENT_BINARY_DIR}/${version_header}"
 )
 
-target_sources(${PROJECT_NAME} PRIVATE
-  src/kvf.cpp
-  src/log.hpp
-  src/ttf.cpp
+file(GLOB_RECURSE sources LIST_DIRECTORIES false "src/*.[hc]pp")
 
-  src/render_device.cpp
-  src/detail/render_pass.hpp
-  src/detail/render_pass.cpp
-  src/detail/resource_buffer.hpp
-  src/detail/resource_buffer.cpp
-  src/detail/resource_image.hpp
-  src/detail/resource_image.cpp
-  src/detail/ring_buffer_allocator.hpp
-  src/detail/ring_buffer_allocator.cpp
-  src/fixed_usage_buffer.cpp
-  src/scratch_command_buffer.cpp
+target_sources(${PROJECT_NAME} PRIVATE ${sources})
+
+target_precompile_headers(${PROJECT_NAME} PRIVATE
+  <vulkan/vulkan.hpp>
 )

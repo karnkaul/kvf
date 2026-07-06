@@ -6,7 +6,7 @@
 namespace kvf::example {
 class Scene : public klib::Polymorphic {
   public:
-	explicit Scene(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir) : m_device(device), m_assets_dir(assets_dir) {}
+	explicit Scene(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir) : m_device(device), m_assets_dir(assets_dir) {}
 
   protected:
 	struct KeyInput {
@@ -15,7 +15,7 @@ class Scene : public klib::Polymorphic {
 		int mods{};
 	};
 
-	[[nodiscard]] auto get_render_device() const -> two::IRenderDevice& { return *m_device; }
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& { return *m_device; }
 	[[nodiscard]] auto get_assets_dir() const -> std::string_view { return m_assets_dir; }
 	[[nodiscard]] auto get_dt() const -> Seconds { return m_dt; }
 
@@ -33,7 +33,7 @@ class Scene : public klib::Polymorphic {
 		bool set_open{};
 	};
 
-	gsl::not_null<two::IRenderDevice*> m_device;
+	gsl::not_null<IRenderDevice*> m_device;
 	std::string_view m_assets_dir{};
 
 	Seconds m_dt{};

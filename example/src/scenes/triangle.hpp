@@ -5,7 +5,7 @@
 namespace kvf::example {
 class Triangle : public Scene {
   public:
-	explicit Triangle(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir);
+	explicit Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir);
 
   private:
 	void on_key(KeyInput const& ki) final;
@@ -18,7 +18,7 @@ class Triangle : public Scene {
 
 	void draw_controls();
 
-	std::unique_ptr<two::IRenderPass> m_color_pass{};
+	std::unique_ptr<IRenderPass> m_color_pass{};
 	float m_framebuffer_scale{2.0f};
 
 	vk::UniquePipelineLayout m_pipeline_layout{};

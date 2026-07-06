@@ -18,7 +18,7 @@
 #include <optional>
 #include <ranges>
 
-namespace kvf::two {
+namespace kvf {
 namespace {
 [[nodiscard]] constexpr auto glfw_platform_to_string_view(int const platform) -> std::string_view {
 	switch (platform) {
@@ -1021,4 +1021,4 @@ auto IRenderDevice::create_image_barrier(vk::ImageAspectFlags const aspect) cons
 	ret.setSrcQueueFamilyIndex(queue_family).setDstQueueFamilyIndex(queue_family).subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(1);
 	return ret;
 }
-} // namespace kvf::two
+} // namespace kvf

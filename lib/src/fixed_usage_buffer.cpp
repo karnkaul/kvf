@@ -2,7 +2,7 @@
 #include "klib/debug/assert.hpp"
 #include "kvf/render_device.hpp"
 
-namespace kvf::two {
+namespace kvf {
 FixedUsageBuffer::FixedUsageBuffer(gsl::not_null<IRenderDevice*> render_device, vk::BufferUsageFlags const usage, BufferType const type)
 	: m_usage(usage), m_buffer(render_device->create_buffer(BufferCreateInfo{.usage = usage, .type = type})) {}
 
@@ -25,4 +25,4 @@ auto FixedUsageBuffer::descriptor_info() const -> vk::DescriptorBufferInfo {
 	KLIB_ASSERT(m_buffer);
 	return m_buffer->descriptor_info();
 }
-} // namespace kvf::two
+} // namespace kvf
