@@ -995,6 +995,7 @@ auto IRenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_i
 			.setSetLayouts(create_info.set_layouts)
 			.setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
 			.setPName("main");
+		ret.flags |= vk::ShaderCreateFlagBitsEXT::eLinkStage;
 		return ret;
 	};
 

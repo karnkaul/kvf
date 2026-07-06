@@ -39,7 +39,7 @@ inline constexpr auto supported_present_modes_v = std::array{
 struct RenderDeviceCreateInfo {
 	static constexpr auto sets_per_pool_v{64};
 
-	RenderDeviceFlag flags{};
+	RenderDeviceFlag flags{RenderDeviceFlag::ShaderObjectFeature};
 	std::span<vk::DescriptorPoolSize const> custom_pool_sizes{};
 	std::uint32_t sets_per_pool{sets_per_pool_v};
 	klib::Ptr<Gpu::Selector const> gpu_selector{nullptr};
