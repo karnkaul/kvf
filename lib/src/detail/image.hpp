@@ -1,17 +1,12 @@
 #pragma once
+#include "detail/vma.hpp"
 #include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 
 namespace kvf::detail {
 class Image : public IImage {
   public:
-	Image(Image const&) = delete;
-	Image(Image&&) = delete;
-	Image& operator=(Image const&) = delete;
-	Image& operator=(Image&&) = delete;
-
 	explicit Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
-	~Image() { destroy(); }
 
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
@@ -25,8 +20,8 @@ class Image : public IImage {
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D final { return m_info.extent; }
 	[[nodiscard]] auto get_layout() const -> vk::ImageLayout final { return m_layout; }
 	[[nodiscard]] auto get_image_view() const -> vk::ImageView final { return *m_image_view; }
-	[[nodiscard]] auto get_image() const -> vk::Image final { return m_image; }
-	[[nodiscard]] auto get_mip_levels() const -> std::uint32_t final { return m_mip_levels; }
+	[[nodiscard]] auto get_image() const -> vk::Image final { return m_image.get().image; }
+	[[nodiscard]] auto get_mip_levels() const -> std::uint32_t final { return m_image.get().mip_levels; }
 
 	void resize(vk::Extent2D extent) final;
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool final;
@@ -34,17 +29,13 @@ class Image : public IImage {
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) final;
 
 	void recreate_impl(CreateInfo create_info);
-	void destroy();
 
 	gsl::not_null<IRenderDevice*> m_render_device;
 
 	CreateInfo m_info{};
-
-	VmaAllocation m_allocation{};
-	vk::Image m_image{};
+	vma::UniqueImage m_image{};
 	vk::UniqueImageView m_image_view{};
 
-	std::uint32_t m_mip_levels{};
 	vk::ImageLayout m_layout{};
 };
 } // namespace kvf::detail

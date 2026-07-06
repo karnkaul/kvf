@@ -1,6 +1,5 @@
 #include "detail/buffer.hpp"
 #include "klib/debug/assert.hpp"
-#include "kvf/panic.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
 #include <numeric>
@@ -12,7 +11,7 @@ Buffer::Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& cr
 void Buffer::resize(vk::DeviceSize size) {
 	util::ensure_positive(size);
 
-	if (m_buffer && m_info.size >= size) {
+	if (m_buffer.get().buffer && m_info.size >= size) {
 		m_size = size;
 		return;
 	}
@@ -56,46 +55,13 @@ auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSiz
 	return cmd.submit_and_wait();
 }
 
-void Buffer::recreate_impl(CreateInfo info) {
-	if (info.type == BufferType::Device) { info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
-	util::ensure_positive(info.size);
+void Buffer::recreate_impl(CreateInfo create_info) {
+	if (create_info.type == BufferType::Device) { create_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
+	util::ensure_positive(create_info.size);
 
-	auto allocation_ci = VmaAllocationCreateInfo{};
-	allocation_ci.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
-	if (info.type == BufferType::Device) {
-		allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
-	} else {
-		allocation_ci.usage = VMA_MEMORY_USAGE_AUTO_PREFER_HOST;
-		allocation_ci.flags |= VMA_ALLOCATION_CREATE_MAPPED_BIT;
-	}
-
-	auto const buffer_ci = vk::BufferCreateInfo{{}, info.size, info.usage};
-	auto c_buffer_ci = static_cast<VkBufferCreateInfo>(buffer_ci);
-
-	VmaAllocation allocation{};
-	VkBuffer buffer{};
-	auto alloc_info = VmaAllocationInfo{};
-	if (vmaCreateBuffer(m_render_device->get_allocator(), &c_buffer_ci, &allocation_ci, &buffer, &allocation, &alloc_info) != VK_SUCCESS) {
-		throw Panic{"Failed to create Vulkan Buffer"};
-	}
-
-	destroy();
-
-	m_info = info;
-	m_size = m_info.size;
-	m_buffer = buffer;
-	m_allocation = allocation;
-	m_mapped = alloc_info.pMappedData;
-}
-
-void Buffer::destroy() {
-	if (!m_buffer) { return; }
-	vmaDestroyBuffer(m_render_device->get_allocator(), m_buffer, m_allocation);
-	m_size = 0;
-	m_info = {};
-	m_buffer = vk::Buffer{};
-	m_allocation = {};
-	m_mapped = nullptr;
+	m_buffer = vma::create_buffer(m_render_device->get_allocator(), create_info);
+	m_info = create_info;
+	m_size = create_info.size;
 }
 } // namespace detail
 

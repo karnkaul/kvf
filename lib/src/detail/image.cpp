@@ -1,6 +1,5 @@
 #include "detail/image.hpp"
 #include "kvf/buffer.hpp"
-#include "kvf/panic.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
 #include <algorithm>
@@ -84,19 +83,20 @@ void Image::resize(vk::Extent2D extent) {
 auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	if (layers.empty()) { return false; }
 
-	if (!m_image || m_info.layers != std::uint32_t(layers.size())) {
+	auto const size = layers.front().size;
+	auto const extent = util::to_vk_extent(size);
+
+	if (!m_image.get().image || m_info.layers != std::uint32_t(layers.size())) {
 		m_info.layers = std::uint32_t(layers.size());
-		m_info.extent = util::to_vk_extent(layers.front().size);
+		m_info.extent = extent;
 		recreate(m_info);
 	}
 
-	auto const size = layers.front().size;
-	auto const layer_size = vk::DeviceSize(size.x * size.y * std::int32_t(Bitmap::channels_v));
+	auto const layer_size = vk::DeviceSize(extent.width * extent.height * Bitmap::channels_v);
 	auto const total_size = layers.size() * layer_size;
 	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
-	auto const extent = util::to_vk_extent(size);
 	resize(extent);
 	if (layer_size == 0) { return true; }
 
@@ -169,57 +169,17 @@ void Image::recreate_impl(CreateInfo create_info) {
 	if (create_info.format == vk::Format::eUndefined) { create_info.format = vk::Format::eR8G8B8A8Srgb; }
 	util::ensure_positive(create_info.extent);
 
-	auto const mip_mapped = (create_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
-	auto const queue_family = m_render_device->get_queue_family();
-	auto image_ci = vk::ImageCreateInfo{};
-	image_ci.setExtent({create_info.extent.width, create_info.extent.height, 1})
-		.setFormat(create_info.format)
-		.setUsage(create_info.usage)
-		.setImageType(vk::ImageType::e2D)
-		.setArrayLayers(create_info.layers)
-		.setMipLevels(mip_mapped ? util::compute_mip_levels(create_info.extent) : 1)
-		.setSamples(create_info.samples)
-		.setTiling(vk::ImageTiling::eOptimal)
-		.setInitialLayout(vk::ImageLayout::eUndefined)
-		.setQueueFamilyIndices(queue_family);
-	auto const vici = static_cast<VkImageCreateInfo>(image_ci);
-	auto vaci = VmaAllocationCreateInfo{};
-	vaci.usage = VMA_MEMORY_USAGE_AUTO;
-	if ((create_info.flags & ImageFlag::DedicatedAlloc) == ImageFlag::DedicatedAlloc) {
-		vaci.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
-		vaci.priority = 1.0f;
-	}
-	VkImage image{};
-	VmaAllocation allocation{};
-	if (vmaCreateImage(m_render_device->get_allocator(), &vici, &vaci, &image, &allocation, {}) != VK_SUCCESS) { throw Panic{"Failed to create Vulkan Image"}; }
-
-	destroy();
-
+	m_image = vma::create_image(m_render_device->get_allocator(), m_render_device->get_queue_family(), create_info);
 	m_info = create_info;
-	m_image = image;
-	m_allocation = allocation;
-	m_mip_levels = image_ci.mipLevels;
 
 	auto const image_view_ci = util::ImageViewCreateInfo{
-		.image = m_image,
-		.format = image_ci.format,
+		.image = m_image.get().image,
+		.format = create_info.format,
 		.subresource = subresource_range(),
 		.type = vk::ImageViewType::e2D,
 	};
 	m_image_view = util::create_image_view(m_render_device->get_device(), image_view_ci);
 	m_layout = vk::ImageLayout::eUndefined;
-}
-
-void Image::destroy() {
-	m_image_view = {};
-
-	vmaDestroyImage(m_render_device->get_allocator(), m_image, m_allocation);
-	m_image = vk::Image{};
-	m_allocation = {};
-	m_layout = vk::ImageLayout::eUndefined;
-	m_mip_levels = 0;
-
-	m_info = {};
 }
 } // namespace kvf::detail
 
