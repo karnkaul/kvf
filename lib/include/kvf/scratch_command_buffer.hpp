@@ -1,0 +1,28 @@
+#pragma once
+#include "kvf/render_device.hpp"
+#include <vulkan/vulkan.hpp>
+#include <chrono>
+#include <gsl/pointers>
+
+using namespace std::chrono_literals;
+
+namespace kvf::two {
+class ScratchCommandBuffer {
+  public:
+	static constexpr auto timeout_v{5s};
+
+	explicit ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device);
+
+	[[nodiscard]] auto get() const -> vk::CommandBuffer { return m_cmd; }
+
+	auto submit_and_wait(std::chrono::seconds timeout = timeout_v) -> bool;
+
+	operator vk::CommandBuffer() const { return get(); }
+
+  private:
+	gsl::not_null<IRenderDevice*> m_render_device;
+
+	vk::UniqueCommandPool m_pool{};
+	vk::CommandBuffer m_cmd{};
+};
+} // namespace kvf::two

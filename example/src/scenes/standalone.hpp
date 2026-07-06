@@ -5,12 +5,12 @@
 namespace kvf::example {
 class Standalone : public Scene {
   public:
-	explicit Standalone(gsl::not_null<RenderDevice*> device, std::string_view assets_dir);
+	explicit Standalone(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir);
 
   private:
 	[[nodiscard]] auto get_render_filter() const -> vk::Filter final;
 	[[nodiscard]] auto get_render_target() const -> RenderTarget final;
 
-	vma::Image m_image;
+	std::unique_ptr<two::IImage> m_image;
 };
 } // namespace kvf::example

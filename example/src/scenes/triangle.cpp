@@ -5,10 +5,11 @@
 #include <imgui.h>
 
 namespace kvf::example {
-Triangle::Triangle(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2) {
-	m_color_pass.set_color_target().set_depth_target();
-	m_color_pass.clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
+Triangle::Triangle(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir)
+	: Scene(device, assets_dir), m_color_pass(device->create_render_pass(vk::SampleCountFlagBits::e2)) {
+	m_color_pass->set_color_target();
+	// m_color_pass->set_depth_target();
+	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 	create_pipeline();
 }
 
@@ -24,16 +25,16 @@ void Triangle::update(vk::CommandBuffer const command_buffer) {
 	if (ImGui::Begin("Controls")) { draw_controls(); }
 	ImGui::End();
 
-	auto const extent = kvf::util::scale_extent(get_render_device().get_framebuffer_extent(), m_framebuffer_scale);
-	m_color_pass.begin_render(command_buffer, extent);
+	auto const extent = kvf::util::scale_extent(get_render_device().get_swapchain_image_extent(), m_framebuffer_scale);
+	m_color_pass->begin_render(command_buffer, extent);
 
-	m_color_pass.bind_pipeline(*m_pipeline);
+	m_color_pass->bind_pipeline(*m_pipeline);
 	command_buffer.draw(3, 1, 0, 0);
 
-	m_color_pass.end_render();
+	m_color_pass->end_render();
 }
 
-auto Triangle::get_render_target() const -> RenderTarget { return m_color_pass.render_target(); }
+auto Triangle::get_render_target() const -> RenderTarget { return m_color_pass->render_target(); }
 
 void Triangle::create_pipeline() {
 	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
@@ -47,12 +48,12 @@ void Triangle::create_pipeline() {
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
 	};
-	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
+	m_pipeline = m_color_pass->create_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
 }
 
 void Triangle::recreate(vk::SampleCountFlagBits samples) {
-	m_color_pass.recreate(samples);
+	m_color_pass->recreate(samples);
 	create_pipeline();
 }
 

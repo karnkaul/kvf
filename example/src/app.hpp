@@ -34,7 +34,7 @@ class App {
 	void draw_error_modal() const;
 
 	UniqueWindow m_window;
-	RenderDevice m_device;
+	std::unique_ptr<two::IRenderDevice> m_device{};
 	std::string_view m_assets_dir;
 	std::vector<Factory> m_factories{};
 	Factory* m_current_factory{};

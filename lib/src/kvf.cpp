@@ -362,7 +362,7 @@ struct Swapchain {
 
 		auto const extent = m_info.imageExtent;
 		std::string_view const color_space = is_srgb(m_info.imageFormat) ? "sRGB" : "Linear";
-		log.debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_str(m_info.presentMode));
+		log.debug("Swapchain color-space: {}, extent: {}x{}, mode: {}", color_space, extent.width, extent.height, util::to_string_view(m_info.presentMode));
 	}
 
 	[[nodiscard]] auto get_image_index() const -> std::optional<std::uint32_t> { return m_image_index; }
@@ -1087,7 +1087,7 @@ namespace kvf::vma {
 namespace {
 struct MakeMipMaps {
 	// NOLINTNEXTLINE
-	vma::Image& out;
+	vma::Image const& out;
 
 	vk::CommandBuffer command_buffer;
 
@@ -1561,7 +1561,11 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	auto ri = vk::RenderingInfo{};
 	if (dai.imageView) { ri.setPDepthAttachment(&dai).setRenderArea(vk::Rect2D{{}, m_targets.depth.extent}); }
 	if (cai.imageView) { ri.setColorAttachments(cai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
-	if (m_command_buffer) { command_buffer.beginRendering(ri); }
+	if (m_command_buffer) {
+		command_buffer.beginRendering(ri);
+		command_buffer.setViewport(0, to_viewport(uv_rect_v));
+		command_buffer.setScissor(0, to_scissor(uv_rect_v));
+	}
 }
 
 void RenderPass::end_render() {
@@ -1806,6 +1810,22 @@ template <typename DescriptorInfoT>
 }
 } // namespace
 
+auto util::window_size(gsl::not_null<GLFWwindow*> window) -> glm::ivec2 {
+	auto ret = glm::ivec2{};
+	glfwGetWindowSize(window, &ret.x, &ret.y);
+	return ret;
+}
+
+auto util::framebuffer_size(gsl::not_null<GLFWwindow*> window) -> glm::ivec2 {
+	auto ret = glm::ivec2{};
+	glfwGetFramebufferSize(window, &ret.x, &ret.y);
+	return ret;
+}
+
+auto util::is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool { return glfwWindowShouldClose(window) == GLFW_TRUE; }
+
+void util::set_window_should_close(gsl::not_null<GLFWwindow*> window, bool const value) { glfwSetWindowShouldClose(window, value ? GLFW_TRUE : GLFW_FALSE); }
+
 auto util::color_from_hex(std::string_view hex) -> Color {
 	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
 	hex = hex.substr(1);
@@ -1847,6 +1867,12 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 	di.pImageMemoryBarriers = image_barriers.data();
 	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
 	command_buffer.pipelineBarrier2(di);
+}
+
+auto util::create_image_view(vk::Device const device, ImageViewCreateInfo const& create_info) -> vk::UniqueImageView {
+	auto image_view_ci = vk::ImageViewCreateInfo{};
+	image_view_ci.setImage(create_info.image).setFormat(create_info.format).setViewType(create_info.type).setSubresourceRange(create_info.subresource);
+	return device.createImageViewUnique(image_view_ci);
 }
 
 auto util::string_from_file(std::string& out_string, klib::CString path) -> bool { return klib::read_file_bytes_into(out_string, path); }

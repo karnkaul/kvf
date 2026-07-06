@@ -23,16 +23,16 @@ namespace fs = std::filesystem;
 }
 } // namespace
 
-ImageViewer::ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
-	auto const ici = vma::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb};
+ImageViewer::ImageViewer(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
+	auto const ici = two::ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .extent = {1, 1}};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
-	m_image = vma::Image{device, ici, util::to_vk_extent(bitmap.size)};
-	if (!m_image.resize_and_overwrite(bitmap)) { throw Error{"Failed to write to Image"}; }
+	m_image = device->create_image(ici);
+	if (!m_image->resize_and_overwrite(bitmap)) { throw Error{"Failed to write to Image"}; }
 	resize_window();
 }
 
-auto ImageViewer::get_render_target() const -> RenderTarget { return m_image.render_target(); }
+auto ImageViewer::get_render_target() const -> RenderTarget { return m_image->render_target(); }
 
 void ImageViewer::on_drop(std::span<char const* const> paths) {
 	auto const path = find_image_file(paths);
@@ -41,7 +41,7 @@ void ImageViewer::on_drop(std::span<char const* const> paths) {
 }
 
 void ImageViewer::resize_window() {
-	auto extent = m_image.get_extent();
+	auto extent = m_image->get_extent();
 	KLIB_ASSERT(extent.height > 0);
 	auto const aspect_ratio = float(extent.width) / float(extent.height);
 
@@ -66,7 +66,7 @@ void ImageViewer::try_load(klib::CString const path) {
 		return;
 	}
 	get_render_device().get_device().waitIdle();
-	if (!m_image.resize_and_overwrite(rgba_image.bitmap())) {
+	if (!m_image->resize_and_overwrite(rgba_image.bitmap())) {
 		open_error_modal(std::format("Failed to write to Vulkan Image: {}", filename()));
 		return;
 	}

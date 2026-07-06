@@ -1,7 +1,7 @@
 #pragma once
 #include "kvf/color.hpp"
 #include "kvf/render_pass.hpp"
-#include "kvf/scratch_buffer.hpp"
+#include "kvf/ring_buffer_allocator.hpp"
 #include "scene.hpp"
 #include <glm/mat4x4.hpp>
 #include <glm/vec2.hpp>
@@ -9,7 +9,7 @@
 namespace kvf::example {
 class Sprite : public Scene {
   public:
-	explicit Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir);
+	explicit Sprite(gsl::not_null<two::IRenderDevice*> device, std::string_view assets_dir);
 
   private:
 	struct RenderInstance {
@@ -37,20 +37,20 @@ class Sprite : public Scene {
 
 	void write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 extent);
 
-	kvf::RenderPass m_color_pass;
-	ScratchBuffer::Allocator m_scratch_buffers;
+	std::unique_ptr<two::IRenderPass> m_color_pass{};
+	std::shared_ptr<two::IRingBufferAllocator> m_scratch_buffers{};
 
 	std::array<vk::UniqueDescriptorSetLayout, 2> m_set_layout_storage{};
 	std::array<vk::DescriptorSetLayout, 2> m_set_layouts{};
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	vk::UniquePipeline m_pipeline{};
 
-	vma::Buffer m_vbo;
+	std::unique_ptr<two::IBuffer> m_vbo{};
 	vk::DeviceSize m_index_offset{};
 
 	std::vector<Std430Instance> m_instance_buffer{};
 
-	vma::Texture m_texture{};
+	std::unique_ptr<two::IImage> m_texture{};
 	vk::UniqueSampler m_sampler{};
 
 	std::vector<RenderInstance> m_instances{};

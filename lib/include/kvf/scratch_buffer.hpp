@@ -1,5 +1,6 @@
 #pragma once
 #include "kvf/buffered.hpp"
+#include "kvf/frame_index.hpp"
 #include "kvf/render_device_fwd.hpp"
 #include "kvf/vma.hpp"
 

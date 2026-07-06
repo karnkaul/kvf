@@ -4,5 +4,5 @@
 
 namespace kvf {
 template <typename Type>
-using Buffered = std::array<Type, resource_buffering_v>;
+using Ring = std::array<Type, resource_buffering_v>;
 } // namespace kvf
