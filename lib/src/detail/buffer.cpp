@@ -1,4 +1,4 @@
-#include "detail/resource_buffer.hpp"
+#include "detail/buffer.hpp"
 #include "klib/debug/assert.hpp"
 #include "kvf/panic.hpp"
 #include "kvf/scratch_command_buffer.hpp"
@@ -7,11 +7,9 @@
 
 namespace kvf {
 namespace detail {
-ResourceBuffer::ResourceBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
-	recreate_impl(create_info);
-}
+Buffer::Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) { recreate_impl(create_info); }
 
-void ResourceBuffer::resize(vk::DeviceSize size) {
+void Buffer::resize(vk::DeviceSize size) {
 	util::ensure_positive(size);
 
 	if (m_buffer && m_capacity >= size) {
@@ -22,7 +20,7 @@ void ResourceBuffer::resize(vk::DeviceSize size) {
 	recreate_impl(CreateInfo{.usage = m_usage, .type = m_type, .size = size});
 }
 
-auto ResourceBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
+auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
 	if (get_size() < offset + write_size) { return false; }
 	if (write_size == 0) { return true; }
 
@@ -44,7 +42,7 @@ auto ResourceBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::D
 		.type = BufferType::Host,
 		.size = write_size,
 	};
-	auto staging = ResourceBuffer{m_render_device, bci};
+	auto staging = Buffer{m_render_device, bci};
 	if (!staging.write_contiguous(writes, write_size, 0)) { return false; }
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
@@ -56,7 +54,7 @@ auto ResourceBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::D
 	return cmd.submit_and_wait();
 }
 
-void ResourceBuffer::recreate_impl(CreateInfo info) {
+void Buffer::recreate_impl(CreateInfo info) {
 	if (info.type == BufferType::Device) { info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
 	util::ensure_positive(info.size);
 
@@ -89,7 +87,7 @@ void ResourceBuffer::recreate_impl(CreateInfo info) {
 	m_mapped = alloc_info.pMappedData;
 }
 
-void ResourceBuffer::destroy() {
+void Buffer::destroy() {
 	if (!m_buffer) { return; }
 	vmaDestroyBuffer(m_render_device->get_allocator(), m_buffer, m_allocation);
 	m_size = m_capacity = 0;

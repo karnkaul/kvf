@@ -3,15 +3,15 @@
 #include "kvf/render_device.hpp"
 
 namespace kvf::detail {
-class ResourceImage : public IImage {
+class Image : public IImage {
   public:
-	ResourceImage(ResourceImage const&) = delete;
-	ResourceImage(ResourceImage&&) = delete;
-	ResourceImage& operator=(ResourceImage const&) = delete;
-	ResourceImage& operator=(ResourceImage&&) = delete;
+	Image(Image const&) = delete;
+	Image(Image&&) = delete;
+	Image& operator=(Image const&) = delete;
+	Image& operator=(Image&&) = delete;
 
-	explicit ResourceImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
-	~ResourceImage() { destroy(); }
+	explicit Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
+	~Image() { destroy(); }
 
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }

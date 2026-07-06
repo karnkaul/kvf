@@ -1,7 +1,7 @@
 #include "kvf/render_device.hpp"
+#include "detail/buffer.hpp"
+#include "detail/image.hpp"
 #include "detail/render_pass.hpp"
-#include "detail/resource_buffer.hpp"
-#include "detail/resource_image.hpp"
 #include "detail/ring_buffer_allocator.hpp"
 #include "kvf/build_version.hpp"
 #include "kvf/device_waiter.hpp"
@@ -329,7 +329,12 @@ class DearImGui {
 		bool srgb_target{};
 	};
 
-	void init(CreateInfo const& create_info) {
+	DearImGui(DearImGui const&) = delete;
+	DearImGui(DearImGui&&) = delete;
+	DearImGui& operator=(DearImGui const&) = delete;
+	DearImGui& operator=(DearImGui&&) = delete;
+
+	explicit DearImGui(CreateInfo const& create_info) {
 		IMGUI_CHECKVERSION();
 		ImGui::CreateContext();
 
@@ -371,6 +376,13 @@ class DearImGui {
 		m_device = create_info.device;
 	}
 
+	~DearImGui() {
+		m_device.waitIdle();
+		ImGui_ImplVulkan_Shutdown();
+		ImGui_ImplGlfw_Shutdown();
+		ImGui::DestroyContext();
+	}
+
 	void new_frame() {
 		if (m_state == State::eEndFrame) { end_frame(); }
 		ImGui_ImplVulkan_NewFrame();
@@ -392,21 +404,11 @@ class DearImGui {
 	}
 
   private:
-	struct Deleter {
-		void operator()(vk::Device device) const {
-			if (!device) { return; }
-			device.waitIdle();
-			ImGui_ImplVulkan_Shutdown();
-			ImGui_ImplGlfw_Shutdown();
-			ImGui::DestroyContext();
-		}
-	};
-
 	enum class State : std::int8_t { eNewFrame, eEndFrame };
 
 	State m_state{};
 
-	klib::Unique<vk::Device, Deleter> m_device{};
+	vk::Device m_device{};
 };
 
 class DescriptorAllocator : public IRingDescriptorAllocator {
@@ -476,7 +478,7 @@ class RenderDevice : public IRenderDevice {
 
 		initialize_descriptor_allocators(create_info.custom_pool_sizes, create_info.sets_per_pool);
 
-		m_dear_imgui.new_frame();
+		m_dear_imgui->new_frame();
 	}
 
   private:
@@ -511,7 +513,7 @@ class RenderDevice : public IRenderDevice {
 	void attach_next_frame_listener(std::weak_ptr<INextFrameListener> listener) final { m_next_frame_listeners.push_back(std::move(listener)); }
 
 	[[nodiscard]] auto create_buffer(BufferCreateInfo const& create_info) -> std::unique_ptr<IBuffer> final {
-		return std::make_unique<detail::ResourceBuffer>(this, create_info);
+		return std::make_unique<detail::Buffer>(this, create_info);
 	}
 
 	[[nodiscard]] auto create_buffer_allocator(BufferUsageLayout const& usage_layout) -> std::shared_ptr<IRingBufferAllocator> final {
@@ -521,7 +523,7 @@ class RenderDevice : public IRenderDevice {
 	}
 
 	[[nodiscard]] auto create_image(ImageCreateInfo const& create_info) -> std::unique_ptr<IImage> final {
-		return std::make_unique<detail::ResourceImage>(this, create_info);
+		return std::make_unique<detail::Image>(this, create_info);
 	}
 
 	[[nodiscard]] auto get_descriptor_allocator() -> IRingDescriptorAllocator& final { return m_descriptor_allocators.at(m_frame_index); }
@@ -680,7 +682,7 @@ class RenderDevice : public IRenderDevice {
 			.samples = vk::SampleCountFlagBits::e1,
 			.srgb_target = !is_linear_backbuffer,
 		};
-		m_dear_imgui.init(dear_imgui_ci);
+		m_dear_imgui.emplace(dear_imgui_ci);
 		log.debug("Dear ImGui initialized");
 	}
 
@@ -704,7 +706,7 @@ class RenderDevice : public IRenderDevice {
 
 		glfwPollEvents();
 		m_descriptor_allocators.at(m_frame_index).reset_pools();
-		m_dear_imgui.new_frame();
+		m_dear_imgui->new_frame();
 		std::erase_if(m_next_frame_listeners, [this](std::weak_ptr<INextFrameListener> const& ptr) {
 			if (auto listener = ptr.lock()) {
 				listener->on_next_frame(FrameIndex{m_frame_index});
@@ -718,7 +720,7 @@ class RenderDevice : public IRenderDevice {
 	}
 
 	auto acquire_next_image() -> bool {
-		m_dear_imgui.end_frame();
+		m_dear_imgui->end_frame();
 		if (!m_current_cmd) { return false; }
 
 		auto const framebuffer_extent = get_framebuffer_extent();
@@ -805,7 +807,7 @@ class RenderDevice : public IRenderDevice {
 		auto ri = vk::RenderingInfo{};
 		ri.setColorAttachments(backbuffer).setLayerCount(1).setRenderArea(render_area);
 		m_current_cmd.beginRendering(ri);
-		m_dear_imgui.render(m_current_cmd);
+		m_dear_imgui->render(m_current_cmd);
 		m_current_cmd.endRendering();
 	}
 
@@ -880,7 +882,7 @@ class RenderDevice : public IRenderDevice {
 
 	std::optional<VulkanAllocator> m_allocator{};
 
-	DearImGui m_dear_imgui{};
+	std::optional<DearImGui> m_dear_imgui{};
 
 	Ring<Sync> m_syncs{};
 	vk::UniqueCommandPool m_command_pool{};

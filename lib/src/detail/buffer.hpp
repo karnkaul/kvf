@@ -3,15 +3,15 @@
 #include "kvf/render_device.hpp"
 
 namespace kvf::detail {
-class ResourceBuffer : public IBuffer {
+class Buffer : public IBuffer {
   public:
-	ResourceBuffer(ResourceBuffer const&) = delete;
-	ResourceBuffer(ResourceBuffer&&) = delete;
-	ResourceBuffer& operator=(ResourceBuffer const&) = delete;
-	ResourceBuffer& operator=(ResourceBuffer&&) = delete;
+	Buffer(Buffer const&) = delete;
+	Buffer(Buffer&&) = delete;
+	Buffer& operator=(Buffer const&) = delete;
+	Buffer& operator=(Buffer&&) = delete;
 
-	explicit ResourceBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
-	~ResourceBuffer() { destroy(); }
+	explicit Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
+	~Buffer() { destroy(); }
 
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }

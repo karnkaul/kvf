@@ -1,4 +1,4 @@
-#include "detail/resource_image.hpp"
+#include "detail/image.hpp"
 #include "kvf/buffer.hpp"
 #include "kvf/panic.hpp"
 #include "kvf/scratch_command_buffer.hpp"
@@ -70,18 +70,16 @@ class MipMapCreator {
 };
 } // namespace
 
-ResourceImage::ResourceImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
-	recreate_impl(create_info);
-}
+Image::Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) { recreate_impl(create_info); }
 
-void ResourceImage::resize(vk::Extent2D extent) {
+void Image::resize(vk::Extent2D extent) {
 	util::ensure_positive(extent);
 	if (extent == m_info.extent) { return; }
 	m_info.extent = extent;
 	recreate(m_info);
 }
 
-auto ResourceImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
+auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	if (layers.empty()) { return false; }
 
 	if (!m_image || m_info.layers != std::uint32_t(layers.size())) {
@@ -155,7 +153,7 @@ auto ResourceImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool
 	return cmd.submit_and_wait();
 }
 
-void ResourceImage::transition(vk::CommandBuffer const command_buffer, vk::ImageMemoryBarrier2 barrier) {
+void Image::transition(vk::CommandBuffer const command_buffer, vk::ImageMemoryBarrier2 barrier) {
 	barrier.setImage(get_image())
 		.setSrcQueueFamilyIndex(m_render_device->get_queue_family())
 		.setDstQueueFamilyIndex(barrier.srcQueueFamilyIndex)
@@ -164,7 +162,7 @@ void ResourceImage::transition(vk::CommandBuffer const command_buffer, vk::Image
 	m_layout = barrier.newLayout;
 }
 
-void ResourceImage::recreate_impl(CreateInfo create_info) {
+void Image::recreate_impl(CreateInfo create_info) {
 	create_info.usage |= CreateInfo::implicit_usage_v;
 	if (create_info.format == vk::Format::eUndefined) { create_info.format = vk::Format::eR8G8B8A8Srgb; }
 	util::ensure_positive(create_info.extent);
@@ -210,7 +208,7 @@ void ResourceImage::recreate_impl(CreateInfo create_info) {
 	m_layout = vk::ImageLayout::eUndefined;
 }
 
-void ResourceImage::destroy() {
+void Image::destroy() {
 	m_image_view = {};
 
 	vmaDestroyImage(m_render_device->get_allocator(), m_image, m_allocation);
