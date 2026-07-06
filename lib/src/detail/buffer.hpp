@@ -16,13 +16,13 @@ class Buffer : public IBuffer {
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
 
-	[[nodiscard]] auto get_usage() const -> vk::BufferUsageFlags final { return m_usage; }
-	[[nodiscard]] auto get_type() const -> BufferType final { return m_type; }
+	[[nodiscard]] auto get_usage() const -> vk::BufferUsageFlags final { return m_info.usage; }
+	[[nodiscard]] auto get_type() const -> BufferType final { return m_info.type; }
 	[[nodiscard]] auto get_buffer() const -> vk::Buffer final { return m_buffer; }
 	[[nodiscard]] auto get_mapped_ptr() const -> void* final { return m_mapped; }
 
 	[[nodiscard]] auto get_size() const -> vk::DeviceSize final { return m_size; }
-	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize final { return m_capacity; }
+	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize final { return m_info.size; }
 	void resize(vk::DeviceSize size) final;
 
 	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool final;
@@ -32,9 +32,7 @@ class Buffer : public IBuffer {
 
 	gsl::not_null<IRenderDevice*> m_render_device;
 
-	vk::BufferUsageFlags m_usage{};
-	BufferType m_type{};
-	vk::DeviceSize m_capacity{};
+	CreateInfo m_info{};
 	vk::DeviceSize m_size{};
 
 	VmaAllocation m_allocation{};

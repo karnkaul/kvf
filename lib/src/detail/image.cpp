@@ -75,8 +75,10 @@ Image::Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& crea
 void Image::resize(vk::Extent2D extent) {
 	util::ensure_positive(extent);
 	if (extent == m_info.extent) { return; }
-	m_info.extent = extent;
-	recreate(m_info);
+
+	auto info = m_info;
+	info.extent = extent;
+	recreate(info);
 }
 
 auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {

@@ -12,12 +12,14 @@ Buffer::Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& cr
 void Buffer::resize(vk::DeviceSize size) {
 	util::ensure_positive(size);
 
-	if (m_buffer && m_capacity >= size) {
+	if (m_buffer && m_info.size >= size) {
 		m_size = size;
 		return;
 	}
 
-	recreate_impl(CreateInfo{.usage = m_usage, .type = m_type, .size = size});
+	auto info = m_info;
+	info.size = size;
+	recreate_impl(info);
 }
 
 auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
@@ -35,7 +37,7 @@ auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSiz
 		return true;
 	}
 
-	if ((m_usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+	if ((m_info.usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
 
 	auto const bci = BufferCreateInfo{
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
@@ -79,9 +81,8 @@ void Buffer::recreate_impl(CreateInfo info) {
 
 	destroy();
 
-	m_usage = info.usage;
-	m_type = info.type;
-	m_capacity = m_size = info.size;
+	m_info = info;
+	m_size = m_info.size;
 	m_buffer = buffer;
 	m_allocation = allocation;
 	m_mapped = alloc_info.pMappedData;
@@ -90,7 +91,8 @@ void Buffer::recreate_impl(CreateInfo info) {
 void Buffer::destroy() {
 	if (!m_buffer) { return; }
 	vmaDestroyBuffer(m_render_device->get_allocator(), m_buffer, m_allocation);
-	m_size = m_capacity = 0;
+	m_size = 0;
+	m_info = {};
 	m_buffer = vk::Buffer{};
 	m_allocation = {};
 	m_mapped = nullptr;

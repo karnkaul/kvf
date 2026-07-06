@@ -1,5 +1,6 @@
 #pragma once
 #include "klib/base_types.hpp"
+#include "klib/enum/bitops.hpp"
 #include "kvf/bitmap.hpp"
 #include "kvf/render_target.hpp"
 #include <cstdint>
