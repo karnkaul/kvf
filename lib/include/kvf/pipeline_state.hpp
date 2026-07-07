@@ -45,8 +45,8 @@ struct PipelineState {
 };
 
 struct PipelineFormat {
-	vk::SampleCountFlagBits samples{};
-	vk::Format color{};
-	vk::Format depth{};
+	vk::SampleCountFlagBits samples;
+	vk::Format color;
+	vk::Format depth;
 };
 } // namespace kvf

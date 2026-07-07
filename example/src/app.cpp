@@ -1,5 +1,6 @@
 #include "klib/string/fixed_string.hpp"
-#include "kvf/error.hpp"
+#include "kvf/panic.hpp"
+#include "kvf/util.hpp"
 #include "log.hpp"
 #include "scenes/image_viewer.hpp"
 #include "scenes/sprite.hpp"
@@ -9,7 +10,8 @@
 #include <imgui.h>
 
 namespace kvf::example {
-App::App(std::string_view const build_version) : m_window(make_window(build_version)), m_device(m_window.get()), m_blocker(m_device.get_device()) {
+App::App(std::string_view const build_version)
+	: m_window(make_window(build_version)), m_device(IRenderDevice::create(m_window.get())), m_blocker(m_device->get_device()) {
 	add_factory<Standalone>("Standalone");
 	add_factory<ImageViewer>("Image Viewer");
 	add_factory<Triangle>("Triangle");
@@ -18,7 +20,7 @@ App::App(std::string_view const build_version) : m_window(make_window(build_vers
 
 template <std::derived_from<Scene> T>
 void App::add_factory(klib::CString name) {
-	m_factories.push_back(Factory{.name = name, .create = [this] { return std::make_unique<T>(&m_device, m_assets_dir); }});
+	m_factories.push_back(Factory{.name = name, .create = [this] { return std::make_unique<T>(m_device.get(), m_assets_dir); }});
 }
 
 void App::run(std::string_view const assets_dir) {
@@ -26,13 +28,13 @@ void App::run(std::string_view const assets_dir) {
 	m_current_factory = &m_factories.front();
 	m_scene = m_current_factory->create();
 
-	while (!m_device.is_window_closing()) {
-		auto command_buffer = m_device.next_frame();
+	while (!util::is_window_closing(m_device->get_window())) {
+		auto command_buffer = m_device->next_frame();
 		draw_menu();
 		m_scene->m_dt = m_delta_time.tick();
 		m_scene->update(command_buffer);
 		draw_error_modal();
-		m_device.render(m_scene->get_render_target(), m_scene->get_render_filter());
+		m_device->render(m_scene->get_render_target(), m_scene->get_render_filter());
 	}
 }
 
@@ -42,7 +44,7 @@ auto App::make_window(std::string_view const build_version) -> kvf::UniqueWindow
 	glfwSetWindowUserPointer(ret.get(), this);
 	glfwSetKeyCallback(ret.get(), [](GLFWwindow* w, int const key, int const /*scancode*/, int action, int const mods) {
 		auto& self = *static_cast<App*>(glfwGetWindowUserPointer(w));
-		if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && mods == 0) { self.m_device.set_window_closing(true); }
+		if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && mods == 0) { util::set_window_should_close(self.m_device->get_window(), true); }
 		auto const input = Scene::KeyInput{.key = key, .action = action, .mods = mods};
 		self.m_scene->on_key(input);
 	});
@@ -56,7 +58,7 @@ auto App::make_window(std::string_view const build_version) -> kvf::UniqueWindow
 void App::draw_menu() {
 	if (!ImGui::BeginMainMenuBar()) { return; }
 	if (ImGui::BeginMenu("File")) {
-		if (ImGui::MenuItem("Exit")) { m_device.set_window_closing(true); }
+		if (ImGui::MenuItem("Exit")) { util::set_window_should_close(m_device->get_window(), true); }
 		ImGui::EndMenu();
 	}
 	if (ImGui::BeginMenu("Scenes")) {
@@ -68,11 +70,11 @@ void App::draw_menu() {
 		if (new_factory != m_current_factory) {
 			try {
 				auto new_scene = new_factory->create();
-				m_device.get_device().waitIdle();
+				m_device->get_device().waitIdle();
 				m_scene = std::move(new_scene);
 				m_current_factory = new_factory;
 				m_delta_time.reset();
-			} catch (Error const& e) {
+			} catch (Panic const& e) {
 				auto const message = std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());
 				m_scene->open_error_modal(message);
 			}
