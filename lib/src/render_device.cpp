@@ -407,53 +407,73 @@ class DearImGui {
 	vk::Device m_device{};
 };
 
-class DescriptorAllocator : public IRingDescriptorAllocator {
+class RingDescriptorAllocator : public IRingDescriptorAllocator, public INextFrameListener {
   public:
-	void initialize(vk::Device device, std::span<vk::DescriptorPoolSize const> pool_sizes, std::uint32_t const sets_per_pool) {
-		m_device = device;
-		m_pool_sizes = pool_sizes;
-		m_sets_per_pool = sets_per_pool;
-	}
-
-	void reset_pools() {
-		for (auto& pool : m_pools) { m_device.resetDescriptorPool(*pool); }
-		m_index = 0;
+	explicit RingDescriptorAllocator(vk::Device device, std::span<vk::DescriptorPoolSize const> pool_sizes, std::uint32_t const sets_per_pool) {
+		for (auto& allocator : m_pools) { allocator.initialize(device, pool_sizes, sets_per_pool); }
 	}
 
   private:
+	class Pool {
+	  public:
+		void initialize(vk::Device device, std::span<vk::DescriptorPoolSize const> pool_sizes, std::uint32_t const sets_per_pool) {
+			m_device = device;
+			m_pool_sizes = pool_sizes;
+			m_sets_per_pool = sets_per_pool;
+		}
+
+		void reset_pools() {
+			for (auto& pool : m_pools) { m_device.resetDescriptorPool(*pool); }
+			m_index = 0;
+		}
+
+		auto allocate_next(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> set_layouts) -> bool {
+			KLIB_ASSERT(m_device && !m_pool_sizes.empty() && m_sets_per_pool > 0);
+			if (set_layouts.empty() || out_sets.size() != set_layouts.size()) { return false; }
+			auto result = try_allocate(out_sets, set_layouts);
+			switch (result) {
+			case vk::Result::eSuccess: return true;
+			case vk::Result::eErrorOutOfPoolMemory: ++m_index; return try_allocate(out_sets, set_layouts) == vk::Result::eSuccess;
+			default: return false;
+			}
+		}
+
+	  private:
+		auto get_pool() -> vk::DescriptorPool {
+			while (m_index >= m_pools.size()) {
+				auto dpci = vk::DescriptorPoolCreateInfo{};
+				dpci.setPoolSizes(m_pool_sizes).setMaxSets(m_sets_per_pool);
+				m_pools.push_back(m_device.createDescriptorPoolUnique(dpci));
+			}
+			return *m_pools.at(m_index);
+		}
+
+		auto try_allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> vk::Result {
+			auto const pool = get_pool();
+			auto dsai = vk::DescriptorSetAllocateInfo{};
+			dsai.setDescriptorPool(pool).setSetLayouts(layouts);
+			return m_device.allocateDescriptorSets(&dsai, out_sets.data());
+		}
+
+		vk::Device m_device{};
+		std::span<vk::DescriptorPoolSize const> m_pool_sizes{};
+		std::uint32_t m_sets_per_pool{};
+
+		std::vector<vk::UniqueDescriptorPool> m_pools{};
+		std::size_t m_index{};
+	};
+
 	auto allocate_next(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> set_layouts) -> bool final {
-		KLIB_ASSERT(m_device && !m_pool_sizes.empty() && m_sets_per_pool > 0);
-		if (set_layouts.empty() || out_sets.size() != set_layouts.size()) { return false; }
-		auto result = try_allocate(out_sets, set_layouts);
-		switch (result) {
-		case vk::Result::eSuccess: return true;
-		case vk::Result::eErrorOutOfPoolMemory: ++m_index; return try_allocate(out_sets, set_layouts) == vk::Result::eSuccess;
-		default: return false;
-		}
+		return m_pools.at(std::size_t(m_frame_index)).allocate_next(out_sets, set_layouts);
 	}
 
-	auto get_pool() -> vk::DescriptorPool {
-		while (m_index >= m_pools.size()) {
-			auto dpci = vk::DescriptorPoolCreateInfo{};
-			dpci.setPoolSizes(m_pool_sizes).setMaxSets(m_sets_per_pool);
-			m_pools.push_back(m_device.createDescriptorPoolUnique(dpci));
-		}
-		return *m_pools.at(m_index);
+	void on_next_frame(FrameIndex const frame_index) final {
+		m_frame_index = frame_index;
+		m_pools.at(std::size_t(m_frame_index)).reset_pools();
 	}
 
-	auto try_allocate(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> layouts) -> vk::Result {
-		auto const pool = get_pool();
-		auto dsai = vk::DescriptorSetAllocateInfo{};
-		dsai.setDescriptorPool(pool).setSetLayouts(layouts);
-		return m_device.allocateDescriptorSets(&dsai, out_sets.data());
-	}
-
-	vk::Device m_device{};
-	std::span<vk::DescriptorPoolSize const> m_pool_sizes{};
-	std::uint32_t m_sets_per_pool{};
-
-	std::vector<vk::UniqueDescriptorPool> m_pools{};
-	std::size_t m_index{};
+	Ring<Pool> m_pools{};
+	FrameIndex m_frame_index{};
 };
 
 class RenderDevice : public IRenderDevice {
@@ -472,7 +492,7 @@ class RenderDevice : public IRenderDevice {
 		create_syncs();
 		create_command_buffers();
 
-		initialize_descriptor_allocators(create_info.custom_pool_sizes, create_info.sets_per_pool);
+		create_descriptor_allocator(create_info.custom_pool_sizes, create_info.sets_per_pool);
 
 		m_dear_imgui->new_frame();
 	}
@@ -517,7 +537,7 @@ class RenderDevice : public IRenderDevice {
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex final { return FrameIndex{m_frame_index}; }
 	void attach_next_frame_listener(std::weak_ptr<INextFrameListener> listener) final { m_next_frame_listeners.push_back(std::move(listener)); }
 
-	[[nodiscard]] auto get_descriptor_allocator() -> IRingDescriptorAllocator& final { return m_descriptor_allocators.at(m_frame_index); }
+	[[nodiscard]] auto get_descriptor_allocator() -> IRingDescriptorAllocator& final { return *m_descriptor_allocator; }
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) final {
 		auto const lock = std::scoped_lock{m_mutex};
@@ -673,7 +693,7 @@ class RenderDevice : public IRenderDevice {
 		log.debug("Dear ImGui initialized");
 	}
 
-	void initialize_descriptor_allocators(std::span<vk::DescriptorPoolSize const> pool_sizes, std::uint32_t sets_per_pool) {
+	void create_descriptor_allocator(std::span<vk::DescriptorPoolSize const> pool_sizes, std::uint32_t sets_per_pool) {
 		if (pool_sizes.empty()) {
 			static constexpr auto descriptors_per_type_v{8};
 			static constexpr auto pool_sizes_v = std::array{
@@ -684,7 +704,8 @@ class RenderDevice : public IRenderDevice {
 			pool_sizes = pool_sizes_v;
 		}
 		if (sets_per_pool == 0) { sets_per_pool = CreateInfo::sets_per_pool_v; }
-		for (auto& descriptor_allocator : m_descriptor_allocators) { descriptor_allocator.initialize(*m_device, pool_sizes, sets_per_pool); }
+		m_descriptor_allocator = std::make_shared<RingDescriptorAllocator>(*m_device, pool_sizes, sets_per_pool);
+		attach_next_frame_listener(m_descriptor_allocator);
 	}
 
 	void begin_frame() {
@@ -692,7 +713,6 @@ class RenderDevice : public IRenderDevice {
 		if (!util::wait_for_fence(*m_device, drawn)) { throw Panic{"Failed to wait for Render Fence"}; }
 
 		glfwPollEvents();
-		m_descriptor_allocators.at(m_frame_index).reset_pools();
 		m_dear_imgui->new_frame();
 		std::erase_if(m_next_frame_listeners, [this](std::weak_ptr<INextFrameListener> const& ptr) {
 			if (auto listener = ptr.lock()) {
@@ -875,7 +895,7 @@ class RenderDevice : public IRenderDevice {
 	vk::UniqueCommandPool m_command_pool{};
 	Ring<vk::CommandBuffer> m_command_buffers{};
 
-	Ring<DescriptorAllocator> m_descriptor_allocators{};
+	std::shared_ptr<RingDescriptorAllocator> m_descriptor_allocator{};
 
 	std::vector<std::weak_ptr<INextFrameListener>> m_next_frame_listeners{};
 	std::size_t m_frame_index{};
