@@ -1,6 +1,7 @@
 #include "detail/ring_buffer_allocator.hpp"
 #include "klib/debug/assert.hpp"
 #include "kvf/render_device.hpp"
+#include "log.hpp"
 
 namespace kvf::detail {
 namespace {
@@ -23,6 +24,8 @@ RingBufferAllocator::RingBufferAllocator(gsl::not_null<IRenderDevice*> render_de
 
 auto RingBufferAllocator::allocate_next() -> std::span<FixedUsageBuffer const> {
 	auto& pool = m_pools.at(std::size_t(m_frame_index));
+	if (pool.index > 4096) { log.warn("{} Buffers allocated this frame", pool.index); }
+
 	if (pool.index >= pool.layouts.size()) {
 		pool.index = pool.layouts.size();
 		auto const new_capacity = grow_capacity(pool.layouts.size());

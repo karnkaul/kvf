@@ -440,7 +440,9 @@ class RingDescriptorAllocator : public IRingDescriptorAllocator, public INextFra
 
 	  private:
 		auto get_pool() -> vk::DescriptorPool {
-			while (m_index >= m_pools.size()) {
+			if (m_index > 4096) { log.warn("{} DescriptorPools allocated this frame", m_index); }
+			if (m_index >= m_pools.size()) {
+				m_index = m_pools.size();
 				auto dpci = vk::DescriptorPoolCreateInfo{};
 				dpci.setPoolSizes(m_pool_sizes).setMaxSets(m_sets_per_pool);
 				m_pools.push_back(m_device.createDescriptorPoolUnique(dpci));
