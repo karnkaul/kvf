@@ -13,7 +13,7 @@ class RenderPass : public IRenderPass {
 	explicit RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
   private:
-	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_device; }
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
 
 	void set_color_target(vk::Format format = vk::Format::eUndefined) final;
 	void set_depth_target() final;
@@ -57,7 +57,7 @@ class RenderPass : public IRenderPass {
 
 	void set_render_targets();
 
-	gsl::not_null<IRenderDevice*> m_device;
+	gsl::not_null<IRenderDevice*> m_render_device;
 	vk::SampleCountFlagBits m_samples{};
 
 	Ring<Framebuffer> m_framebuffers{};

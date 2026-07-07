@@ -4,11 +4,12 @@
 #include <array>
 
 namespace kvf::detail {
-RenderPass::RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
+RenderPass::RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits const samples)
+	: m_render_device(render_device), m_samples(samples) {}
 
 void RenderPass::set_color_target(vk::Format format) {
 	if (format == vk::Format::eUndefined) {
-		format = util::is_srgb(m_device->get_swapchain_color_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
+		format = util::is_srgb(m_render_device->get_swapchain_color_format()) ? vk::Format::eR8G8B8A8Srgb : vk::Format::eR8G8B8A8Unorm;
 	}
 
 	auto const color_ici = ImageCreateInfo{
@@ -25,23 +26,23 @@ void RenderPass::set_color_target(vk::Format format) {
 		ret.extent = m_extent;
 		return ret;
 	}();
-	if (has_color_target()) { m_device->get_device().waitIdle(); }
+	if (has_color_target()) { m_render_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = IImage::create(m_device, color_ici);
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IImage::create(m_device, resolve_ici); }
+		framebuffer.color = IImage::create(m_render_device, color_ici);
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IImage::create(m_render_device, resolve_ici); }
 	}
 }
 
 void RenderPass::set_depth_target() {
 	auto const depth_ici = ImageCreateInfo{
-		.format = m_device->get_optimal_depth_format(),
+		.format = m_render_device->get_optimal_depth_format(),
 		.aspect = vk::ImageAspectFlagBits::eDepth,
 		.usage = vk::ImageUsageFlagBits::eDepthStencilAttachment,
 		.samples = m_samples,
 		.flags = ImageFlag::DedicatedAlloc,
 		.extent = m_extent,
 	};
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IImage::create(m_device, depth_ici); }
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IImage::create(m_render_device, depth_ici); }
 }
 
 void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
@@ -56,70 +57,13 @@ void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
 	m_targets = {};
 }
 
-auto RenderPass::create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto const color_format = get_color_format();
-	auto const depth_format = get_depth_format();
-
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
-	shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
-
-	auto vertex_input_ci = vk::PipelineVertexInputStateCreateInfo{};
-	vertex_input_ci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto rasterization_state_ci = vk::PipelineRasterizationStateCreateInfo{};
-	rasterization_state_ci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
-	auto const depth_write = (state.flags & PipelineFlag::DepthWrite) == PipelineFlag::DepthWrite;
-	depth_stencil_state_ci.setDepthTestEnable(depth_test ? vk::True : vk::False)
-		.setDepthCompareOp(state.depth_compare)
-		.setDepthWriteEnable(depth_write ? vk::True : vk::False);
-
-	auto const input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo{};
-	color_blend_state_ci.setAttachments(state.blend_state);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
+auto RenderPass::create_graphics_pipeline(vk::PipelineLayout const layout, PipelineState const& state) -> vk::UniquePipeline {
+	auto const format = PipelineFormat{
+		.samples = m_samples,
+		.color = get_color_format(),
+		.depth = get_depth_format(),
 	};
-	auto dynamic_state_ci = vk::PipelineDynamicStateCreateInfo{};
-	dynamic_state_ci.setDynamicStates(pdscis);
-
-	auto const viewport_state_ci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto multisample_state_ci = vk::PipelineMultisampleStateCreateInfo{};
-	multisample_state_ci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
-
-	auto rendering_ci = vk::PipelineRenderingCreateInfo{};
-	if (color_format != vk::Format::eUndefined) { rendering_ci.setColorAttachmentFormats(color_format); }
-	rendering_ci.setDepthAttachmentFormat(depth_format);
-
-	auto graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo{};
-	graphics_pipeline_ci.setPVertexInputState(&vertex_input_ci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&rasterization_state_ci)
-		.setPDepthStencilState(&depth_stencil_state_ci)
-		.setPInputAssemblyState(&input_assembly_state_ci)
-		.setPColorBlendState(&color_blend_state_ci)
-		.setPDynamicState(&dynamic_state_ci)
-		.setPViewportState(&viewport_state_ci)
-		.setPMultisampleState(&multisample_state_ci)
-		.setLayout(layout)
-		.setPNext(&rendering_ci);
-
-	auto const device = m_device->get_device();
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &graphics_pipeline_ci, {}, &ret) != vk::Result::eSuccess) {
-		log.error("Failed to create Vulkan Graphics Pipeline");
-		return {};
-	}
-
-	return vk::UniquePipeline{ret, device};
+	return m_render_device->create_pipeline(layout, state, format);
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -149,7 +93,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 
 	m_barriers.clear();
 	if (m_targets.color.image) {
-		auto barrier = m_device->create_image_barrier();
+		auto barrier = m_render_device->create_image_barrier();
 		barrier.setImage(m_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -166,7 +110,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 		m_barriers.push_back(barrier);
 	}
 	if (m_targets.depth.image) {
-		auto barrier = m_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
+		auto barrier = m_render_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
 		barrier.setImage(m_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -207,14 +151,14 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	if (depth_ai.imageView) { ri.setPDepthAttachment(&depth_ai).setRenderArea(vk::Rect2D{{}, m_targets.depth.extent}); }
 	if (color_ai.imageView) { ri.setColorAttachments(color_ai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
 	m_command_buffer.beginRendering(ri);
-	if ((m_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) == RenderDeviceFlag::ShaderObjectFeature) {
+	if ((m_render_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) == RenderDeviceFlag::ShaderObjectFeature) {
 		m_command_buffer.setRasterizationSamplesEXT(m_samples);
 		m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
 	}
 }
 
 auto RenderPass::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> sets_layouts) -> bool {
-	return m_device->get_descriptor_allocator().allocate_next(out_sets, sets_layouts);
+	return m_render_device->get_descriptor_allocator().allocate_next(out_sets, sets_layouts);
 }
 
 void RenderPass::end_render() {
@@ -222,7 +166,7 @@ void RenderPass::end_render() {
 
 	m_barriers.clear();
 	if (m_targets.color.image) {
-		auto barrier = m_device->create_image_barrier();
+		auto barrier = m_render_device->create_image_barrier();
 		barrier.setImage(m_targets.color.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
@@ -239,7 +183,7 @@ void RenderPass::end_render() {
 		m_barriers.push_back(barrier);
 	}
 	if (m_targets.depth.image && depth_store_op == vk::AttachmentStoreOp::eStore) {
-		auto barrier = m_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
+		auto barrier = m_render_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
 		barrier.setImage(m_targets.depth.image)
 			.setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
 			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
@@ -322,7 +266,7 @@ auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const
 void RenderPass::set_render_targets() {
 	m_targets = {};
 
-	auto& framebuffer = m_framebuffers.at(std::size_t(m_device->get_frame_index()));
+	auto& framebuffer = m_framebuffers.at(std::size_t(m_render_device->get_frame_index()));
 
 	if (framebuffer.color) {
 		framebuffer.color->resize(m_extent);

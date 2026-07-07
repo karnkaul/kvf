@@ -6,6 +6,7 @@
 #include "kvf/frame_index.hpp"
 #include "kvf/gpu.hpp"
 #include "kvf/next_frame_listener.hpp"
+#include "kvf/pipeline_state.hpp"
 #include "kvf/render_target.hpp"
 #include "kvf/ring_descriptor_allocator.hpp"
 #include <GLFW/glfw3.h>
@@ -71,6 +72,10 @@ class IRenderDevice : public klib::Polymorphic {
 	[[nodiscard]] virtual auto get_loader_api_version() const -> klib::Version = 0;
 	[[nodiscard]] virtual auto get_flags() const -> RenderDeviceFlag = 0;
 
+	[[nodiscard]] virtual auto get_present_mode() const -> vk::PresentModeKHR = 0;
+	[[nodiscard]] virtual auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> = 0;
+	virtual void set_present_mode(vk::PresentModeKHR present_mode) = 0;
+
 	[[nodiscard]] virtual auto get_render_imgui() const -> bool = 0;
 	virtual void set_render_imgui(bool should_render) = 0;
 
@@ -87,5 +92,6 @@ class IRenderDevice : public klib::Polymorphic {
 	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo create_info) const -> vk::UniqueSampler;
 	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2>;
 	[[nodiscard]] auto create_image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2KHR;
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const& format) const -> vk::UniquePipeline;
 };
 } // namespace kvf

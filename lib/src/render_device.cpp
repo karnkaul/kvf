@@ -502,6 +502,15 @@ class RenderDevice : public IRenderDevice {
 	[[nodiscard]] auto get_loader_api_version() const -> klib::Version final { return m_loader_version; }
 	[[nodiscard]] auto get_flags() const -> RenderDeviceFlag final { return m_flags; }
 
+	[[nodiscard]] auto get_present_mode() const -> vk::PresentModeKHR final { return m_swapchain.get_info().presentMode; }
+	[[nodiscard]] auto get_supported_present_modes() const -> std::span<vk::PresentModeKHR const> final { return m_present_modes; }
+
+	void set_present_mode(vk::PresentModeKHR present_mode) final {
+		if (std::ranges::find(m_present_modes, present_mode) == m_present_modes.end()) { return; }
+		auto const extent = util::to_vk_extent(util::framebuffer_size(m_window.get()));
+		m_swapchain.recreate(extent, present_mode);
+	}
+
 	[[nodiscard]] auto get_render_imgui() const -> bool final { return m_render_imgui; }
 	void set_render_imgui(bool should_render) final { m_render_imgui = should_render; }
 
@@ -931,5 +940,68 @@ auto IRenderDevice::create_image_barrier(vk::ImageAspectFlags const aspect) cons
 	auto const queue_family = get_queue_family();
 	ret.setSrcQueueFamilyIndex(queue_family).setDstQueueFamilyIndex(queue_family).subresourceRange.setAspectMask(aspect).setLevelCount(1).setLayerCount(1);
 	return ret;
+}
+
+auto IRenderDevice::create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const& format) const -> vk::UniquePipeline {
+	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+	shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
+
+	auto vertex_input_ci = vk::PipelineVertexInputStateCreateInfo{};
+	vertex_input_ci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+	auto rasterization_state_ci = vk::PipelineRasterizationStateCreateInfo{};
+	rasterization_state_ci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+	auto depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo{};
+	auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
+	auto const depth_write = (state.flags & PipelineFlag::DepthWrite) == PipelineFlag::DepthWrite;
+	depth_stencil_state_ci.setDepthTestEnable(depth_test ? vk::True : vk::False)
+		.setDepthCompareOp(state.depth_compare)
+		.setDepthWriteEnable(depth_write ? vk::True : vk::False);
+
+	auto const input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+	auto color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo{};
+	color_blend_state_ci.setAttachments(state.blend_state);
+
+	auto const pdscis = std::array{
+		vk::DynamicState::eViewport,
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eLineWidth,
+	};
+	auto dynamic_state_ci = vk::PipelineDynamicStateCreateInfo{};
+	dynamic_state_ci.setDynamicStates(pdscis);
+
+	auto const viewport_state_ci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+	auto multisample_state_ci = vk::PipelineMultisampleStateCreateInfo{};
+	multisample_state_ci.setRasterizationSamples(format.samples).setSampleShadingEnable(vk::False);
+
+	auto rendering_ci = vk::PipelineRenderingCreateInfo{};
+	if (format.color != vk::Format::eUndefined) { rendering_ci.setColorAttachmentFormats(format.color); }
+	rendering_ci.setDepthAttachmentFormat(format.depth);
+
+	auto graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo{};
+	graphics_pipeline_ci.setPVertexInputState(&vertex_input_ci)
+		.setStages(shader_stages)
+		.setPRasterizationState(&rasterization_state_ci)
+		.setPDepthStencilState(&depth_stencil_state_ci)
+		.setPInputAssemblyState(&input_assembly_state_ci)
+		.setPColorBlendState(&color_blend_state_ci)
+		.setPDynamicState(&dynamic_state_ci)
+		.setPViewportState(&viewport_state_ci)
+		.setPMultisampleState(&multisample_state_ci)
+		.setLayout(layout)
+		.setPNext(&rendering_ci);
+
+	auto const device = get_device();
+	auto ret = vk::Pipeline{};
+	if (device.createGraphicsPipelines({}, 1, &graphics_pipeline_ci, {}, &ret) != vk::Result::eSuccess) {
+		log.error("Failed to create Vulkan Graphics Pipeline");
+		return {};
+	}
+
+	return vk::UniquePipeline{ret, device};
 }
 } // namespace kvf
