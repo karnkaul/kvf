@@ -6,7 +6,7 @@
 
 namespace kvf::example {
 Triangle::Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device->create_render_pass(vk::SampleCountFlagBits::e2)) {
+	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)) {
 	m_color_pass->set_color_target();
 	// m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
@@ -28,7 +28,7 @@ void Triangle::update(vk::CommandBuffer const command_buffer) {
 	auto const extent = kvf::util::scale_extent(get_render_device().get_swapchain_image_extent(), m_framebuffer_scale);
 	m_color_pass->begin_render(command_buffer, extent);
 
-	m_color_pass->bind_pipeline(*m_pipeline);
+	m_color_pass->bind_graphics_pipeline(*m_pipeline);
 	command_buffer.draw(3, 1, 0, 0);
 
 	m_color_pass->end_render();
@@ -48,7 +48,7 @@ void Triangle::create_pipeline() {
 		.vertex_shader = *vertex_shader,
 		.fragment_shader = *fragment_shader,
 	};
-	m_pipeline = m_color_pass->create_pipeline(*m_pipeline_layout, pipeline_state);
+	m_pipeline = m_color_pass->create_graphics_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
 }
 

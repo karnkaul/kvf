@@ -1,5 +1,6 @@
 #pragma once
 #include "kvf/color.hpp"
+#include "kvf/image.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring_buffer_allocator.hpp"
 #include "scene.hpp"

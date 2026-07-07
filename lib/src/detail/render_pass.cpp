@@ -25,8 +25,8 @@ void RenderPass::set_color_target(vk::Format format) {
 	}();
 	if (has_color_target()) { m_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = m_device->create_image(color_ici);
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = m_device->create_image(resolve_ici); }
+		framebuffer.color = IImage::create(m_device, color_ici);
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IImage::create(m_device, resolve_ici); }
 	}
 }
 
@@ -39,7 +39,7 @@ void RenderPass::set_depth_target() {
 		.flags = ImageFlag::DedicatedAlloc,
 		.extent = m_extent,
 	};
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = m_device->create_image(depth_ici); }
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IImage::create(m_device, depth_ici); }
 }
 
 void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
@@ -54,13 +54,67 @@ void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
 	m_targets = {};
 }
 
-auto RenderPass::create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
-	auto const format = PipelineFormat{
-		.samples = m_samples,
-		.color = get_color_format(),
-		.depth = get_depth_format(),
+auto RenderPass::create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline {
+	auto const color_format = get_color_format();
+	auto const depth_format = get_depth_format();
+
+	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+	shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
+
+	auto vertex_input_ci = vk::PipelineVertexInputStateCreateInfo{};
+	vertex_input_ci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
+
+	auto rasterization_state_ci = vk::PipelineRasterizationStateCreateInfo{};
+	rasterization_state_ci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
+
+	auto depth_stencil_state_ci = vk::PipelineDepthStencilStateCreateInfo{};
+	auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
+	auto const depth_write = (state.flags & PipelineFlag::DepthWrite) == PipelineFlag::DepthWrite;
+	depth_stencil_state_ci.setDepthTestEnable(depth_test ? vk::True : vk::False)
+		.setDepthCompareOp(state.depth_compare)
+		.setDepthWriteEnable(depth_write ? vk::True : vk::False);
+
+	auto const input_assembly_state_ci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
+
+	auto color_blend_state_ci = vk::PipelineColorBlendStateCreateInfo{};
+	color_blend_state_ci.setAttachments(state.blend_state);
+
+	auto const pdscis = std::array{
+		vk::DynamicState::eViewport,
+		vk::DynamicState::eScissor,
+		vk::DynamicState::eLineWidth,
 	};
-	return m_device->create_pipeline(layout, state, format);
+	auto dynamic_state_ci = vk::PipelineDynamicStateCreateInfo{};
+	dynamic_state_ci.setDynamicStates(pdscis);
+
+	auto const viewport_state_ci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
+
+	auto multisample_state_ci = vk::PipelineMultisampleStateCreateInfo{};
+	multisample_state_ci.setRasterizationSamples(m_samples).setSampleShadingEnable(vk::False);
+
+	auto rendering_ci = vk::PipelineRenderingCreateInfo{};
+	if (color_format != vk::Format::eUndefined) { rendering_ci.setColorAttachmentFormats(color_format); }
+	rendering_ci.setDepthAttachmentFormat(depth_format);
+
+	auto graphics_pipeline_ci = vk::GraphicsPipelineCreateInfo{};
+	graphics_pipeline_ci.setPVertexInputState(&vertex_input_ci)
+		.setStages(shader_stages)
+		.setPRasterizationState(&rasterization_state_ci)
+		.setPDepthStencilState(&depth_stencil_state_ci)
+		.setPInputAssemblyState(&input_assembly_state_ci)
+		.setPColorBlendState(&color_blend_state_ci)
+		.setPDynamicState(&dynamic_state_ci)
+		.setPViewportState(&viewport_state_ci)
+		.setPMultisampleState(&multisample_state_ci)
+		.setLayout(layout)
+		.setPNext(&rendering_ci);
+
+	auto const device = m_device->get_device();
+	auto ret = vk::Pipeline{};
+	if (device.createGraphicsPipelines({}, 1, &graphics_pipeline_ci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+
+	return vk::UniquePipeline{ret, device};
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -148,6 +202,9 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	if (depth_ai.imageView) { ri.setPDepthAttachment(&depth_ai).setRenderArea(vk::Rect2D{{}, m_targets.depth.extent}); }
 	if (color_ai.imageView) { ri.setColorAttachments(color_ai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
 	m_command_buffer.beginRendering(ri);
+	if ((m_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) == RenderDeviceFlag::ShaderObjectFeature) {
+		m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
+	}
 }
 
 auto RenderPass::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> sets_layouts) -> bool {
@@ -191,7 +248,7 @@ void RenderPass::end_render() {
 	m_command_buffer = vk::CommandBuffer{};
 }
 
-void RenderPass::bind_pipeline(vk::Pipeline const pipeline) const {
+void RenderPass::bind_graphics_pipeline(vk::Pipeline const pipeline) const {
 	if (!m_command_buffer) { return; }
 	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 	m_command_buffer.setViewport(0, to_viewport(uv_rect_v));
@@ -229,6 +286,11 @@ void RenderPass::set_render_targets() {
 } // namespace kvf::detail
 
 namespace kvf {
+
+auto IRenderPass::create(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits const samples) -> std::unique_ptr<IRenderPass> {
+	return std::make_unique<detail::RenderPass>(render_device, samples);
+}
+
 auto IRenderPass::to_viewport(UvRect n_rect) const -> vk::Viewport {
 	if (!util::is_norm(n_rect)) { n_rect = uv_rect_v; }
 	auto const fb_size = util::to_glm_vec(get_extent());

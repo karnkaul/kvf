@@ -1,8 +1,4 @@
 #include "kvf/render_device.hpp"
-#include "detail/buffer.hpp"
-#include "detail/image.hpp"
-#include "detail/render_pass.hpp"
-#include "detail/ring_buffer_allocator.hpp"
 #include "kvf/build_version.hpp"
 #include "kvf/device_waiter.hpp"
 #include "kvf/panic.hpp"
@@ -512,25 +508,7 @@ class RenderDevice : public IRenderDevice {
 	[[nodiscard]] auto get_frame_index() const -> FrameIndex final { return FrameIndex{m_frame_index}; }
 	void attach_next_frame_listener(std::weak_ptr<INextFrameListener> listener) final { m_next_frame_listeners.push_back(std::move(listener)); }
 
-	[[nodiscard]] auto create_buffer(BufferCreateInfo const& create_info) -> std::unique_ptr<IBuffer> final {
-		return std::make_unique<detail::Buffer>(this, create_info);
-	}
-
-	[[nodiscard]] auto create_buffer_allocator(BufferUsageLayout const& usage_layout) -> std::shared_ptr<IRingBufferAllocator> final {
-		auto ret = std::make_shared<detail::RingBufferAllocator>(this, usage_layout);
-		attach_next_frame_listener(ret);
-		return ret;
-	}
-
-	[[nodiscard]] auto create_image(ImageCreateInfo const& create_info) -> std::unique_ptr<IImage> final {
-		return std::make_unique<detail::Image>(this, create_info);
-	}
-
 	[[nodiscard]] auto get_descriptor_allocator() -> IRingDescriptorAllocator& final { return m_descriptor_allocators.at(m_frame_index); }
-
-	[[nodiscard]] auto create_render_pass(vk::SampleCountFlagBits const samples) -> std::unique_ptr<IRenderPass> final {
-		return std::make_unique<detail::RenderPass>(this, samples);
-	}
 
 	void queue_submit(vk::SubmitInfo2 const& si, vk::Fence const fence) final {
 		auto const lock = std::scoped_lock{m_mutex};
@@ -912,82 +890,9 @@ auto IRenderDevice::create_sampler(vk::SamplerCreateInfo create_info) const -> v
 	return get_device().createSamplerUnique(create_info);
 }
 
-auto IRenderDevice::create_texture(Bitmap const& bitmap, bool const mip_map) -> std::unique_ptr<IImage> {
-	auto image_ci = ImageCreateInfo{
-		.format = vk::Format::eR8G8B8A8Srgb,
-		.aspect = vk::ImageAspectFlagBits::eColor,
-		.view_type = vk::ImageViewType::e2D,
-		.extent = util::to_vk_extent(bitmap.size),
-	};
-	if (mip_map) {
-		image_ci.flags |= ImageFlag::MipMapped;
-	} else {
-		image_ci.flags &= ~ImageFlag::MipMapped;
-	}
-	auto ret = create_image(image_ci);
-	ret->resize_and_overwrite(bitmap);
-	return ret;
-}
-
-auto IRenderDevice::create_pipeline(vk::PipelineLayout const layout, PipelineState const& state, PipelineFormat const format) const -> vk::UniquePipeline {
-	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
-	shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
-	shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
-
-	auto pvisci = vk::PipelineVertexInputStateCreateInfo{};
-	pvisci.setVertexAttributeDescriptions(state.vertex_attributes).setVertexBindingDescriptions(state.vertex_bindings);
-
-	auto prsci = vk::PipelineRasterizationStateCreateInfo{};
-	prsci.setPolygonMode(state.polygon_mode).setCullMode(state.cull_mode);
-
-	auto pdssci = vk::PipelineDepthStencilStateCreateInfo{};
-	auto const depth_test = (state.flags & PipelineFlag::DepthTest) == PipelineFlag::DepthTest;
-	auto const depth_write = (state.flags & PipelineFlag::DepthWrite) == PipelineFlag::DepthWrite;
-	pdssci.setDepthTestEnable(depth_test ? vk::True : vk::False).setDepthCompareOp(state.depth_compare).setDepthWriteEnable(depth_write ? vk::True : vk::False);
-
-	auto const piasci = vk::PipelineInputAssemblyStateCreateInfo{{}, state.topology};
-
-	auto pcbsci = vk::PipelineColorBlendStateCreateInfo{};
-	pcbsci.setAttachments(state.blend_state);
-
-	auto const pdscis = std::array{
-		vk::DynamicState::eViewport,
-		vk::DynamicState::eScissor,
-		vk::DynamicState::eLineWidth,
-	};
-	auto pdsci = vk::PipelineDynamicStateCreateInfo{};
-	pdsci.setDynamicStates(pdscis);
-
-	auto const pvsci = vk::PipelineViewportStateCreateInfo({}, 1, {}, 1);
-
-	auto pmsci = vk::PipelineMultisampleStateCreateInfo{};
-	pmsci.setRasterizationSamples(format.samples).setSampleShadingEnable(vk::False);
-
-	auto prci = vk::PipelineRenderingCreateInfo{};
-	if (format.color != vk::Format::eUndefined) { prci.setColorAttachmentFormats(format.color); }
-	prci.setDepthAttachmentFormat(format.depth);
-
-	auto gpci = vk::GraphicsPipelineCreateInfo{};
-	gpci.setPVertexInputState(&pvisci)
-		.setStages(shader_stages)
-		.setPRasterizationState(&prsci)
-		.setPDepthStencilState(&pdssci)
-		.setPInputAssemblyState(&piasci)
-		.setPColorBlendState(&pcbsci)
-		.setPDynamicState(&pdsci)
-		.setPViewportState(&pvsci)
-		.setPMultisampleState(&pmsci)
-		.setLayout(layout)
-		.setPNext(&prci);
-
-	auto const device = get_device();
-	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &gpci, {}, &ret) != vk::Result::eSuccess) { return {}; }
-
-	return vk::UniquePipeline{ret, device};
-}
-
 auto IRenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
+	if ((get_flags() & RenderDeviceFlag::ShaderObjectFeature) != RenderDeviceFlag::ShaderObjectFeature) { return {}; }
+
 	auto const create_shader_ci = [&create_info](std::span<std::uint32_t const> spirv) {
 		auto ret = vk::ShaderCreateInfoEXT{};
 		ret.setCodeSize(spirv.size_bytes())

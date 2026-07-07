@@ -3,13 +3,10 @@
 #include "klib/enum/bitops.hpp"
 #include "klib/ptr.hpp"
 #include "klib/version.hpp"
-#include "kvf/buffer.hpp"
 #include "kvf/frame_index.hpp"
 #include "kvf/gpu.hpp"
-#include "kvf/image.hpp"
 #include "kvf/next_frame_listener.hpp"
-#include "kvf/render_pass.hpp"
-#include "kvf/ring_buffer_allocator.hpp"
+#include "kvf/render_target.hpp"
 #include "kvf/ring_descriptor_allocator.hpp"
 #include <GLFW/glfw3.h>
 #include <vk_mem_alloc.h>
@@ -55,7 +52,7 @@ class IRenderDevice : public klib::Polymorphic {
   public:
 	using CreateInfo = RenderDeviceCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info) -> std::unique_ptr<IRenderDevice>;
+	[[nodiscard]] static auto create(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info = {}) -> std::unique_ptr<IRenderDevice>;
 
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
 
@@ -80,13 +77,7 @@ class IRenderDevice : public klib::Polymorphic {
 	[[nodiscard]] virtual auto get_frame_index() const -> FrameIndex = 0;
 	virtual void attach_next_frame_listener(std::weak_ptr<INextFrameListener> listener) = 0;
 
-	[[nodiscard]] virtual auto create_buffer(BufferCreateInfo const& create_info) -> std::unique_ptr<IBuffer> = 0;
-	[[nodiscard]] virtual auto create_buffer_allocator(BufferUsageLayout const& usage_layout) -> std::shared_ptr<IRingBufferAllocator> = 0;
 	[[nodiscard]] virtual auto get_descriptor_allocator() -> IRingDescriptorAllocator& = 0;
-
-	[[nodiscard]] virtual auto create_image(ImageCreateInfo const& create_info) -> std::unique_ptr<IImage> = 0;
-
-	[[nodiscard]] virtual auto create_render_pass(vk::SampleCountFlagBits samples = IRenderPass::samples_v) -> std::unique_ptr<IRenderPass> = 0;
 
 	virtual void queue_submit(vk::SubmitInfo2 const& si, vk::Fence fence = {}) = 0;
 
@@ -94,8 +85,6 @@ class IRenderDevice : public klib::Polymorphic {
 	virtual auto render(RenderTarget const& render_target, vk::Filter filter = vk::Filter::eLinear) -> bool = 0;
 
 	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo create_info) const -> vk::UniqueSampler;
-	[[nodiscard]] auto create_texture(Bitmap const& bitmap, bool mip_map = true) -> std::unique_ptr<IImage>;
-	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat format) const -> vk::UniquePipeline;
 	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2>;
 	[[nodiscard]] auto create_image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2KHR;
 };

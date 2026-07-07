@@ -15,7 +15,7 @@ Standalone::Standalone(gsl::not_null<IRenderDevice*> device, std::string_view as
 		.format = vk::Format::eR8G8B8A8Unorm,
 		.extent = util::to_vk_extent(bitmap.size),
 	};
-	m_image = device->create_image(ici);
+	m_image = IImage::create(device, ici);
 	if (!m_image->resize_and_overwrite(bitmap)) { throw Panic{"Failed to write to Image"}; }
 }
 

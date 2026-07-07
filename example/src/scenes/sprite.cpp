@@ -55,8 +55,8 @@ constexpr auto buffer_usage_layout_v = std::array<vk::BufferUsageFlags, 2>{
 } // namespace
 
 Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device->create_render_pass(vk::SampleCountFlagBits::e2)),
-	  m_scratch_buffers(device->create_buffer_allocator(buffer_usage_layout_v)), m_vbo(device->create_buffer(vbo_ci_v)) {
+	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)),
+	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)), m_vbo(IBuffer::create(device, vbo_ci_v)) {
 	m_color_pass->set_color_target();
 	m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
@@ -120,7 +120,7 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 		command_buffer.setScissorWithCount(m_color_pass->to_scissor(uv_rect_v));
 		command_buffer.setPolygonModeEXT(vk::PolygonMode::eFill);
 		command_buffer.setRasterizationSamplesEXT(m_color_pass->get_samples());
-		command_buffer.setSampleMaskEXT(m_color_pass->get_samples(), vk::SampleMask{1});
+		command_buffer.setSampleMaskEXT(m_color_pass->get_samples(), vk::SampleMask{0xffffffff});
 		command_buffer.setAlphaToCoverageEnableEXT(vk::False);
 		command_buffer.setFrontFace(vk::FrontFace::eCounterClockwise);
 
@@ -184,7 +184,7 @@ void Sprite::create_pipeline() {
 		.fragment_shader = *fragment_shader,
 		.flags = PipelineFlag::None,
 	};
-	m_pipeline = m_color_pass->create_pipeline(*m_pipeline_layout, pipeline_state);
+	m_pipeline = m_color_pass->create_graphics_pipeline(*m_pipeline_layout, pipeline_state);
 	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
 }
 
@@ -207,7 +207,7 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
-	m_texture = get_render_device().create_texture(image.bitmap());
+	m_texture = IImage::create_texture(&get_render_device(), image.bitmap());
 
 	auto const sci = util::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().create_sampler(sci);

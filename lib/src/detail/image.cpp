@@ -1,4 +1,5 @@
 #include "detail/image.hpp"
+#include "detail/buffer.hpp"
 #include "kvf/buffer.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
@@ -107,7 +108,8 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 		.type = BufferType::Host,
 		.size = total_size,
 	};
-	auto staging = m_render_device->create_buffer(buffer_ci);
+	auto buffer = detail::Buffer{m_render_device, buffer_ci};
+	auto& staging = static_cast<IBuffer&>(buffer);
 
 	auto cmd = ScratchCommandBuffer{m_render_device};
 	auto barrier = vk::ImageMemoryBarrier2{};
@@ -119,10 +121,10 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 		.setNewLayout(vk::ImageLayout::eTransferDstOptimal);
 	transition(cmd, barrier);
 
-	auto span = staging->get_mapped_span();
+	auto span = staging.get_mapped_span();
 	auto buffer_offset = vk::DeviceSize{};
 	auto cbtii = vk::CopyBufferToImageInfo2{};
-	cbtii.setDstImage(get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging->get_buffer());
+	cbtii.setDstImage(get_image()).setDstImageLayout(vk::ImageLayout::eTransferDstOptimal).setSrcBuffer(staging.get_buffer());
 	for (auto const [index, layer] : std::views::enumerate(layers)) {
 		std::memcpy(span.data(), layer.bytes.data(), layer_size);
 
@@ -184,6 +186,27 @@ void Image::recreate_impl(CreateInfo create_info) {
 } // namespace kvf::detail
 
 namespace kvf {
+auto IImage::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IImage> {
+	return std::make_unique<detail::Image>(render_device, create_info);
+}
+
+auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap const& bitmap, bool const mip_map) -> std::unique_ptr<IImage> {
+	auto image_ci = ImageCreateInfo{
+		.format = vk::Format::eR8G8B8A8Srgb,
+		.aspect = vk::ImageAspectFlagBits::eColor,
+		.view_type = vk::ImageViewType::e2D,
+		.extent = util::to_vk_extent(bitmap.size),
+	};
+	if (mip_map) {
+		image_ci.flags |= ImageFlag::MipMaps;
+	} else {
+		image_ci.flags &= ~ImageFlag::MipMaps;
+	}
+	auto ret = create(render_device, image_ci);
+	ret->resize_and_overwrite(bitmap);
+	return ret;
+}
+
 auto IImage::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{get_aspect(), 0, get_mip_levels(), 0, get_layers()}; }
 
 auto IImage::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {

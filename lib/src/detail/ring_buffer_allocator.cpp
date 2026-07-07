@@ -1,5 +1,6 @@
 #include "detail/ring_buffer_allocator.hpp"
 #include "klib/debug/assert.hpp"
+#include "kvf/render_device.hpp"
 
 namespace kvf::detail {
 namespace {
@@ -41,3 +42,11 @@ void RingBufferAllocator::on_next_frame(FrameIndex const frame_index) {
 	m_frame_index = frame_index;
 }
 } // namespace kvf::detail
+
+namespace kvf {
+auto IRingBufferAllocator::create(gsl::not_null<IRenderDevice*> render_device, BufferUsageLayout const& usage_layout) -> std::shared_ptr<IRingBufferAllocator> {
+	auto ret = std::make_shared<detail::RingBufferAllocator>(render_device, usage_layout);
+	render_device->attach_next_frame_listener(ret);
+	return ret;
+}
+} // namespace kvf

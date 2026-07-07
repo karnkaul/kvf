@@ -11,7 +11,7 @@
 
 namespace kvf::example {
 App::App(std::string_view const build_version)
-	: m_window(make_window(build_version)), m_device(IRenderDevice::create(m_window.get(), {})), m_blocker(m_device->get_device()) {
+	: m_window(make_window(build_version)), m_device(IRenderDevice::create(m_window.get())), m_blocker(m_device->get_device()) {
 	add_factory<Standalone>("Standalone");
 	add_factory<ImageViewer>("Image Viewer");
 	add_factory<Triangle>("Triangle");

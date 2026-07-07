@@ -2,14 +2,17 @@
 #include "klib/base_types.hpp"
 #include "klib/enum/bitops.hpp"
 #include "kvf/bitmap.hpp"
+#include "kvf/render_device_fwd.hpp"
 #include "kvf/render_target.hpp"
 #include <cstdint>
+#include <gsl/pointers>
+#include <memory>
 
 namespace kvf {
 enum class ImageFlag : std::int8_t {
 	None = 0,
 	DedicatedAlloc = 1 << 0,
-	MipMapped = 1 << 1,
+	MipMaps = 1 << 1,
 };
 constexpr auto enable_enum_bitops(ImageFlag /*unused*/) { return true; }
 
@@ -31,6 +34,9 @@ struct ImageCreateInfo {
 class IImage : public klib::Polymorphic {
   public:
 	using CreateInfo = ImageCreateInfo;
+
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IImage>;
+	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap const& bitmap, bool mip_map = true) -> std::unique_ptr<IImage>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 

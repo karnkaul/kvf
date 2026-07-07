@@ -65,6 +65,10 @@ void Buffer::recreate_impl(CreateInfo create_info) {
 }
 } // namespace detail
 
+auto IBuffer::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IBuffer> {
+	return std::make_unique<detail::Buffer>(render_device, create_info);
+}
+
 auto IBuffer::write_in_place(BufferWrite const write, vk::DeviceSize const offset) -> bool { return write_contiguous({&write, 1}, write.size(), offset); }
 
 void IBuffer::resize_overwrite_contiguous(std::span<BufferWrite const> writes) {

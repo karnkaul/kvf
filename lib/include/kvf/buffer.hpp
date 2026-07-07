@@ -1,8 +1,11 @@
 #pragma once
 #include "klib/base_types.hpp"
 #include "kvf/buffer_write.hpp"
+#include "kvf/render_device_fwd.hpp"
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
+#include <gsl/pointers>
+#include <memory>
 
 namespace kvf {
 enum class BufferType : std::uint8_t { Host, Device };
@@ -19,6 +22,8 @@ struct BufferCreateInfo {
 class IBuffer : public klib::Polymorphic {
   public:
 	using CreateInfo = BufferCreateInfo;
+
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IBuffer>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 

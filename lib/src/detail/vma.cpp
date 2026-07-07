@@ -41,14 +41,14 @@ auto vma::create_image(VmaAllocator allocator, std::uint32_t const queue_family,
 	KLIB_ASSERT(create_info.format != vk::Format::eUndefined);
 	KLIB_ASSERT(create_info.extent.width > 0 && create_info.extent.height > 0);
 
-	auto const mip_mapped = (create_info.flags & ImageFlag::MipMapped) == ImageFlag::MipMapped;
+	auto const mip_maps = (create_info.flags & ImageFlag::MipMaps) == ImageFlag::MipMaps;
 	auto image_ci = vk::ImageCreateInfo{};
 	image_ci.setExtent({create_info.extent.width, create_info.extent.height, 1})
 		.setFormat(create_info.format)
 		.setUsage(create_info.usage)
 		.setImageType(vk::ImageType::e2D)
 		.setArrayLayers(create_info.layers)
-		.setMipLevels(mip_mapped ? util::compute_mip_levels(create_info.extent) : 1)
+		.setMipLevels(mip_maps ? util::compute_mip_levels(create_info.extent) : 1)
 		.setSamples(create_info.samples)
 		.setTiling(vk::ImageTiling::eOptimal)
 		.setInitialLayout(vk::ImageLayout::eUndefined)

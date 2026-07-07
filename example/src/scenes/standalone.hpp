@@ -1,4 +1,5 @@
 #pragma once
+#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 #include "scene.hpp"
 

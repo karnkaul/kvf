@@ -6,11 +6,14 @@
 #include "kvf/render_pass_fwd.hpp"
 #include "kvf/render_target.hpp"
 #include <glm/vec4.hpp>
+#include <gsl/pointers>
 
 namespace kvf {
 class IRenderPass : public klib::Polymorphic {
   public:
 	static constexpr auto samples_v = vk::SampleCountFlagBits::e1;
+
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v) -> std::unique_ptr<IRenderPass>;
 
 	[[nodiscard]] virtual auto get_render_device() const -> IRenderDevice& = 0;
 
@@ -19,7 +22,7 @@ class IRenderPass : public klib::Polymorphic {
 
 	virtual void recreate(vk::SampleCountFlagBits samples = samples_v) = 0;
 
-	[[nodiscard]] virtual auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline = 0;
+	[[nodiscard]] virtual auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline = 0;
 
 	[[nodiscard]] virtual auto has_color_target() const -> bool = 0;
 	[[nodiscard]] virtual auto has_resolve_target() const -> bool = 0;
@@ -40,7 +43,7 @@ class IRenderPass : public klib::Polymorphic {
 	[[nodiscard]] auto to_viewport(UvRect n_rect) const -> vk::Viewport;
 	[[nodiscard]] auto to_scissor(UvRect n_rect) const -> vk::Rect2D;
 
-	virtual void bind_pipeline(vk::Pipeline pipeline) const = 0;
+	virtual void bind_graphics_pipeline(vk::Pipeline pipeline) const = 0;
 
 	[[nodiscard]] virtual auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo = 0;
 

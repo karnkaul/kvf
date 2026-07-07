@@ -1,5 +1,6 @@
 #pragma once
 #include "klib/string/c_string.hpp"
+#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 #include "scene.hpp"
 

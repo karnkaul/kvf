@@ -1,7 +1,9 @@
 #pragma once
+#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring.hpp"
+#include <memory>
 
 namespace kvf::detail {
 class RenderPass : public IRenderPass {
@@ -18,7 +20,7 @@ class RenderPass : public IRenderPass {
 
 	void recreate(vk::SampleCountFlagBits samples = samples_v) final;
 
-	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline final;
+	[[nodiscard]] auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline final;
 
 	[[nodiscard]] auto has_color_target() const -> bool final { return m_framebuffers.front().color != nullptr; }
 	[[nodiscard]] auto has_resolve_target() const -> bool final { return m_framebuffers.front().resolve != nullptr; }
@@ -36,7 +38,7 @@ class RenderPass : public IRenderPass {
 	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> sets_layouts) -> bool final;
 	void end_render() final;
 
-	void bind_pipeline(vk::Pipeline pipeline) const final;
+	void bind_graphics_pipeline(vk::Pipeline pipeline) const final;
 
 	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo final;
 

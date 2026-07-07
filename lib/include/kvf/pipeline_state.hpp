@@ -43,10 +43,4 @@ struct PipelineState {
 	vk::CompareOp depth_compare{vk::CompareOp::eLess};
 	Flag flags{default_flags()};
 };
-
-struct PipelineFormat {
-	vk::SampleCountFlagBits samples{};
-	vk::Format color{};
-	vk::Format depth{};
-};
 } // namespace kvf
