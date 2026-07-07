@@ -1,7 +1,6 @@
 #include "detail/render_pass.hpp"
 #include "kvf/render_device.hpp"
 #include "kvf/util.hpp"
-#include "log.hpp"
 #include <array>
 
 namespace kvf::detail {
