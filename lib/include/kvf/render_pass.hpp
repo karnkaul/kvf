@@ -1,5 +1,6 @@
 #pragma once
 #include "klib/base_types.hpp"
+#include "kvf/graphics_shader.hpp"
 #include "kvf/pipeline_state.hpp"
 #include "kvf/rect.hpp"
 #include "kvf/render_device_fwd.hpp"
@@ -23,6 +24,7 @@ class IRenderPass : public klib::Polymorphic {
 	virtual void recreate(vk::SampleCountFlagBits samples = samples_v) = 0;
 
 	[[nodiscard]] virtual auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline = 0;
+	[[nodiscard]] virtual auto create_graphics_shader(GraphicsShaderCreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader> = 0;
 
 	[[nodiscard]] virtual auto has_color_target() const -> bool = 0;
 	[[nodiscard]] virtual auto has_resolve_target() const -> bool = 0;
@@ -44,6 +46,7 @@ class IRenderPass : public klib::Polymorphic {
 	[[nodiscard]] auto to_scissor(UvRect n_rect) const -> vk::Rect2D;
 
 	virtual void bind_graphics_pipeline(vk::Pipeline pipeline) const = 0;
+	virtual void bind_graphics_shader(IGraphicsShader const& shader) const = 0;
 
 	[[nodiscard]] virtual auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo = 0;
 

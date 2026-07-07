@@ -891,7 +891,10 @@ auto IRenderDevice::create_sampler(vk::SamplerCreateInfo create_info) const -> v
 }
 
 auto IRenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2> {
-	if ((get_flags() & RenderDeviceFlag::ShaderObjectFeature) != RenderDeviceFlag::ShaderObjectFeature) { return {}; }
+	if ((get_flags() & RenderDeviceFlag::ShaderObjectFeature) != RenderDeviceFlag::ShaderObjectFeature) {
+		log.warn("Attempt to create ShaderEXT objects without ShaderObjectFeature");
+		return {};
+	}
 
 	auto const create_shader_ci = [&create_info](std::span<std::uint32_t const> spirv) {
 		auto ret = vk::ShaderCreateInfoEXT{};

@@ -63,8 +63,7 @@ Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir
 
 	create_set_layouts();
 	create_pipeline_layout();
-	create_pipeline();
-	create_shader_objects();
+	create_shader();
 	create_texture();
 
 	write_vbo();
@@ -79,57 +78,13 @@ void Sprite::update(vk::CommandBuffer const command_buffer) {
 
 	m_color_pass->begin_render(command_buffer, extent);
 
-	// m_color_pass->bind_pipeline(*m_pipeline);
-
 	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
 	if (m_color_pass->allocate_sets(descriptor_sets, m_set_layouts)) {
 		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
 		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
 
-		static constexpr auto stages_v = std::array{
-			vk::ShaderStageFlagBits::eVertex,
-			vk::ShaderStageFlagBits::eFragment,
-		};
-		auto const shaders = std::array{
-			*m_shader_objects[0],
-			*m_shader_objects[1],
-		};
-		command_buffer.bindShadersEXT(stages_v, shaders);
-		command_buffer.setRasterizerDiscardEnable(vk::False);
-		command_buffer.setCullMode(vk::CullModeFlagBits::eNone);
-		command_buffer.setDepthTestEnable(vk::False);
-		command_buffer.setDepthBoundsTestEnable(vk::False);
-		command_buffer.setDepthWriteEnable(vk::False);
-		command_buffer.setDepthBiasEnable(vk::False);
-		command_buffer.setStencilTestEnable(vk::False);
-		command_buffer.setLogicOpEnableEXT(vk::False);
-		command_buffer.setColorBlendEnableEXT(0, vk::True);
-		auto cbe = vk::ColorBlendEquationEXT{};
-		cbe.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
-			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
-			.setColorBlendOp(vk::BlendOp::eAdd)
-			.setSrcAlphaBlendFactor(vk::BlendFactor::eZero)
-			.setDstAlphaBlendFactor(vk::BlendFactor::eOne)
-			.setAlphaBlendOp(vk::BlendOp::eAdd);
-		command_buffer.setColorBlendEquationEXT(0, cbe);
-		command_buffer.setPrimitiveRestartEnable(vk::False);
-		auto const ccf = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
-		command_buffer.setColorWriteMaskEXT(0, ccf);
+		m_color_pass->bind_graphics_shader(*m_shader);
 
-		command_buffer.setViewportWithCount(m_color_pass->to_viewport(uv_rect_v));
-		command_buffer.setScissorWithCount(m_color_pass->to_scissor(uv_rect_v));
-		command_buffer.setPolygonModeEXT(vk::PolygonMode::eFill);
-		command_buffer.setRasterizationSamplesEXT(m_color_pass->get_samples());
-		command_buffer.setSampleMaskEXT(m_color_pass->get_samples(), vk::SampleMask{0xffffffff});
-		command_buffer.setAlphaToCoverageEnableEXT(vk::False);
-		command_buffer.setFrontFace(vk::FrontFace::eCounterClockwise);
-
-		auto vib = vk::VertexInputBindingDescription2EXT{};
-		vib.setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(Vertex)).setDivisor(1);
-		auto vab = std::array<vk::VertexInputAttributeDescription2EXT, 2>{};
-		vab[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
-		vab[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
-		command_buffer.setVertexInputEXT(vib, vab);
 		command_buffer.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
 
 		command_buffer.bindVertexBuffers(0, m_vbo->get_buffer(), vk::DeviceSize{0});
@@ -165,40 +120,35 @@ void Sprite::create_pipeline_layout() {
 	m_pipeline_layout = get_render_device().get_device().createPipelineLayoutUnique(plci);
 }
 
-void Sprite::create_pipeline() {
-	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
-	auto const vertex_shader = loader.load_module("sprite.vert");
-	auto const fragment_shader = loader.load_module("sprite.frag");
-
-	auto bindings = std::array<vk::VertexInputBindingDescription, 1>{};
-	bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(Vertex));
-
-	auto attributes = std::array<vk::VertexInputAttributeDescription, 2>{};
-	attributes[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
-	attributes[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
-
-	auto const pipeline_state = PipelineState{
-		.vertex_bindings = bindings,
-		.vertex_attributes = attributes,
-		.vertex_shader = *vertex_shader,
-		.fragment_shader = *fragment_shader,
-		.flags = PipelineFlag::None,
-	};
-	m_pipeline = m_color_pass->create_graphics_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
-}
-
-void Sprite::create_shader_objects() {
+void Sprite::create_shader() {
 	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
 
+	// TODO: fix this shit
 	auto const vert_spir_v = loader.load_bytes("sprite.vert");
 	auto const vec = std::vector(vert_spir_v.begin(), vert_spir_v.end());
-	auto const shader_ci = ShaderObjectCreateInfo{
-		.vertex_spir_v = vec,
-		.fragment_spir_v = loader.load_bytes("sprite.frag"),
+	auto const shader_code = GraphicsShaderCode{
+		.vertex = vec,
+		.fragment = loader.load_bytes("sprite.frag"),
+	};
+	static constexpr auto input_bindings_v = [] {
+		auto ret = std::array<vk::VertexInputBindingDescription2EXT, 1>{};
+		ret[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(Vertex)).setDivisor(1);
+		return ret;
+	}();
+	static constexpr auto input_attributes_v = [] {
+		auto ret = std::array<vk::VertexInputAttributeDescription2EXT, 2>{};
+		ret[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
+		ret[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
+		return ret;
+	}();
+	static constexpr auto shader_input_v = GraphicsShaderInput{.bindings = input_bindings_v, .attributes = input_attributes_v};
+
+	auto const shader_ci = IGraphicsShader::CreateInfo{
+		.code = shader_code,
+		.input = shader_input_v,
 		.set_layouts = m_set_layouts,
 	};
-	m_shader_objects = get_render_device().create_shader_objects(shader_ci);
+	m_shader = m_color_pass->create_graphics_shader(shader_ci);
 }
 
 void Sprite::create_texture() {

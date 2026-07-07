@@ -1,7 +1,26 @@
 #include "detail/render_pass.hpp"
 #include "kvf/util.hpp"
+#include "log.hpp"
+#include <array>
 
 namespace kvf::detail {
+namespace {
+class GraphicsShader : public IGraphicsShader {
+  public:
+	explicit GraphicsShader(GraphicsShaderInput const& input, vk::UniqueShaderEXT vertex, vk::UniqueShaderEXT fragment)
+		: m_input(input), m_vertex(std::move(vertex)), m_fragment(std::move(fragment)) {}
+
+  private:
+	[[nodiscard]] auto get_input() const -> GraphicsShaderInput const& final { return m_input; }
+	[[nodiscard]] auto get_vertex() const -> vk::ShaderEXT final { return *m_vertex; }
+	[[nodiscard]] auto get_fragment() const -> vk::ShaderEXT final { return *m_fragment; }
+
+	GraphicsShaderInput m_input{};
+	vk::UniqueShaderEXT m_vertex{};
+	vk::UniqueShaderEXT m_fragment{};
+};
+} // namespace
+
 RenderPass::RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits const samples) : m_device(render_device), m_samples(samples) {}
 
 void RenderPass::set_color_target(vk::Format format) {
@@ -112,9 +131,47 @@ auto RenderPass::create_graphics_pipeline(vk::PipelineLayout layout, PipelineSta
 
 	auto const device = m_device->get_device();
 	auto ret = vk::Pipeline{};
-	if (device.createGraphicsPipelines({}, 1, &graphics_pipeline_ci, {}, &ret) != vk::Result::eSuccess) { return {}; }
+	if (device.createGraphicsPipelines({}, 1, &graphics_pipeline_ci, {}, &ret) != vk::Result::eSuccess) {
+		log.error("Failed to create Vulkan Graphics Pipeline");
+		return {};
+	}
 
 	return vk::UniquePipeline{ret, device};
+}
+
+auto RenderPass::create_graphics_shader(GraphicsShaderCreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader> {
+	if ((m_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) != RenderDeviceFlag::ShaderObjectFeature) {
+		log.warn("Attempt to create ShaderEXT objects without ShaderObjectFeature");
+		return {};
+	}
+
+	auto const create_shader_ci = [&create_info](std::span<std::uint32_t const> spirv) {
+		auto ret = vk::ShaderCreateInfoEXT{};
+		ret.setCodeSize(spirv.size_bytes())
+			.setPCode(spirv.data())
+			.setSetLayouts(create_info.set_layouts)
+			.setCodeType(vk::ShaderCodeTypeEXT::eSpirv)
+			.setPName("main");
+		ret.flags |= vk::ShaderCreateFlagBitsEXT::eLinkStage;
+		return ret;
+	};
+
+	auto shader_cis = std::array{
+		create_shader_ci(create_info.code.vertex),
+		create_shader_ci(create_info.code.fragment),
+	};
+	shader_cis[0].setStage(vk::ShaderStageFlagBits::eVertex).setNextStage(vk::ShaderStageFlagBits::eFragment);
+	shader_cis[1].setStage(vk::ShaderStageFlagBits::eFragment);
+
+	auto const device = m_device->get_device();
+	auto shaders = std::array<vk::ShaderEXT, 2>{};
+	auto result = device.createShadersEXT(std::uint32_t(shader_cis.size()), shader_cis.data(), nullptr, shaders.data());
+	if (result != vk::Result::eSuccess) {
+		log.error("Failed to create Vulkan ShaderEXT objects");
+		return {};
+	}
+
+	return std::make_unique<GraphicsShader>(create_info.input, vk::UniqueShaderEXT{shaders[0], device}, vk::UniqueShaderEXT{shaders[1], device});
 }
 
 auto RenderPass::get_color_format() const -> vk::Format {
@@ -203,6 +260,7 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	if (color_ai.imageView) { ri.setColorAttachments(color_ai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
 	m_command_buffer.beginRendering(ri);
 	if ((m_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) == RenderDeviceFlag::ShaderObjectFeature) {
+		m_command_buffer.setRasterizationSamplesEXT(m_samples);
 		m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
 	}
 }
@@ -253,6 +311,56 @@ void RenderPass::bind_graphics_pipeline(vk::Pipeline const pipeline) const {
 	m_command_buffer.bindPipeline(vk::PipelineBindPoint::eGraphics, pipeline);
 	m_command_buffer.setViewport(0, to_viewport(uv_rect_v));
 	m_command_buffer.setScissor(0, to_scissor(uv_rect_v));
+}
+
+void RenderPass::bind_graphics_shader(IGraphicsShader const& shader) const {
+	if (!m_command_buffer) { return; }
+
+	static constexpr auto stages_v = std::array{
+		vk::ShaderStageFlagBits::eVertex,
+		vk::ShaderStageFlagBits::eFragment,
+	};
+	auto const shaders = std::array{
+		shader.get_vertex(),
+		shader.get_fragment(),
+	};
+	m_command_buffer.bindShadersEXT(stages_v, shaders);
+	m_command_buffer.setRasterizerDiscardEnable(vk::False);
+	m_command_buffer.setDepthBoundsTestEnable(vk::False);
+	m_command_buffer.setDepthBiasEnable(vk::False);
+	m_command_buffer.setStencilTestEnable(vk::False);
+	m_command_buffer.setLogicOpEnableEXT(vk::False);
+	static constexpr auto color_blend_eq_v = [] {
+		auto ret = vk::ColorBlendEquationEXT{};
+		ret.setSrcColorBlendFactor(vk::BlendFactor::eSrcAlpha)
+			.setDstColorBlendFactor(vk::BlendFactor::eOneMinusSrcAlpha)
+			.setColorBlendOp(vk::BlendOp::eAdd)
+			.setSrcAlphaBlendFactor(vk::BlendFactor::eZero)
+			.setDstAlphaBlendFactor(vk::BlendFactor::eOne)
+			.setAlphaBlendOp(vk::BlendOp::eAdd);
+		return ret;
+	}();
+	m_command_buffer.setColorBlendEquationEXT(0, color_blend_eq_v);
+	m_command_buffer.setPrimitiveRestartEnable(vk::False);
+	auto const ccf = vk::ColorComponentFlagBits::eR | vk::ColorComponentFlagBits::eG | vk::ColorComponentFlagBits::eB | vk::ColorComponentFlagBits::eA;
+	m_command_buffer.setColorWriteMaskEXT(0, ccf);
+	m_command_buffer.setAlphaToCoverageEnableEXT(vk::False);
+	m_command_buffer.setFrontFace(vk::FrontFace::eCounterClockwise);
+
+	m_command_buffer.setCullMode(vk::CullModeFlagBits::eNone);
+	m_command_buffer.setDepthTestEnable(vk::False);
+	m_command_buffer.setDepthWriteEnable(vk::False);
+	m_command_buffer.setPolygonModeEXT(vk::PolygonMode::eFill);
+	m_command_buffer.setColorBlendEnableEXT(0, vk::True);
+
+	auto const input = shader.get_input();
+	m_command_buffer.setVertexInputEXT(input.bindings, input.attributes);
+	m_command_buffer.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
+
+	m_command_buffer.setViewportWithCount(to_viewport(uv_rect_v));
+	m_command_buffer.setScissorWithCount(to_scissor(uv_rect_v));
+	m_command_buffer.setRasterizationSamplesEXT(m_samples);
+	m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
 }
 
 auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
