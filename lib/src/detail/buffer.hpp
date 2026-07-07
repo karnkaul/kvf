@@ -1,7 +1,7 @@
 #pragma once
 #include "detail/vma.hpp"
 #include "kvf/buffer.hpp"
-#include "kvf/render_device.hpp"
+#include "kvf/kvf_fwd.hpp"
 
 namespace kvf::detail {
 class Buffer : public IBuffer {

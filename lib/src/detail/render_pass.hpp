@@ -1,6 +1,5 @@
 #pragma once
 #include "kvf/image.hpp"
-#include "kvf/render_device.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring.hpp"
 #include <memory>

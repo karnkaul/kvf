@@ -1,5 +1,6 @@
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/panic.hpp"
+#include "kvf/render_device.hpp"
 #include "kvf/util.hpp"
 
 namespace kvf {

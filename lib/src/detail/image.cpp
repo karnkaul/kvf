@@ -3,6 +3,7 @@
 #include "klib/debug/assert.hpp"
 #include "kvf/buffer.hpp"
 #include "kvf/is_positive.hpp"
+#include "kvf/render_device.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
 #include <algorithm>

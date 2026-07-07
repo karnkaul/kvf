@@ -1,5 +1,6 @@
 #include "detail/buffer.hpp"
 #include "klib/debug/assert.hpp"
+#include "kvf/render_device.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
 #include <numeric>

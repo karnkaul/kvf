@@ -1,5 +1,5 @@
 #pragma once
-#include "kvf/render_device.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <gsl/pointers>
