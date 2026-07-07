@@ -36,7 +36,7 @@ class IImage : public klib::Polymorphic {
 	using CreateInfo = ImageCreateInfo;
 
 	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IImage>;
-	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap const& bitmap, bool mip_map = true) -> std::unique_ptr<IImage>;
+	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap = {}, bool mip_map = true) -> std::unique_ptr<IImage>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 

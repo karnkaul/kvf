@@ -1,13 +1,27 @@
 #include "detail/image.hpp"
 #include "detail/buffer.hpp"
+#include "klib/debug/assert.hpp"
 #include "kvf/buffer.hpp"
+#include "kvf/is_positive.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
 #include <algorithm>
+#include <bit>
 #include <ranges>
 
 namespace kvf::detail {
 namespace {
+struct BytePixel {
+	// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
+	std::byte bytes[4];
+};
+
+constexpr auto white_pixel_v = std::bit_cast<BytePixel>(0xffffffff);
+constexpr auto white_bitmap_v = Bitmap{
+	.bytes = white_pixel_v.bytes,
+	.size = {1, 1},
+};
+
 class MipMapCreator {
   public:
 	explicit MipMapCreator(IImage& image, IRenderDevice const& render_device, vk::CommandBuffer command_buffer)
@@ -84,8 +98,16 @@ void Image::resize(vk::Extent2D extent) {
 auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	if (layers.empty()) { return false; }
 
-	auto const size = layers.front().size;
+	auto size = layers.front().size;
+	if (!is_positive(size)) {
+		layers = {&white_bitmap_v, 1};
+		size = {1, 1};
+	}
+
 	auto const extent = util::to_vk_extent(size);
+
+	auto const layer_size = vk::DeviceSize(extent.width * extent.height * Bitmap::channels_v);
+	KLIB_ASSERT(layer_size > 0);
 
 	if (!m_image.get().image || m_info.layers != std::uint32_t(layers.size())) {
 		m_info.layers = std::uint32_t(layers.size());
@@ -93,13 +115,11 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 		recreate(m_info);
 	}
 
-	auto const layer_size = vk::DeviceSize(extent.width * extent.height * Bitmap::channels_v);
 	auto const total_size = layers.size() * layer_size;
 	auto const check = [size, layer_size](Bitmap const& b) { return b.size == size && b.bytes.size() == layer_size; };
 	if (!std::ranges::all_of(layers, check)) { return false; }
 
 	resize(extent);
-	if (layer_size == 0) { return true; }
 
 	auto const original_layout = get_layout();
 
@@ -178,7 +198,7 @@ void Image::recreate_impl(CreateInfo create_info) {
 		.image = m_image.get().image,
 		.format = create_info.format,
 		.subresource = subresource_range(),
-		.type = vk::ImageViewType::e2D,
+		.type = create_info.view_type,
 	};
 	m_image_view = util::create_image_view(m_render_device->get_device(), image_view_ci);
 	m_layout = vk::ImageLayout::eUndefined;
@@ -190,7 +210,7 @@ auto IImage::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo cons
 	return std::make_unique<detail::Image>(render_device, create_info);
 }
 
-auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap const& bitmap, bool const mip_map) -> std::unique_ptr<IImage> {
+auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap, bool const mip_map) -> std::unique_ptr<IImage> {
 	auto image_ci = ImageCreateInfo{
 		.format = vk::Format::eR8G8B8A8Srgb,
 		.aspect = vk::ImageAspectFlagBits::eColor,
@@ -203,6 +223,7 @@ auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap 
 		image_ci.flags &= ~ImageFlag::MipMaps;
 	}
 	auto ret = create(render_device, image_ci);
+	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = detail::white_bitmap_v; }
 	ret->resize_and_overwrite(bitmap);
 	return ret;
 }
