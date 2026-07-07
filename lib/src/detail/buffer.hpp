@@ -11,6 +11,8 @@ class Buffer : public IBuffer {
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
 
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
+
 	[[nodiscard]] auto get_usage() const -> vk::BufferUsageFlags final { return m_info.usage; }
 	[[nodiscard]] auto get_type() const -> BufferType final { return m_info.type; }
 	[[nodiscard]] auto get_buffer() const -> vk::Buffer final { return m_buffer.get().buffer; }

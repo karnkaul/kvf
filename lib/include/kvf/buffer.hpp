@@ -1,7 +1,7 @@
 #pragma once
 #include "klib/base_types.hpp"
 #include "kvf/buffer_write.hpp"
-#include "kvf/render_device_fwd.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 #include <gsl/pointers>
@@ -26,6 +26,8 @@ class IBuffer : public klib::Polymorphic {
 	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IBuffer>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
+
+	[[nodiscard]] virtual auto get_render_device() const -> IRenderDevice& = 0;
 
 	[[nodiscard]] virtual auto get_usage() const -> vk::BufferUsageFlags = 0;
 	[[nodiscard]] virtual auto get_type() const -> BufferType = 0;

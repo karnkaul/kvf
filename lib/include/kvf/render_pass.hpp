@@ -1,10 +1,9 @@
 #pragma once
 #include "klib/base_types.hpp"
 #include "kvf/graphics_shader.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include "kvf/pipeline_state.hpp"
 #include "kvf/rect.hpp"
-#include "kvf/render_device_fwd.hpp"
-#include "kvf/render_pass_fwd.hpp"
 #include "kvf/render_target.hpp"
 #include <glm/vec4.hpp>
 #include <gsl/pointers>

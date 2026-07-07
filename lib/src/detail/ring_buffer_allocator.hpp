@@ -16,6 +16,8 @@ class RingBufferAllocator : public IRingBufferAllocator, public INextFrameListen
 		std::size_t index{};
 	};
 
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
+
 	[[nodiscard]] auto allocate_next() -> std::span<FixedUsageBuffer const> final;
 
 	void on_next_frame(FrameIndex frame_index) final;

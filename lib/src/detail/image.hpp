@@ -11,6 +11,8 @@ class Image : public IImage {
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
 
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
+
 	[[nodiscard]] auto get_format() const -> vk::Format final { return m_info.format; }
 	[[nodiscard]] auto get_aspect() const -> vk::ImageAspectFlags final { return m_info.aspect; }
 	[[nodiscard]] auto get_usage() const -> vk::ImageUsageFlags final { return m_info.usage; }

@@ -13,6 +13,8 @@ class ScratchCommandBuffer {
 
 	explicit ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device);
 
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& { return *m_render_device; }
+
 	[[nodiscard]] auto get() const -> vk::CommandBuffer { return m_cmd; }
 
 	auto submit_and_wait(std::chrono::seconds timeout = timeout_v) -> bool;

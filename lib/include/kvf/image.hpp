@@ -2,7 +2,7 @@
 #include "klib/base_types.hpp"
 #include "klib/enum/bitops.hpp"
 #include "kvf/bitmap.hpp"
-#include "kvf/render_device_fwd.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include "kvf/render_target.hpp"
 #include <cstdint>
 #include <gsl/pointers>
@@ -39,6 +39,8 @@ class IImage : public klib::Polymorphic {
 	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap const& bitmap, bool mip_map = true) -> std::unique_ptr<IImage>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
+
+	[[nodiscard]] virtual auto get_render_device() const -> IRenderDevice& = 0;
 
 	[[nodiscard]] virtual auto get_format() const -> vk::Format = 0;
 	[[nodiscard]] virtual auto get_aspect() const -> vk::ImageAspectFlags = 0;

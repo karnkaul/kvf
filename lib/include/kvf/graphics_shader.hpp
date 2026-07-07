@@ -1,6 +1,6 @@
 #pragma once
 #include "klib/base_types.hpp"
-#include "kvf/render_device_fwd.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include <vulkan/vulkan.hpp>
 #include <cstdint>
 #include <gsl/pointers>

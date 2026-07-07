@@ -1,6 +1,6 @@
 #pragma once
 #include "kvf/buffer.hpp"
-#include "kvf/render_device_fwd.hpp"
+#include "kvf/kvf_fwd.hpp"
 #include <gsl/pointers>
 #include <span>
 
@@ -10,6 +10,8 @@ using BufferUsageLayout = std::span<vk::BufferUsageFlags const>;
 class FixedUsageBuffer {
   public:
 	explicit FixedUsageBuffer(gsl::not_null<IRenderDevice*> device, vk::BufferUsageFlags usage, BufferType type = BufferType::Host);
+
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& { return m_buffer->get_render_device(); }
 
 	[[nodiscard]] auto get_usage() const -> vk::BufferUsageFlags { return m_usage; }
 	[[nodiscard]] auto get_type() const -> BufferType { return m_type; }
