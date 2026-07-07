@@ -191,6 +191,7 @@ void Image::recreate_impl(CreateInfo create_info) {
 	if (create_info.format == vk::Format::eUndefined) { create_info.format = vk::Format::eR8G8B8A8Srgb; }
 	util::ensure_positive(create_info.extent);
 
+	if (create_info.extent.width == 1 || create_info.extent.height == 1) { create_info.flags &= ~ImageFlag::MipMaps; }
 	m_image = vma::create_image(m_render_device->get_allocator(), m_render_device->get_queue_family(), create_info);
 	m_info = create_info;
 
