@@ -1,13 +1,14 @@
 #include "scenes/sprite.hpp"
 #include "klib/debug/assert.hpp"
 #include "klib/random.hpp"
-#include "kvf/error.hpp"
 #include "kvf/image_bitmap.hpp"
+#include "kvf/panic.hpp"
 #include "kvf/util.hpp"
 #include "shader_loader.hpp"
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/mat4x4.hpp>
 #include <imgui.h>
+#include <array>
 #include <filesystem>
 #include <ranges>
 
@@ -41,21 +42,28 @@ struct Quad {
 	}
 };
 
-constexpr auto vbo_ci_v = vma::BufferCreateInfo{
+constexpr auto vbo_ci_v = BufferCreateInfo{
 	.usage = vk::BufferUsageFlagBits::eVertexBuffer | vk::BufferUsageFlagBits::eIndexBuffer,
-	.type = vma::BufferType::Device,
+	.type = BufferType::Device,
+	.size = sizeof(Quad),
+};
+
+constexpr auto buffer_usage_layout_v = std::array<vk::BufferUsageFlags, 2>{
+	vk::BufferUsageFlagBits::eUniformBuffer,
+	vk::BufferUsageFlagBits::eStorageBuffer,
 };
 } // namespace
 
-Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(device, vk::SampleCountFlagBits::e2),
-	  m_scratch_buffers(device, {vk::BufferUsageFlagBits::eUniformBuffer, vk::BufferUsageFlagBits::eStorageBuffer}), m_vbo(device, vbo_ci_v, sizeof(Quad)) {
-	m_color_pass.set_color_target().set_depth_target();
-	m_color_pass.clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
+Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
+	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)),
+	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)), m_vbo(IBuffer::create(device, vbo_ci_v)) {
+	m_color_pass->set_color_target();
+	m_color_pass->set_depth_target();
+	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 
 	create_set_layouts();
 	create_pipeline_layout();
-	create_pipeline();
+	create_shader();
 	create_texture();
 
 	write_vbo();
@@ -66,26 +74,28 @@ Sprite::Sprite(gsl::not_null<RenderDevice*> device, std::string_view assets_dir)
 void Sprite::update(vk::CommandBuffer const command_buffer) {
 	for (auto& instance : m_instances) { instance.rotation += instance.degrees_per_sec * get_dt().count(); }
 
-	auto const extent = get_render_device().get_framebuffer_extent();
+	auto const extent = get_render_device().get_swapchain_image_extent();
 
-	m_color_pass.begin_render(command_buffer, extent);
-
-	m_color_pass.bind_pipeline(*m_pipeline);
+	m_color_pass->begin_render(command_buffer, extent);
 
 	auto descriptor_sets = std::array<vk::DescriptorSet, 2>{};
-	if (get_render_device().allocate_sets(descriptor_sets, m_set_layouts)) {
+	if (m_color_pass->allocate_sets(descriptor_sets, m_set_layouts)) {
 		write_descriptor_sets(descriptor_sets, util::to_glm_vec(extent));
 		command_buffer.bindDescriptorSets(vk::PipelineBindPoint::eGraphics, *m_pipeline_layout, 0, descriptor_sets, {});
 
-		command_buffer.bindVertexBuffers(0, m_vbo.get_buffer(), vk::DeviceSize{0});
-		command_buffer.bindIndexBuffer(m_vbo.get_buffer(), m_index_offset, vk::IndexType::eUint32);
+		m_color_pass->bind_graphics_shader(*m_shader);
+
+		command_buffer.setPrimitiveTopology(vk::PrimitiveTopology::eTriangleList);
+
+		command_buffer.bindVertexBuffers(0, m_vbo->get_buffer(), vk::DeviceSize{0});
+		command_buffer.bindIndexBuffer(m_vbo->get_buffer(), m_index_offset, vk::IndexType::eUint32);
 		command_buffer.drawIndexed(Quad::index_count_v, std::uint32_t(m_instances.size()), 0, 0, 0);
 	}
 
-	m_color_pass.end_render();
+	m_color_pass->end_render();
 }
 
-auto Sprite::get_render_target() const -> RenderTarget { return m_color_pass.render_target(); }
+auto Sprite::get_render_target() const -> RenderTarget { return m_color_pass->render_target(); }
 
 void Sprite::create_set_layouts() {
 	static constexpr auto stages_v = vk::ShaderStageFlagBits::eAllGraphics;
@@ -110,36 +120,43 @@ void Sprite::create_pipeline_layout() {
 	m_pipeline_layout = get_render_device().get_device().createPipelineLayoutUnique(plci);
 }
 
-void Sprite::create_pipeline() {
+void Sprite::create_shader() {
 	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
-	auto const vertex_shader = loader.load("sprite.vert");
-	auto const fragment_shader = loader.load("sprite.frag");
 
-	auto bindings = std::array<vk::VertexInputBindingDescription, 1>{};
-	bindings[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(Vertex));
-
-	auto attributes = std::array<vk::VertexInputAttributeDescription, 2>{};
-	attributes[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
-	attributes[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
-
-	auto const pipeline_state = PipelineState{
-		.vertex_bindings = bindings,
-		.vertex_attributes = attributes,
-		.vertex_shader = *vertex_shader,
-		.fragment_shader = *fragment_shader,
-		.flags = PipelineFlag::None,
+	auto const vert_spir_v = loader.load_spir_v("sprite.vert");
+	auto const frag_spir_v = loader.load_spir_v("sprite.frag");
+	auto const shader_code = GraphicsShaderCode{
+		.vertex = vert_spir_v,
+		.fragment = frag_spir_v,
 	};
-	m_pipeline = m_color_pass.create_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw Error{"Failed to create Vulkan Pipeline"}; }
+	static constexpr auto input_bindings_v = [] {
+		auto ret = std::array<vk::VertexInputBindingDescription2EXT, 1>{};
+		ret[0].setBinding(0).setInputRate(vk::VertexInputRate::eVertex).setStride(sizeof(Vertex)).setDivisor(1);
+		return ret;
+	}();
+	static constexpr auto input_attributes_v = [] {
+		auto ret = std::array<vk::VertexInputAttributeDescription2EXT, 2>{};
+		ret[0].setBinding(0).setLocation(0).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, position));
+		ret[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
+		return ret;
+	}();
+	static constexpr auto shader_input_v = GraphicsShaderInput{.bindings = input_bindings_v, .attributes = input_attributes_v};
+
+	auto const shader_ci = IGraphicsShader::CreateInfo{
+		.code = shader_code,
+		.input = shader_input_v,
+		.set_layouts = m_set_layouts,
+	};
+	m_shader = IGraphicsShader::create(&get_render_device(), shader_ci);
 }
 
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
-	if (!util::bytes_from_file(bytes, path.c_str())) { throw Error{std::format("Failed to load image: {}", path)}; }
+	if (!util::bytes_from_file(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
-	if (!image.is_loaded()) { throw Error{"Failed to load image: awesomeface.png"}; }
-	m_texture = vma::Texture{&get_render_device(), image.bitmap()};
+	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
+	m_texture = IImage::create_texture(&get_render_device(), image.bitmap());
 
 	auto const sci = util::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().create_sampler(sci);
@@ -150,11 +167,11 @@ void Sprite::write_vbo() {
 	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
-	if (!m_vbo.write_in_place(vertices)) { throw Error{"Failed to write vertices to Buffer"}; }
+	if (!m_vbo->write_in_place(vertices)) { throw Panic{"Failed to write vertices to Buffer"}; }
 
 	m_index_offset = vertices.size_bytes();
 	auto const indices = std::span{quad.indices};
-	if (!m_vbo.write_in_place(indices, m_index_offset)) { throw Error{"Failed to write indices to Buffer"}; }
+	if (!m_vbo->write_in_place(indices, m_index_offset)) { throw Panic{"Failed to write indices to Buffer"}; }
 }
 
 void Sprite::create_instances() {
@@ -172,12 +189,12 @@ void Sprite::create_instances() {
 }
 
 void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, glm::vec2 const extent) {
-	auto const buffers = m_scratch_buffers.allocate_next();
+	auto const buffers = m_scratch_buffers->allocate_next();
 	KLIB_ASSERT(buffers.size() == 2 && buffers[0].get_usage() == vk::BufferUsageFlagBits::eUniformBuffer &&
 				buffers[1].get_usage() == vk::BufferUsageFlagBits::eStorageBuffer);
 
-	auto& view_ubo = buffers[0];
-	auto& instances_ssbo = buffers[1];
+	auto const& view_ubo = buffers[0];
+	auto const& instances_ssbo = buffers[1];
 
 	auto wds = std::array<vk::WriteDescriptorSet, 3>{};
 	auto const half_extent = 0.5f * extent;
@@ -197,7 +214,7 @@ void Sprite::write_descriptor_sets(std::span<vk::DescriptorSet const, 2> sets, g
 	auto const instances_dbi = instances_ssbo.descriptor_info();
 	wds[1] = util::ssbo_write(&instances_dbi, sets[1], 0);
 
-	auto const texture_dii = m_texture.descriptor_info(*m_sampler);
+	auto const texture_dii = m_texture->descriptor_info(*m_sampler);
 	wds[2] = util::image_write(&texture_dii, sets[1], 1);
 
 	get_render_device().get_device().updateDescriptorSets(wds, {});

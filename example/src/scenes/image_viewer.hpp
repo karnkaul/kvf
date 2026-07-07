@@ -1,12 +1,13 @@
 #pragma once
 #include "klib/string/c_string.hpp"
+#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
 #include "scene.hpp"
 
 namespace kvf::example {
 class ImageViewer : public Scene {
   public:
-	explicit ImageViewer(gsl::not_null<RenderDevice*> device, std::string_view assets_dir);
+	explicit ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir);
 
   private:
 	void on_drop(std::span<char const* const> paths) final;
@@ -16,6 +17,6 @@ class ImageViewer : public Scene {
 	void resize_window();
 	void try_load(klib::CString path);
 
-	vma::Image m_image;
+	std::unique_ptr<IImage> m_image{};
 };
 } // namespace kvf::example

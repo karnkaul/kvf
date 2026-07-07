@@ -1,5 +1,5 @@
 #pragma once
-#include "kvf/render_api.hpp"
+#include "kvf/render_device.hpp"
 #include <vulkan/vulkan.hpp>
 #include <chrono>
 #include <gsl/pointers>
@@ -7,11 +7,13 @@
 using namespace std::chrono_literals;
 
 namespace kvf {
-class CommandBuffer {
+class ScratchCommandBuffer {
   public:
 	static constexpr auto timeout_v{5s};
 
-	explicit CommandBuffer(gsl::not_null<IRenderApi const*> api);
+	explicit ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device);
+
+	[[nodiscard]] auto get_render_device() const -> IRenderDevice& { return *m_render_device; }
 
 	[[nodiscard]] auto get() const -> vk::CommandBuffer { return m_cmd; }
 
@@ -20,7 +22,7 @@ class CommandBuffer {
 	operator vk::CommandBuffer() const { return get(); }
 
   private:
-	IRenderApi const* m_api;
+	gsl::not_null<IRenderDevice*> m_render_device;
 
 	vk::UniqueCommandPool m_pool{};
 	vk::CommandBuffer m_cmd{};

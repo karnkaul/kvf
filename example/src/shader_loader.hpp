@@ -8,11 +8,11 @@ class ShaderLoader {
   public:
 	explicit ShaderLoader(vk::Device device, std::string_view dir) : m_device(device), m_dir(dir) {}
 
-	auto load(std::string_view uri) -> vk::UniqueShaderModule;
+	[[nodiscard]] auto load_module(std::string_view uri) const -> vk::UniqueShaderModule;
+	[[nodiscard]] auto load_spir_v(std::string_view uri) const -> std::vector<std::uint32_t>;
 
   private:
 	vk::Device m_device{};
 	std::string_view m_dir{};
-	std::vector<std::uint32_t> m_spir_v{};
 };
 } // namespace kvf::example
