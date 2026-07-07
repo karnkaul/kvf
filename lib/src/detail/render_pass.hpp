@@ -21,7 +21,6 @@ class RenderPass : public IRenderPass {
 	void recreate(vk::SampleCountFlagBits samples = samples_v) final;
 
 	[[nodiscard]] auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline final;
-	[[nodiscard]] auto create_graphics_shader(GraphicsShaderCreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader> final;
 
 	[[nodiscard]] auto has_color_target() const -> bool final { return m_framebuffers.front().color != nullptr; }
 	[[nodiscard]] auto has_resolve_target() const -> bool final { return m_framebuffers.front().resolve != nullptr; }

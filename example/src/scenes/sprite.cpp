@@ -123,12 +123,11 @@ void Sprite::create_pipeline_layout() {
 void Sprite::create_shader() {
 	auto loader = ShaderLoader{get_render_device().get_device(), get_assets_dir()};
 
-	// TODO: fix this shit
-	auto const vert_spir_v = loader.load_bytes("sprite.vert");
-	auto const vec = std::vector(vert_spir_v.begin(), vert_spir_v.end());
+	auto const vert_spir_v = loader.load_spir_v("sprite.vert");
+	auto const frag_spir_v = loader.load_spir_v("sprite.frag");
 	auto const shader_code = GraphicsShaderCode{
-		.vertex = vec,
-		.fragment = loader.load_bytes("sprite.frag"),
+		.vertex = vert_spir_v,
+		.fragment = frag_spir_v,
 	};
 	static constexpr auto input_bindings_v = [] {
 		auto ret = std::array<vk::VertexInputBindingDescription2EXT, 1>{};
@@ -148,7 +147,7 @@ void Sprite::create_shader() {
 		.input = shader_input_v,
 		.set_layouts = m_set_layouts,
 	};
-	m_shader = m_color_pass->create_graphics_shader(shader_ci);
+	m_shader = IGraphicsShader::create(&get_render_device(), shader_ci);
 }
 
 void Sprite::create_texture() {

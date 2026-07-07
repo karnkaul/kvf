@@ -6,16 +6,17 @@
 namespace kvf::example {
 namespace fs = std::filesystem;
 
-auto ShaderLoader::load_module(std::string_view const uri) -> vk::UniqueShaderModule {
-	auto const bytes = load_bytes(uri);
+auto ShaderLoader::load_module(std::string_view const uri) const -> vk::UniqueShaderModule {
+	auto const spir_v = load_spir_v(uri);
 	auto smci = vk::ShaderModuleCreateInfo{};
-	smci.setCode(bytes);
+	smci.setCode(spir_v);
 	return m_device.createShaderModuleUnique(smci);
 }
 
-auto ShaderLoader::load_bytes(std::string_view uri) -> std::span<std::uint32_t const> {
+auto ShaderLoader::load_spir_v(std::string_view uri) const -> std::vector<std::uint32_t> {
 	auto const path = fs::path{m_dir} / uri;
-	if (!kvf::util::spirv_from_file(m_spir_v, path.string().c_str())) { throw Panic{std::format("Failed to load shader: {}", path.generic_string())}; }
-	return m_spir_v;
+	auto ret = std::vector<std::uint32_t>{};
+	if (!kvf::util::spirv_from_file(ret, path.string().c_str())) { throw Panic{std::format("Failed to load shader: {}", path.generic_string())}; }
+	return ret;
 }
 } // namespace kvf::example

@@ -24,7 +24,6 @@ class IRenderPass : public klib::Polymorphic {
 	virtual void recreate(vk::SampleCountFlagBits samples = samples_v) = 0;
 
 	[[nodiscard]] virtual auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline = 0;
-	[[nodiscard]] virtual auto create_graphics_shader(GraphicsShaderCreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader> = 0;
 
 	[[nodiscard]] virtual auto has_color_target() const -> bool = 0;
 	[[nodiscard]] virtual auto has_resolve_target() const -> bool = 0;
