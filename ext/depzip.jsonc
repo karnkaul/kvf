@@ -5,8 +5,7 @@
     },
     {
       "uri": "karnkaul/klib",
-      // "branch": "v0.6.7"
-      "branch": "develop"
+      "branch": "v0.6.8"
     },
     {
       "uri": "karnkaul/clap",
