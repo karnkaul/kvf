@@ -162,7 +162,9 @@ auto RenderPass::allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<
 }
 
 void RenderPass::end_render() {
-	if (m_command_buffer) { m_command_buffer.endRendering(); }
+	if (!m_command_buffer) { return; }
+
+	m_command_buffer.endRendering();
 
 	m_barriers.clear();
 	if (m_targets.color.image) {
@@ -193,9 +195,10 @@ void RenderPass::end_render() {
 			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
 		m_barriers.push_back(barrier);
 	}
-	if (m_command_buffer) { util::record_barriers(m_command_buffer, m_barriers); }
+	util::record_barriers(m_command_buffer, m_barriers);
 
 	m_command_buffer = vk::CommandBuffer{};
+	m_previous_rt = render_target();
 }
 
 void RenderPass::bind_graphics_pipeline(vk::Pipeline const pipeline) const {
@@ -256,10 +259,9 @@ void RenderPass::bind_graphics_shader(IGraphicsShader const& shader) const {
 }
 
 auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
-	auto const& rt = render_target();
-	if (!rt.view) { return {}; }
+	if (!m_previous_rt.view) { return {}; }
 	auto ret = vk::DescriptorImageInfo{};
-	ret.setImageView(rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
+	ret.setImageView(m_previous_rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
 
