@@ -65,6 +65,7 @@ class RenderPass : public IRenderPass {
 	vk::Extent2D m_extent{ImageCreateInfo::min_extent_v};
 
 	Targets m_targets{};
+	RenderTarget m_previous_rt{};
 	std::vector<vk::ImageMemoryBarrier2> m_barriers{};
 };
 } // namespace kvf::detail
