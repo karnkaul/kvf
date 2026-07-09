@@ -1,7 +1,7 @@
 #pragma once
 #include "kvf/color.hpp"
 #include "kvf/graphics_shader.hpp"
-#include "kvf/image.hpp"
+#include "kvf/render_image.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring_buffer_allocator.hpp"
 #include "scene.hpp"
@@ -47,12 +47,12 @@ class Sprite : public Scene {
 	vk::UniquePipelineLayout m_pipeline_layout{};
 	std::unique_ptr<IGraphicsShader> m_shader{};
 
-	std::unique_ptr<IBuffer> m_vbo{};
+	std::unique_ptr<IRenderBuffer> m_vbo{};
 	vk::DeviceSize m_index_offset{};
 
 	std::vector<Std430Instance> m_instance_buffer{};
 
-	std::unique_ptr<IImage> m_texture{};
+	std::unique_ptr<IRenderImage> m_texture{};
 	vk::UniqueSampler m_sampler{};
 
 	std::vector<RenderInstance> m_instances{};

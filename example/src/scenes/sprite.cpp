@@ -56,7 +56,7 @@ constexpr auto buffer_usage_layout_v = std::array<vk::BufferUsageFlags, 2>{
 
 Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)),
-	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)), m_vbo(IBuffer::create(device, vbo_ci_v)) {
+	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)), m_vbo(IRenderBuffer::create(device, vbo_ci_v)) {
 	m_color_pass->set_color_target();
 	m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
@@ -156,7 +156,7 @@ void Sprite::create_texture() {
 	if (!util::bytes_from_file(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
-	m_texture = IImage::create_texture(&get_render_device(), image.bitmap());
+	m_texture = IRenderImage::create_texture(&get_render_device(), image.bitmap());
 
 	auto const sci = util::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
 	m_sampler = get_render_device().create_sampler(sci);

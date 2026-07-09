@@ -1,8 +1,9 @@
 #pragma once
-#include "kvf/image.hpp"
+#include "detail/render_image.hpp"
+#include "klib/ptr.hpp"
+#include "kvf/frame_index.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring.hpp"
-#include <memory>
 
 namespace kvf::detail {
 class RenderPass : public IRenderPass {
@@ -12,6 +13,14 @@ class RenderPass : public IRenderPass {
 	explicit RenderPass(gsl::not_null<IRenderDevice*> render_device, vk::SampleCountFlagBits samples = samples_v);
 
   private:
+	struct Framebuffer {
+		[[nodiscard]] auto render_image() const -> klib::Ptr<IRenderImage const>;
+
+		std::optional<RenderImage> color{};
+		std::optional<RenderImage> resolve{};
+		std::optional<RenderImage> depth{};
+	};
+
 	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
 
 	void set_color_target(vk::Format format = vk::Format::eUndefined) final;
@@ -21,16 +30,16 @@ class RenderPass : public IRenderPass {
 
 	[[nodiscard]] auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline final;
 
-	[[nodiscard]] auto has_color_target() const -> bool final { return m_framebuffers.front().color != nullptr; }
-	[[nodiscard]] auto has_resolve_target() const -> bool final { return m_framebuffers.front().resolve != nullptr; }
-	[[nodiscard]] auto has_depth_target() const -> bool final { return m_framebuffers.front().depth != nullptr; }
+	[[nodiscard]] auto has_color_target() const -> bool final { return m_framebuffers.front().color.has_value(); }
+	[[nodiscard]] auto has_resolve_target() const -> bool final { return m_framebuffers.front().resolve.has_value(); }
+	[[nodiscard]] auto has_depth_target() const -> bool final { return m_framebuffers.front().depth.has_value(); }
 
 	[[nodiscard]] auto get_color_format() const -> vk::Format final;
 	[[nodiscard]] auto get_depth_format() const -> vk::Format final;
 	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits final { return m_samples; }
 
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D final { return m_extent; }
-	[[nodiscard]] auto render_target() const -> RenderTarget const& final;
+	[[nodiscard]] auto render_target() const -> RenderTarget const& final { return m_render_target; }
 
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent) final;
 	[[nodiscard]] auto get_command_buffer() const -> vk::CommandBuffer final { return m_command_buffer; }
@@ -40,21 +49,12 @@ class RenderPass : public IRenderPass {
 	void bind_graphics_pipeline(vk::Pipeline pipeline) const final;
 	void bind_graphics_shader(IGraphicsShader const& shader) const final;
 
-	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo final;
+	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> std::optional<vk::DescriptorImageInfo> final;
+	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> final;
 
-	struct Framebuffer {
-		std::unique_ptr<IImage> color{};
-		std::unique_ptr<IImage> resolve{};
-		std::unique_ptr<IImage> depth{};
-	};
+	[[nodiscard]] auto get_rendered_image() const -> klib::Ptr<IRenderImage const>;
 
-	struct Targets {
-		RenderTarget color{};
-		RenderTarget resolve{};
-		RenderTarget depth{};
-	};
-
-	void set_render_targets();
+	void prep_for_render(Framebuffer& framebuffer);
 
 	gsl::not_null<IRenderDevice*> m_render_device;
 	vk::SampleCountFlagBits m_samples{};
@@ -64,8 +64,8 @@ class RenderPass : public IRenderPass {
 	vk::CommandBuffer m_command_buffer{};
 	vk::Extent2D m_extent{ImageCreateInfo::min_extent_v};
 
-	Targets m_targets{};
-	RenderTarget m_previous_rt{};
+	std::optional<FrameIndex> m_rendered_index{};
+	RenderTarget m_render_target{};
 	std::vector<vk::ImageMemoryBarrier2> m_barriers{};
 };
 } // namespace kvf::detail

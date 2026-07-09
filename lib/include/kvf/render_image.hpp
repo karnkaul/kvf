@@ -2,11 +2,13 @@
 #include "klib/base_types.hpp"
 #include "klib/enum/bitops.hpp"
 #include "kvf/bitmap.hpp"
+#include "kvf/color_bitmap.hpp"
 #include "kvf/kvf_fwd.hpp"
 #include "kvf/render_target.hpp"
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
+#include <optional>
 
 namespace kvf {
 enum class ImageFlag : std::int8_t {
@@ -31,12 +33,13 @@ struct ImageCreateInfo {
 	vk::Extent2D extent{min_extent_v};
 };
 
-class IImage : public klib::Polymorphic {
+class IRenderImage : public klib::Polymorphic {
   public:
 	using CreateInfo = ImageCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IImage>;
-	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap = {}, bool mip_map = true) -> std::unique_ptr<IImage>;
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderImage>;
+	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap = {}, bool mip_map = true)
+		-> std::unique_ptr<IRenderImage>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 
@@ -56,6 +59,7 @@ class IImage : public klib::Polymorphic {
 
 	virtual void resize(vk::Extent2D extent) = 0;
 	virtual auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool = 0;
+	[[nodiscard]] virtual auto copy_to_bitmap(vk::Extent2D custom_extent = {}) const -> std::optional<ColorBitmap> = 0;
 
 	virtual void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) = 0;
 

@@ -28,8 +28,8 @@ void RenderPass::set_color_target(vk::Format format) {
 	}();
 	if (has_color_target()) { m_render_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = IImage::create(m_render_device, color_ici);
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IImage::create(m_render_device, resolve_ici); }
+		framebuffer.color.emplace(m_render_device, color_ici);
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve.emplace(m_render_device, resolve_ici); }
 	}
 }
 
@@ -42,7 +42,7 @@ void RenderPass::set_depth_target() {
 		.flags = ImageFlag::DedicatedAlloc,
 		.extent = m_extent,
 	};
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IImage::create(m_render_device, depth_ici); }
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth.emplace(m_render_device, depth_ici); }
 }
 
 void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
@@ -54,7 +54,6 @@ void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
 	if (m_samples == vk::SampleCountFlagBits::e1) {
 		for (auto& framebuffer : m_framebuffers) { framebuffer.resolve.reset(); }
 	}
-	m_targets = {};
 }
 
 auto RenderPass::create_graphics_pipeline(vk::PipelineLayout const layout, PipelineState const& state) -> vk::UniquePipeline {
@@ -76,12 +75,6 @@ auto RenderPass::get_depth_format() const -> vk::Format {
 	return m_framebuffers[0].depth->get_format();
 }
 
-auto RenderPass::render_target() const -> RenderTarget const& {
-	if (m_targets.resolve.view) { return m_targets.resolve; }
-	if (m_targets.color.view) { return m_targets.color; }
-	return m_targets.depth;
-}
-
 void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent2D extent) {
 	if (!command_buffer || (!has_color_target() && !has_depth_target())) { return; }
 
@@ -89,68 +82,43 @@ void RenderPass::begin_render(vk::CommandBuffer const command_buffer, vk::Extent
 	m_extent = extent;
 	m_command_buffer = command_buffer;
 
-	set_render_targets();
+	auto& framebuffer = m_framebuffers.at(std::size_t(m_render_device->get_frame_index()));
+	prep_for_render(framebuffer);
 
 	m_barriers.clear();
-	if (m_targets.color.image) {
-		auto barrier = m_render_device->create_image_barrier();
-		barrier.setImage(m_targets.color.image)
-			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-			.setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-			.setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-			.setOldLayout(vk::ImageLayout::eUndefined)
-			.setNewLayout(vk::ImageLayout::eAttachmentOptimal);
-		m_barriers.push_back(barrier);
-	}
-	if (m_targets.resolve.image) {
-		KLIB_ASSERT(m_targets.color.image && !m_barriers.empty());
-		auto barrier = m_barriers.back();
-		barrier.setImage(m_targets.resolve.image);
-		m_barriers.push_back(barrier);
-	}
-	if (m_targets.depth.image) {
-		auto barrier = m_render_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
-		barrier.setImage(m_targets.depth.image)
-			.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-			.setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-			.setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests)
-			.setOldLayout(vk::ImageLayout::eUndefined)
-			.setNewLayout(vk::ImageLayout::eAttachmentOptimal);
-		m_barriers.push_back(barrier);
-	}
-
+	if (framebuffer.color) { m_barriers.push_back(framebuffer.color->get_pre_render_barrier()); }
+	if (framebuffer.resolve) { m_barriers.push_back(framebuffer.resolve->get_pre_render_barrier()); }
+	if (framebuffer.depth) { m_barriers.push_back(framebuffer.depth->get_pre_render_barrier()); }
 	util::record_barriers(m_command_buffer, m_barriers);
 
 	auto color_ai = vk::RenderingAttachmentInfo{};
 	auto depth_ai = vk::RenderingAttachmentInfo{};
 
-	if (m_targets.color.view) {
+	if (framebuffer.color) {
 		auto const cc = clear_color;
-		color_ai.setImageView(m_targets.color.view)
+		color_ai.setImageView(framebuffer.color->get_image_view())
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(vk::AttachmentStoreOp::eStore)
 			.setClearValue(vk::ClearColorValue{cc.x, cc.y, cc.z, cc.w});
 	}
-	if (m_targets.resolve.view) {
-		color_ai.setResolveImageView(m_targets.resolve.view)
+	if (framebuffer.resolve) {
+		color_ai.setResolveImageView(framebuffer.resolve->get_image_view())
 			.setResolveImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setResolveMode(vk::ResolveModeFlagBits::eAverage);
 	}
-	if (m_targets.depth.view) {
-		depth_ai.setImageView(m_targets.depth.view)
+	if (framebuffer.depth) {
+		depth_ai.setImageView(framebuffer.depth->get_image_view())
 			.setImageLayout(vk::ImageLayout::eAttachmentOptimal)
 			.setLoadOp(vk::AttachmentLoadOp::eClear)
 			.setStoreOp(depth_store_op)
 			.setClearValue(clear_depth);
 	}
 
-	auto ri = vk::RenderingInfo{};
-	if (depth_ai.imageView) { ri.setPDepthAttachment(&depth_ai).setRenderArea(vk::Rect2D{{}, m_targets.depth.extent}); }
-	if (color_ai.imageView) { ri.setColorAttachments(color_ai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_targets.color.extent}); }
-	m_command_buffer.beginRendering(ri);
+	auto rendering_info = vk::RenderingInfo{};
+	if (framebuffer.depth) { rendering_info.setPDepthAttachment(&depth_ai).setRenderArea(vk::Rect2D{{}, m_extent}); }
+	if (framebuffer.color) { rendering_info.setColorAttachments(color_ai).setLayerCount(1).setRenderArea(vk::Rect2D{{}, m_extent}); }
+	m_command_buffer.beginRendering(rendering_info);
 	if ((m_render_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) == RenderDeviceFlag::ShaderObjectFeature) {
 		m_command_buffer.setRasterizationSamplesEXT(m_samples);
 		m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
@@ -166,39 +134,17 @@ void RenderPass::end_render() {
 
 	m_command_buffer.endRendering();
 
+	auto& framebuffer = m_framebuffers.at(std::size_t(m_render_device->get_frame_index()));
+
 	m_barriers.clear();
-	if (m_targets.color.image) {
-		auto barrier = m_render_device->create_image_barrier();
-		barrier.setImage(m_targets.color.image)
-			.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput)
-			.setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead | vk::AccessFlagBits2::eTransferRead)
-			.setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eTransfer)
-			.setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-		m_barriers.push_back(barrier);
-	}
-	if (m_targets.resolve.image) {
-		KLIB_ASSERT(m_targets.color.image && !m_barriers.empty());
-		auto barrier = m_barriers.back();
-		barrier.setImage(m_targets.resolve.image);
-		m_barriers.push_back(barrier);
-	}
-	if (m_targets.depth.image && depth_store_op == vk::AttachmentStoreOp::eStore) {
-		auto barrier = m_render_device->create_image_barrier(vk::ImageAspectFlagBits::eDepth);
-		barrier.setImage(m_targets.depth.image)
-			.setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite)
-			.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-			.setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead)
-			.setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader)
-			.setOldLayout(vk::ImageLayout::eAttachmentOptimal)
-			.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal);
-		m_barriers.push_back(barrier);
-	}
+	if (framebuffer.color) { m_barriers.push_back(framebuffer.color->get_post_render_barrier()); }
+	if (framebuffer.resolve) { m_barriers.push_back(framebuffer.resolve->get_post_render_barrier()); }
+	if (framebuffer.depth && depth_store_op == vk::AttachmentStoreOp::eStore) { m_barriers.push_back(framebuffer.depth->get_post_render_barrier()); }
 	util::record_barriers(m_command_buffer, m_barriers);
 
 	m_command_buffer = vk::CommandBuffer{};
-	m_previous_rt = render_target();
+	m_rendered_index = m_render_device->get_frame_index();
+	m_render_target = framebuffer.render_image()->render_target();
 }
 
 void RenderPass::bind_graphics_pipeline(vk::Pipeline const pipeline) const {
@@ -258,33 +204,41 @@ void RenderPass::bind_graphics_shader(IGraphicsShader const& shader) const {
 	m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
 }
 
-auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
-	if (!m_previous_rt.view) { return {}; }
+auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> std::optional<vk::DescriptorImageInfo> {
+	auto const render_image = get_rendered_image();
+	if (!render_image) { return {}; }
 	auto ret = vk::DescriptorImageInfo{};
-	ret.setImageView(m_previous_rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
+	ret.setImageView(render_image->get_image_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
 
-void RenderPass::set_render_targets() {
-	m_targets = {};
+auto RenderPass::copy_render_texture(vk::Extent2D const custom_extent) const -> std::optional<ColorBitmap> {
+	auto const render_image = get_rendered_image();
+	if (!render_image) { return {}; }
+	return render_image->copy_to_bitmap(custom_extent);
+}
 
-	auto& framebuffer = m_framebuffers.at(std::size_t(m_render_device->get_frame_index()));
+auto RenderPass::get_rendered_image() const -> klib::Ptr<IRenderImage const> {
+	if (!m_rendered_index) { return {}; }
+	auto const& framebuffer = m_framebuffers.at(std::size_t(*m_rendered_index));
+	return framebuffer.render_image();
+}
 
+void RenderPass::prep_for_render(Framebuffer& framebuffer) {
 	if (framebuffer.color) {
 		framebuffer.color->resize(m_extent);
-		m_targets.color = framebuffer.color->render_target();
-
-		if (framebuffer.resolve) {
-			framebuffer.resolve->resize(m_extent);
-			m_targets.resolve = framebuffer.resolve->render_target();
-		}
+		if (framebuffer.resolve) { framebuffer.resolve->resize(m_extent); }
 	}
-
-	if (framebuffer.depth) {
-		framebuffer.depth->resize(m_extent);
-		m_targets.depth = framebuffer.depth->render_target();
-	}
+	if (framebuffer.depth) { framebuffer.depth->resize(m_extent); }
 }
+
+auto RenderPass::Framebuffer::render_image() const -> klib::Ptr<IRenderImage const> {
+	if (resolve) { return &*resolve; }
+	if (color) { return &*color; }
+	if (depth) { return &*depth; }
+	return nullptr;
+}
+
 } // namespace kvf::detail
 
 namespace kvf {

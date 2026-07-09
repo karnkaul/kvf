@@ -6,7 +6,8 @@
 namespace kvf {
 ScratchCommandBuffer::ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device) : m_render_device(render_device) {
 	auto cpci = vk::CommandPoolCreateInfo{};
-	cpci.setQueueFamilyIndex(m_render_device->get_queue_family()).setFlags(vk::CommandPoolCreateFlagBits::eTransient);
+	cpci.setQueueFamilyIndex(m_render_device->get_queue_family())
+		.setFlags(vk::CommandPoolCreateFlagBits::eTransient | vk::CommandPoolCreateFlagBits::eResetCommandBuffer);
 	m_pool = m_render_device->get_device().createCommandPoolUnique(cpci);
 	auto cbai = vk::CommandBufferAllocateInfo{};
 	cbai.setCommandPool(*m_pool).setCommandBufferCount(1);
@@ -23,6 +24,8 @@ auto ScratchCommandBuffer::submit_and_wait(std::chrono::seconds const timeout) -
 	si.setCommandBufferInfos(cbsi);
 	auto const fence = m_render_device->get_device().createFenceUnique({});
 	m_render_device->queue_submit(si, *fence);
-	return util::wait_for_fence(m_render_device->get_device(), *fence, timeout);
+	auto const ret = util::wait_for_fence(m_render_device->get_device(), *fence, timeout);
+	m_cmd.begin(vk::CommandBufferBeginInfo{vk::CommandBufferUsageFlagBits::eOneTimeSubmit});
+	return ret;
 }
 } // namespace kvf

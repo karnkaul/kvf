@@ -7,6 +7,12 @@ namespace kvf {
 auto Color::linear_to_srgb(glm::vec4 const& channels) -> glm::vec4 { return glm::convertLinearToSRGB(channels); }
 auto Color::srgb_to_linear(glm::vec4 const& channels) -> glm::vec4 { return glm::convertSRGBToLinear(channels); }
 
+ColorBitmap::ColorBitmap(std::vector<Color> pixels, glm::ivec2 const size) : m_bitmap(std::move(pixels)), m_size(size) {
+	auto const expected_size = std::size_t(m_size.x * m_size.y);
+	if (m_bitmap.size() == expected_size) { return; }
+	m_bitmap.resize(expected_size);
+}
+
 void ColorBitmap::resize(glm::ivec2 size) {
 	if (size.x < 0 || size.y < 0) { return; }
 	m_size = size;

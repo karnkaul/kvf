@@ -27,7 +27,7 @@ ImageViewer::ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view 
 	auto const ici = ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .extent = {1, 1}};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
-	m_image = IImage::create(device, ici);
+	m_image = IRenderImage::create(device, ici);
 	if (!m_image->resize_and_overwrite(bitmap)) { throw Panic{"Failed to write to Image"}; }
 	resize_window();
 }
