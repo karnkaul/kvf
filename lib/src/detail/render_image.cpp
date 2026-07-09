@@ -6,26 +6,13 @@
 #include "kvf/render_device.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
+#include "log.hpp"
 #include <stb/stb_image_write.h>
 #include <algorithm>
-#include <bit>
 #include <ranges>
-
-#include <fstream>
 
 namespace kvf::detail {
 namespace {
-struct BytePixel {
-	// NOLINTNEXTLINE(cppcoreguidelines-avoid-c-arrays,modernize-avoid-c-arrays)
-	std::byte bytes[4];
-};
-
-constexpr auto white_pixel_v = std::bit_cast<BytePixel>(0xffffffff);
-constexpr auto white_bitmap_v = Bitmap{
-	.bytes = white_pixel_v.bytes,
-	.size = {1, 1},
-};
-
 class MipMapCreator {
   public:
 	explicit MipMapCreator(IRenderImage& image, IRenderDevice const& render_device, vk::CommandBuffer command_buffer)
@@ -86,6 +73,14 @@ class MipMapCreator {
 	vk::CommandBuffer m_command_buffer{};
 	vk::ImageMemoryBarrier2 m_barrier{};
 };
+
+template <typename FlagsT, typename BitsT>
+[[nodiscard]] constexpr auto is_set(FlagsT const flags, BitsT const bit) -> bool {
+	return (flags & bit) == bit;
+}
+
+[[nodiscard]] constexpr auto is_copyable(vk::Format const format) { return format == vk::Format::eR8G8B8A8Srgb || format == vk::Format::eR8G8B8A8Unorm; }
+[[nodiscard]] constexpr auto is_copyable(vk::ImageAspectFlags const aspect) { return is_set(aspect, vk::ImageAspectFlagBits::eColor); }
 } // namespace
 
 RenderImage::RenderImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
@@ -184,16 +179,15 @@ auto RenderImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 }
 
 auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> ColorBitmap {
-	if ((m_info.format != vk::Format::eR8G8B8A8Srgb && m_info.format != vk::Format::eR8G8B8A8Unorm) || m_info.aspect != vk::ImageAspectFlagBits::eColor ||
-		m_info.layers != 1) {
-		// TODO: log
+	if (m_info.layers != 1 || !is_copyable(m_info.format) || !is_copyable(m_info.aspect)) {
+		log.warn("RenderImage: Invalid layers/format/aspect for copying");
 		return {};
 	}
 
 	auto const format_properties = m_render_device->get_gpu().device.getFormatProperties(m_info.format);
-	if ((format_properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eBlitSrc) != vk::FormatFeatureFlagBits::eBlitSrc ||
-		(format_properties.linearTilingFeatures & vk::FormatFeatureFlagBits::eBlitDst) != vk::FormatFeatureFlagBits::eBlitDst) {
-		// TODO: log
+	if (!is_set(format_properties.optimalTilingFeatures, vk::FormatFeatureFlagBits::eBlitSrc) ||
+		!is_set(format_properties.linearTilingFeatures, vk::FormatFeatureFlagBits::eBlitDst)) {
+		log.warn("RenderImage: Device does not support blits to/from image format");
 		return {};
 	}
 
@@ -332,7 +326,7 @@ auto IRenderImage::create_texture(gsl::not_null<IRenderDevice*> render_device, B
 		image_ci.flags &= ~ImageFlag::MipMaps;
 	}
 	auto ret = create(render_device, image_ci);
-	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = detail::white_bitmap_v; }
+	if (bitmap.bytes.empty() || !is_positive(bitmap.size)) { bitmap = white_bitmap_v; }
 	ret->resize_and_overwrite(bitmap);
 	return ret;
 }
