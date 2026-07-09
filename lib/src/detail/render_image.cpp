@@ -81,6 +81,7 @@ template <typename FlagsT, typename BitsT>
 
 [[nodiscard]] constexpr auto is_copyable(vk::Format const format) { return format == vk::Format::eR8G8B8A8Srgb || format == vk::Format::eR8G8B8A8Unorm; }
 [[nodiscard]] constexpr auto is_copyable(vk::ImageAspectFlags const aspect) { return is_set(aspect, vk::ImageAspectFlagBits::eColor); }
+[[nodiscard]] constexpr auto is_copyable(vk::ImageLayout const layout) { return layout != vk::ImageLayout::eUndefined; }
 } // namespace
 
 RenderImage::RenderImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
@@ -179,8 +180,8 @@ auto RenderImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 }
 
 auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> {
-	if (m_info.layers != 1 || !is_copyable(m_info.format) || !is_copyable(m_info.aspect)) {
-		log.warn("RenderImage: Invalid layers/format/aspect for copying");
+	if (m_info.layers != 1 || !is_copyable(m_layout) || !is_copyable(m_info.format) || !is_copyable(m_info.aspect)) {
+		log.warn("RenderImage: Invalid layers/layout/format/aspect for copying");
 		return {};
 	}
 
@@ -204,33 +205,13 @@ auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optio
 	auto barriers = std::array<vk::ImageMemoryBarrier2, 2>{};
 	barriers[0] = m_render_device->create_image_barrier();
 	barriers[1] = barriers[0];
-	barriers[0]
-		.setImage(m_image.get().image)
-		.setOldLayout(m_layout)
-		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-		.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferRead)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-	barriers[1]
-		.setImage(dst_image.get().image)
-		.setOldLayout(vk::ImageLayout::eUndefined)
-		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-		.setSrcAccessMask(vk::AccessFlagBits2::eNone)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[0].setImage(m_image.get().image);
+	barriers[1].setImage(dst_image.get().image);
+
+	set_pre_copy_barriers(barriers);
 	util::record_barriers(command_buffer, barriers);
 
-	auto subresource_layers = vk::ImageSubresourceLayers{};
-	subresource_layers.setAspectMask(vk::ImageAspectFlagBits::eColor).setLayerCount(1);
-	auto const src_size = vk::Offset3D{std::int32_t(m_info.extent.width), std::int32_t(m_info.extent.height), 1};
-	auto const dst_size = vk::Offset3D{std::int32_t(custom_extent.width), std::int32_t(custom_extent.height), 1};
-	auto image_blit = vk::ImageBlit2{};
-	image_blit.setSrcOffsets({vk::Offset3D{}, src_size})
-		.setDstOffsets({vk::Offset3D{}, dst_size})
-		.setSrcSubresource(subresource_layers)
-		.setDstSubresource(subresource_layers);
+	auto const image_blit = get_image_blit(custom_extent);
 	auto blit_info = vk::BlitImageInfo2{};
 	blit_info.setSrcImage(m_image.get().image)
 		.setDstImage(dst_image.get().image)
@@ -240,22 +221,7 @@ auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optio
 		.setRegions(image_blit);
 	command_buffer.get().blitImage2(blit_info);
 
-	barriers[0]
-		.setImage(m_image.get().image)
-		.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
-		.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
-		.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-	barriers[1]
-		.setImage(dst_image.get().image)
-		.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-		.setNewLayout(vk::ImageLayout::eGeneral)
-		.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	set_post_copy_barriers(barriers);
 	util::record_barriers(command_buffer, barriers);
 
 	command_buffer.submit_and_wait();
@@ -305,6 +271,87 @@ void RenderImage::recreate_impl(CreateInfo create_info) {
 	};
 	m_image_view = util::create_image_view(m_render_device->get_device(), image_view_ci);
 	m_layout = vk::ImageLayout::eUndefined;
+}
+
+void RenderImage::set_pre_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const {
+	barriers[0]
+		.setOldLayout(m_layout)
+		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eNone)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+}
+
+void RenderImage::set_post_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const {
+	KLIB_ASSERT(m_layout != vk::ImageLayout::eUndefined);
+	barriers[0]
+		.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setNewLayout(m_layout)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setNewLayout(vk::ImageLayout::eGeneral)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+}
+
+auto RenderImage::get_image_blit(vk::Extent2D const dst_extent) const -> vk::ImageBlit2 {
+	static constexpr auto to_offset = [](vk::Extent2D const extent) { return vk::Offset3D{std::int32_t(extent.width), std::int32_t(extent.height), 1}; };
+
+	auto subresource_layers = vk::ImageSubresourceLayers{};
+	subresource_layers.setAspectMask(vk::ImageAspectFlagBits::eColor).setLayerCount(1);
+
+	auto ret = vk::ImageBlit2{};
+	ret.setSrcOffsets({vk::Offset3D{}, to_offset(m_info.extent)})
+		.setDstOffsets({vk::Offset3D{}, to_offset(dst_extent)})
+		.setSrcSubresource(subresource_layers)
+		.setDstSubresource(subresource_layers);
+	return ret;
+}
+
+auto RenderImage::get_pre_render_barrier() -> vk::ImageMemoryBarrier2 {
+	m_layout = vk::ImageLayout::eAttachmentOptimal;
+	auto ret = m_render_device->create_image_barrier(m_info.aspect);
+	ret.setImage(m_image.get().image)
+		.setSrcAccessMask(vk::AccessFlagBits2::eShaderSampledRead | vk::AccessFlagBits2::eTransferRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eTransfer)
+		.setNewLayout(m_layout)
+		.setOldLayout(vk::ImageLayout::eUndefined);
+	if (m_info.aspect == vk::ImageAspectFlagBits::eDepth) {
+		ret.setDstAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite).setDstStageMask(vk::PipelineStageFlagBits2::eEarlyFragmentTests);
+	} else {
+		ret.setDstAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite).setDstStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+	}
+	return ret;
+}
+
+auto RenderImage::get_post_render_barrier() -> vk::ImageMemoryBarrier2 {
+	m_layout = vk::ImageLayout::eShaderReadOnlyOptimal;
+	auto ret = m_render_device->create_image_barrier(m_info.aspect);
+	ret.setImage(m_image.get().image)
+		.setOldLayout(vk::ImageLayout::eAttachmentOptimal)
+		.setDstAccessMask(vk::AccessFlagBits2::eShaderSampledRead | vk::AccessFlagBits2::eTransferRead)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eFragmentShader | vk::PipelineStageFlagBits2::eTransfer)
+		.setNewLayout(m_layout);
+	if (m_info.aspect == vk::ImageAspectFlagBits::eDepth) {
+		ret.setSrcAccessMask(vk::AccessFlagBits2::eDepthStencilAttachmentWrite).setSrcStageMask(vk::PipelineStageFlagBits2::eFragmentShader);
+	} else {
+		ret.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite).setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
+	}
+	return ret;
 }
 } // namespace kvf::detail
 

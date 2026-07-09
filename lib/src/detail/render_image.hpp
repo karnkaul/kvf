@@ -8,12 +8,19 @@ class RenderImage : public IRenderImage {
   public:
 	explicit RenderImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
 
+	[[nodiscard]] auto get_format() const -> vk::Format final { return m_info.format; }
+	[[nodiscard]] auto get_image_view() const -> vk::ImageView final { return *m_image_view; }
+
+	void resize(vk::Extent2D extent) final;
+
+	[[nodiscard]] auto get_pre_render_barrier() -> vk::ImageMemoryBarrier2;
+	[[nodiscard]] auto get_post_render_barrier() -> vk::ImageMemoryBarrier2;
+
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
 
 	[[nodiscard]] auto get_render_device() const -> IRenderDevice& final { return *m_render_device; }
 
-	[[nodiscard]] auto get_format() const -> vk::Format final { return m_info.format; }
 	[[nodiscard]] auto get_aspect() const -> vk::ImageAspectFlags final { return m_info.aspect; }
 	[[nodiscard]] auto get_usage() const -> vk::ImageUsageFlags final { return m_info.usage; }
 	[[nodiscard]] auto get_samples() const -> vk::SampleCountFlagBits final { return m_info.samples; }
@@ -21,17 +28,19 @@ class RenderImage : public IRenderImage {
 	[[nodiscard]] auto get_view_type() const -> vk::ImageViewType final { return m_info.view_type; }
 	[[nodiscard]] auto get_extent() const -> vk::Extent2D final { return m_info.extent; }
 	[[nodiscard]] auto get_layout() const -> vk::ImageLayout final { return m_layout; }
-	[[nodiscard]] auto get_image_view() const -> vk::ImageView final { return *m_image_view; }
 	[[nodiscard]] auto get_image() const -> vk::Image final { return m_image.get().image; }
 	[[nodiscard]] auto get_mip_levels() const -> std::uint32_t final { return m_image.get().mip_levels; }
 
-	void resize(vk::Extent2D extent) final;
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool final;
 	[[nodiscard]] auto copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> final;
 
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) final;
 
 	void recreate_impl(CreateInfo create_info);
+
+	void set_pre_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const;
+	void set_post_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const;
+	[[nodiscard]] auto get_image_blit(vk::Extent2D dst_extent) const -> vk::ImageBlit2;
 
 	gsl::not_null<IRenderDevice*> m_render_device;
 
