@@ -34,6 +34,7 @@ struct Image {
 	VmaAllocator allocator{};
 	VmaAllocation allocation{};
 	std::uint32_t mip_levels{};
+	void* mapped{};
 };
 
 struct Image::Deleter {
@@ -43,4 +44,5 @@ struct Image::Deleter {
 using UniqueImage = klib::Unique<Image, Image::Deleter>;
 
 [[nodiscard]] auto create_image(VmaAllocator allocator, std::uint32_t queue_family, ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
+[[nodiscard]] auto create_image_for_copy(VmaAllocator allocator, std::uint32_t queue_family, ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
 } // namespace kvf::detail::vma

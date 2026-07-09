@@ -8,7 +8,8 @@ class ColorBitmap {
   public:
 	ColorBitmap() = default;
 
-	explicit ColorBitmap(glm::ivec2 size) { resize(size); }
+	explicit ColorBitmap(glm::ivec2 const size) { resize(size); }
+	explicit ColorBitmap(std::vector<Color> pixels, glm::ivec2 size);
 
 	void resize(glm::ivec2 size);
 
