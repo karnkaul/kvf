@@ -47,8 +47,8 @@ class IRenderPass : public klib::Polymorphic {
 	virtual void bind_graphics_pipeline(vk::Pipeline pipeline) const = 0;
 	virtual void bind_graphics_shader(IGraphicsShader const& shader) const = 0;
 
-	[[nodiscard]] virtual auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo = 0;
-	[[nodiscard]] virtual auto copy_render_texture(vk::Extent2D custom_extent = {}) const -> ColorBitmap = 0;
+	[[nodiscard]] virtual auto render_texture_descriptor_info(vk::Sampler sampler) const -> std::optional<vk::DescriptorImageInfo> = 0;
+	[[nodiscard]] virtual auto copy_render_texture(vk::Extent2D custom_extent = {}) const -> std::optional<ColorBitmap> = 0;
 
 	glm::vec4 clear_color{0.0f};
 	vk::ClearDepthStencilValue clear_depth{1.0f, 0};

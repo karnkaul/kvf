@@ -258,22 +258,24 @@ void RenderPass::bind_graphics_shader(IGraphicsShader const& shader) const {
 	m_command_buffer.setSampleMaskEXT(m_samples, vk::SampleMask{0xffffffff});
 }
 
-auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
-	if (!m_rendered_index) { return {}; }
-	auto const& framebuffer = m_framebuffers.at(std::size_t(*m_rendered_index));
-	auto const render_image = framebuffer.render_image();
-	KLIB_ASSERT(render_image);
+auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> std::optional<vk::DescriptorImageInfo> {
+	auto const render_image = get_rendered_image();
+	if (!render_image) { return {}; }
 	auto ret = vk::DescriptorImageInfo{};
 	ret.setImageView(render_image->get_image_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
 }
 
-auto RenderPass::copy_render_texture(vk::Extent2D const custom_extent) const -> ColorBitmap {
+auto RenderPass::copy_render_texture(vk::Extent2D const custom_extent) const -> std::optional<ColorBitmap> {
+	auto const render_image = get_rendered_image();
+	if (!render_image) { return {}; }
+	return render_image->copy_to_bitmap(custom_extent);
+}
+
+auto RenderPass::get_rendered_image() const -> klib::Ptr<IRenderImage const> {
 	if (!m_rendered_index) { return {}; }
 	auto const& framebuffer = m_framebuffers.at(std::size_t(*m_rendered_index));
-	auto render_image = framebuffer.render_image();
-	KLIB_ASSERT(render_image);
-	return render_image->copy_to_bitmap(custom_extent);
+	return framebuffer.render_image();
 }
 
 void RenderPass::set_render_targets() {

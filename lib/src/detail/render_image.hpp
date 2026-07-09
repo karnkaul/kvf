@@ -27,7 +27,7 @@ class RenderImage : public IRenderImage {
 
 	void resize(vk::Extent2D extent) final;
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool final;
-	[[nodiscard]] auto copy_to_bitmap(vk::Extent2D custom_extent) const -> ColorBitmap final;
+	[[nodiscard]] auto copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> final;
 
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) final;
 

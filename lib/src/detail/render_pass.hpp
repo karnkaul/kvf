@@ -42,8 +42,10 @@ class RenderPass : public IRenderPass {
 	void bind_graphics_pipeline(vk::Pipeline pipeline) const final;
 	void bind_graphics_shader(IGraphicsShader const& shader) const final;
 
-	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo final;
-	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> ColorBitmap final;
+	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> std::optional<vk::DescriptorImageInfo> final;
+	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> final;
+
+	[[nodiscard]] auto get_rendered_image() const -> klib::Ptr<IRenderImage const>;
 
 	struct Framebuffer {
 		[[nodiscard]] auto render_image() const -> klib::Ptr<IRenderImage const>;

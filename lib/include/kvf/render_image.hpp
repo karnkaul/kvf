@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <gsl/pointers>
 #include <memory>
+#include <optional>
 
 namespace kvf {
 enum class ImageFlag : std::int8_t {
@@ -58,7 +59,7 @@ class IRenderImage : public klib::Polymorphic {
 
 	virtual void resize(vk::Extent2D extent) = 0;
 	virtual auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool = 0;
-	[[nodiscard]] virtual auto copy_to_bitmap(vk::Extent2D custom_extent = {}) const -> ColorBitmap = 0;
+	[[nodiscard]] virtual auto copy_to_bitmap(vk::Extent2D custom_extent = {}) const -> std::optional<ColorBitmap> = 0;
 
 	virtual void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) = 0;
 

@@ -178,7 +178,7 @@ auto RenderImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	return cmd.submit_and_wait();
 }
 
-auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> ColorBitmap {
+auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> {
 	if (m_info.layers != 1 || !is_copyable(m_info.format) || !is_copyable(m_info.aspect)) {
 		log.warn("RenderImage: Invalid layers/format/aspect for copying");
 		return {};
