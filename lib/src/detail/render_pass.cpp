@@ -297,7 +297,7 @@ void RenderPass::set_render_targets() {
 	}
 }
 
-auto RenderPass::Framebuffer::render_image() const -> klib::Ptr<IRenderImage> {
+auto RenderPass::Framebuffer::render_image() const -> klib::Ptr<IRenderImage const> {
 	if (resolve) { return resolve.get(); }
 	if (color) { return color.get(); }
 	return depth.get();

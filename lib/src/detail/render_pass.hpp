@@ -46,7 +46,7 @@ class RenderPass : public IRenderPass {
 	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> ColorBitmap final;
 
 	struct Framebuffer {
-		[[nodiscard]] auto render_image() const -> klib::Ptr<IRenderImage>;
+		[[nodiscard]] auto render_image() const -> klib::Ptr<IRenderImage const>;
 
 		std::unique_ptr<IRenderImage> color{};
 		std::unique_ptr<IRenderImage> resolve{};
