@@ -19,11 +19,11 @@ struct BufferCreateInfo {
 	vk::DeviceSize size{min_size_v};
 };
 
-class IBuffer : public klib::Polymorphic {
+class IRenderBuffer : public klib::Polymorphic {
   public:
 	using CreateInfo = BufferCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IBuffer>;
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderBuffer>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 

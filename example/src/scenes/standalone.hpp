@@ -1,6 +1,6 @@
 #pragma once
-#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
+#include "kvf/render_image.hpp"
 #include "scene.hpp"
 
 namespace kvf::example {
@@ -12,6 +12,6 @@ class Standalone : public Scene {
 	[[nodiscard]] auto get_render_filter() const -> vk::Filter final;
 	[[nodiscard]] auto get_render_target() const -> RenderTarget final;
 
-	std::unique_ptr<IImage> m_image;
+	std::unique_ptr<IRenderImage> m_image;
 };
 } // namespace kvf::example

@@ -1,4 +1,4 @@
-#include "detail/buffer.hpp"
+#include "detail/render_buffer.hpp"
 #include "klib/debug/assert.hpp"
 #include "kvf/render_device.hpp"
 #include "kvf/scratch_command_buffer.hpp"
@@ -7,9 +7,11 @@
 
 namespace kvf {
 namespace detail {
-Buffer::Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) { recreate_impl(create_info); }
+RenderBuffer::RenderBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
+	recreate_impl(create_info);
+}
 
-void Buffer::resize(vk::DeviceSize size) {
+void RenderBuffer::resize(vk::DeviceSize size) {
 	util::ensure_positive(size);
 
 	if (m_buffer.get().buffer && m_info.size >= size) {
@@ -22,7 +24,7 @@ void Buffer::resize(vk::DeviceSize size) {
 	recreate_impl(info);
 }
 
-auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
+auto RenderBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
 	if (get_size() < offset + write_size) { return false; }
 	if (write_size == 0) { return true; }
 
@@ -44,7 +46,7 @@ auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSiz
 		.type = BufferType::Host,
 		.size = write_size,
 	};
-	auto staging = Buffer{m_render_device, bci};
+	auto staging = RenderBuffer{m_render_device, bci};
 	if (!staging.write_contiguous(writes, write_size, 0)) { return false; }
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
@@ -56,7 +58,7 @@ auto Buffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSiz
 	return cmd.submit_and_wait();
 }
 
-void Buffer::recreate_impl(CreateInfo create_info) {
+void RenderBuffer::recreate_impl(CreateInfo create_info) {
 	if (create_info.type == BufferType::Device) { create_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
 	util::ensure_positive(create_info.size);
 
@@ -66,25 +68,25 @@ void Buffer::recreate_impl(CreateInfo create_info) {
 }
 } // namespace detail
 
-auto IBuffer::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IBuffer> {
-	return std::make_unique<detail::Buffer>(render_device, create_info);
+auto IRenderBuffer::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderBuffer> {
+	return std::make_unique<detail::RenderBuffer>(render_device, create_info);
 }
 
-auto IBuffer::write_in_place(BufferWrite const write, vk::DeviceSize const offset) -> bool { return write_contiguous({&write, 1}, write.size(), offset); }
+auto IRenderBuffer::write_in_place(BufferWrite const write, vk::DeviceSize const offset) -> bool { return write_contiguous({&write, 1}, write.size(), offset); }
 
-void IBuffer::resize_overwrite_contiguous(std::span<BufferWrite const> writes) {
+void IRenderBuffer::resize_overwrite_contiguous(std::span<BufferWrite const> writes) {
 	auto const total_size = std::accumulate(writes.begin(), writes.end(), 0uz, [](std::size_t i, BufferWrite const& w) { return i + w.size(); });
 	resize(total_size);
 	write_contiguous(writes, total_size, 0);
 }
 
-auto IBuffer::get_mapped_span() const -> std::span<std::byte> {
+auto IRenderBuffer::get_mapped_span() const -> std::span<std::byte> {
 	auto* bytes = get_mapped_ptr();
 	if (bytes == nullptr) { return {}; }
 	return {static_cast<std::byte*>(bytes), get_size()};
 }
 
-auto IBuffer::descriptor_info() const -> vk::DescriptorBufferInfo {
+auto IRenderBuffer::descriptor_info() const -> vk::DescriptorBufferInfo {
 	auto ret = vk::DescriptorBufferInfo{};
 	ret.setBuffer(get_buffer()).setRange(get_size());
 	return ret;

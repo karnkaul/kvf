@@ -1,7 +1,7 @@
 #pragma once
 #include "klib/string/c_string.hpp"
-#include "kvf/image.hpp"
 #include "kvf/render_device.hpp"
+#include "kvf/render_image.hpp"
 #include "scene.hpp"
 
 namespace kvf::example {
@@ -17,6 +17,6 @@ class ImageViewer : public Scene {
 	void resize_window();
 	void try_load(klib::CString path);
 
-	std::unique_ptr<IImage> m_image{};
+	std::unique_ptr<IRenderImage> m_image{};
 };
 } // namespace kvf::example

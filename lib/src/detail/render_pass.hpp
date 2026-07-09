@@ -1,5 +1,7 @@
 #pragma once
-#include "kvf/image.hpp"
+#include "klib/ptr.hpp"
+#include "kvf/frame_index.hpp"
+#include "kvf/render_image.hpp"
 #include "kvf/render_pass.hpp"
 #include "kvf/ring.hpp"
 #include <memory>
@@ -41,11 +43,14 @@ class RenderPass : public IRenderPass {
 	void bind_graphics_shader(IGraphicsShader const& shader) const final;
 
 	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo final;
+	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> ColorBitmap final;
 
 	struct Framebuffer {
-		std::unique_ptr<IImage> color{};
-		std::unique_ptr<IImage> resolve{};
-		std::unique_ptr<IImage> depth{};
+		[[nodiscard]] auto render_image() const -> klib::Ptr<IRenderImage>;
+
+		std::unique_ptr<IRenderImage> color{};
+		std::unique_ptr<IRenderImage> resolve{};
+		std::unique_ptr<IRenderImage> depth{};
 	};
 
 	struct Targets {
@@ -65,7 +70,7 @@ class RenderPass : public IRenderPass {
 	vk::Extent2D m_extent{ImageCreateInfo::min_extent_v};
 
 	Targets m_targets{};
-	RenderTarget m_previous_rt{};
+	std::optional<FrameIndex> m_rendered_index{};
 	std::vector<vk::ImageMemoryBarrier2> m_barriers{};
 };
 } // namespace kvf::detail

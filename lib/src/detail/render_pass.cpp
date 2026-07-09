@@ -28,8 +28,8 @@ void RenderPass::set_color_target(vk::Format format) {
 	}();
 	if (has_color_target()) { m_render_device->get_device().waitIdle(); }
 	for (auto& framebuffer : m_framebuffers) {
-		framebuffer.color = IImage::create(m_render_device, color_ici);
-		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IImage::create(m_render_device, resolve_ici); }
+		framebuffer.color = IRenderImage::create(m_render_device, color_ici);
+		if (m_samples > vk::SampleCountFlagBits::e1) { framebuffer.resolve = IRenderImage::create(m_render_device, resolve_ici); }
 	}
 }
 
@@ -42,7 +42,7 @@ void RenderPass::set_depth_target() {
 		.flags = ImageFlag::DedicatedAlloc,
 		.extent = m_extent,
 	};
-	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IImage::create(m_render_device, depth_ici); }
+	for (auto& framebuffer : m_framebuffers) { framebuffer.depth = IRenderImage::create(m_render_device, depth_ici); }
 }
 
 void RenderPass::recreate(vk::SampleCountFlagBits const samples) {
@@ -198,7 +198,7 @@ void RenderPass::end_render() {
 	util::record_barriers(m_command_buffer, m_barriers);
 
 	m_command_buffer = vk::CommandBuffer{};
-	m_previous_rt = render_target();
+	m_rendered_index = m_render_device->get_frame_index();
 }
 
 void RenderPass::bind_graphics_pipeline(vk::Pipeline const pipeline) const {
@@ -259,10 +259,21 @@ void RenderPass::bind_graphics_shader(IGraphicsShader const& shader) const {
 }
 
 auto RenderPass::render_texture_descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
-	if (!m_previous_rt.view) { return {}; }
+	if (!m_rendered_index) { return {}; }
+	auto const& framebuffer = m_framebuffers.at(std::size_t(*m_rendered_index));
+	auto const render_image = framebuffer.render_image();
+	KLIB_ASSERT(render_image);
 	auto ret = vk::DescriptorImageInfo{};
-	ret.setImageView(m_previous_rt.view).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
+	ret.setImageView(render_image->get_image_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;
+}
+
+auto RenderPass::copy_render_texture(vk::Extent2D const custom_extent) const -> ColorBitmap {
+	if (!m_rendered_index) { return {}; }
+	auto const& framebuffer = m_framebuffers.at(std::size_t(*m_rendered_index));
+	auto render_image = framebuffer.render_image();
+	KLIB_ASSERT(render_image);
+	return render_image->copy_to_bitmap(custom_extent);
 }
 
 void RenderPass::set_render_targets() {
@@ -285,6 +296,13 @@ void RenderPass::set_render_targets() {
 		m_targets.depth = framebuffer.depth->render_target();
 	}
 }
+
+auto RenderPass::Framebuffer::render_image() const -> klib::Ptr<IRenderImage> {
+	if (resolve) { return resolve.get(); }
+	if (color) { return color.get(); }
+	return depth.get();
+}
+
 } // namespace kvf::detail
 
 namespace kvf {

@@ -1,14 +1,17 @@
-#include "detail/image.hpp"
-#include "detail/buffer.hpp"
+#include "detail/render_image.hpp"
+#include "detail/render_buffer.hpp"
 #include "klib/debug/assert.hpp"
-#include "kvf/buffer.hpp"
 #include "kvf/is_positive.hpp"
+#include "kvf/render_buffer.hpp"
 #include "kvf/render_device.hpp"
 #include "kvf/scratch_command_buffer.hpp"
 #include "kvf/util.hpp"
+#include <stb/stb_image_write.h>
 #include <algorithm>
 #include <bit>
 #include <ranges>
+
+#include <fstream>
 
 namespace kvf::detail {
 namespace {
@@ -25,7 +28,7 @@ constexpr auto white_bitmap_v = Bitmap{
 
 class MipMapCreator {
   public:
-	explicit MipMapCreator(IImage& image, IRenderDevice const& render_device, vk::CommandBuffer command_buffer)
+	explicit MipMapCreator(IRenderImage& image, IRenderDevice const& render_device, vk::CommandBuffer command_buffer)
 		: m_image(image), m_render_device(render_device), m_command_buffer(command_buffer) {}
 
 	void record() {
@@ -78,16 +81,18 @@ class MipMapCreator {
 		util::record_barrier(m_command_buffer, m_barrier);
 	}
 
-	IImage& m_image;
+	IRenderImage& m_image;
 	IRenderDevice const& m_render_device;
 	vk::CommandBuffer m_command_buffer{};
 	vk::ImageMemoryBarrier2 m_barrier{};
 };
 } // namespace
 
-Image::Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) { recreate_impl(create_info); }
+RenderImage::RenderImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
+	recreate_impl(create_info);
+}
 
-void Image::resize(vk::Extent2D extent) {
+void RenderImage::resize(vk::Extent2D extent) {
 	util::ensure_positive(extent);
 	if (extent == m_info.extent) { return; }
 
@@ -96,7 +101,7 @@ void Image::resize(vk::Extent2D extent) {
 	recreate(info);
 }
 
-auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
+auto RenderImage::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	if (layers.empty()) { return false; }
 
 	auto size = layers.front().size;
@@ -129,8 +134,8 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 		.type = BufferType::Host,
 		.size = total_size,
 	};
-	auto buffer = detail::Buffer{m_render_device, buffer_ci};
-	auto& staging = static_cast<IBuffer&>(buffer);
+	auto buffer = detail::RenderBuffer{m_render_device, buffer_ci};
+	auto& staging = static_cast<IRenderBuffer&>(buffer);
 
 	auto cmd = ScratchCommandBuffer{m_render_device};
 	auto barrier = vk::ImageMemoryBarrier2{};
@@ -178,7 +183,109 @@ auto Image::resize_and_overwrite(std::span<Bitmap const> layers) -> bool {
 	return cmd.submit_and_wait();
 }
 
-void Image::transition(vk::CommandBuffer const command_buffer, vk::ImageMemoryBarrier2 barrier) {
+auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> ColorBitmap {
+	if ((m_info.format != vk::Format::eR8G8B8A8Srgb && m_info.format != vk::Format::eR8G8B8A8Unorm) || m_info.aspect != vk::ImageAspectFlagBits::eColor ||
+		m_info.layers != 1) {
+		// TODO: log
+		return {};
+	}
+
+	auto const format_properties = m_render_device->get_gpu().device.getFormatProperties(m_info.format);
+	if ((format_properties.optimalTilingFeatures & vk::FormatFeatureFlagBits::eBlitSrc) != vk::FormatFeatureFlagBits::eBlitSrc ||
+		(format_properties.linearTilingFeatures & vk::FormatFeatureFlagBits::eBlitDst) != vk::FormatFeatureFlagBits::eBlitDst) {
+		// TODO: log
+		return {};
+	}
+
+	if (custom_extent.width == 0 || custom_extent.height == 0) { custom_extent = m_info.extent; }
+
+	auto const dst_image_ci = CreateInfo{
+		.format = m_info.format,
+		.extent = custom_extent,
+	};
+	auto const dst_image = vma::create_image_for_copy(m_image.get().allocator, m_render_device->get_queue_family(), dst_image_ci);
+
+	auto command_buffer = ScratchCommandBuffer{m_render_device};
+
+	auto barriers = std::array<vk::ImageMemoryBarrier2, 2>{};
+	barriers[0] = m_render_device->create_image_barrier();
+	barriers[1] = barriers[0];
+	barriers[0]
+		.setImage(m_image.get().image)
+		.setOldLayout(m_layout)
+		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setImage(dst_image.get().image)
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eNone)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	util::record_barriers(command_buffer, barriers);
+
+	auto subresource_layers = vk::ImageSubresourceLayers{};
+	subresource_layers.setAspectMask(vk::ImageAspectFlagBits::eColor).setLayerCount(1);
+	auto const src_size = vk::Offset3D{std::int32_t(m_info.extent.width), std::int32_t(m_info.extent.height), 1};
+	auto const dst_size = vk::Offset3D{std::int32_t(custom_extent.width), std::int32_t(custom_extent.height), 1};
+	auto image_blit = vk::ImageBlit2{};
+	image_blit.setSrcOffsets({vk::Offset3D{}, src_size})
+		.setDstOffsets({vk::Offset3D{}, dst_size})
+		.setSrcSubresource(subresource_layers)
+		.setDstSubresource(subresource_layers);
+	auto blit_info = vk::BlitImageInfo2{};
+	blit_info.setSrcImage(m_image.get().image)
+		.setDstImage(dst_image.get().image)
+		.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setFilter(vk::Filter::eNearest)
+		.setRegions(image_blit);
+	command_buffer.get().blitImage2(blit_info);
+
+	barriers[0]
+		.setImage(m_image.get().image)
+		.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setNewLayout(vk::ImageLayout::eShaderReadOnlyOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setImage(dst_image.get().image)
+		.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setNewLayout(vk::ImageLayout::eGeneral)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	util::record_barriers(command_buffer, barriers);
+
+	command_buffer.submit_and_wait();
+
+	KLIB_ASSERT(dst_image.get().mapped);
+
+	auto const subresource_layout = m_render_device->get_device().getImageSubresourceLayout(dst_image.get().image, {m_info.aspect});
+	auto const* byte_ptr = static_cast<std::byte*>(dst_image.get().mapped) + subresource_layout.offset;
+
+	auto const image_size = util::to_glm_vec<int>(custom_extent);
+
+	auto pixels = std::vector<Color>{};
+	for (auto y = 0; y < image_size.y; y++) {
+		void const* ptr = byte_ptr;
+		auto const row = std::span{static_cast<Color const*>(ptr), std::size_t(image_size.x)};
+		pixels.append_range(row);
+		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
+		byte_ptr += subresource_layout.rowPitch;
+	}
+
+	return ColorBitmap{std::move(pixels), image_size};
+}
+
+void RenderImage::transition(vk::CommandBuffer const command_buffer, vk::ImageMemoryBarrier2 barrier) {
 	barrier.setImage(get_image())
 		.setSrcQueueFamilyIndex(m_render_device->get_queue_family())
 		.setDstQueueFamilyIndex(barrier.srcQueueFamilyIndex)
@@ -187,7 +294,7 @@ void Image::transition(vk::CommandBuffer const command_buffer, vk::ImageMemoryBa
 	m_layout = barrier.newLayout;
 }
 
-void Image::recreate_impl(CreateInfo create_info) {
+void RenderImage::recreate_impl(CreateInfo create_info) {
 	create_info.usage |= CreateInfo::implicit_usage_v;
 	if (create_info.format == vk::Format::eUndefined) { create_info.format = vk::Format::eR8G8B8A8Srgb; }
 	util::ensure_positive(create_info.extent);
@@ -208,11 +315,11 @@ void Image::recreate_impl(CreateInfo create_info) {
 } // namespace kvf::detail
 
 namespace kvf {
-auto IImage::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IImage> {
-	return std::make_unique<detail::Image>(render_device, create_info);
+auto IRenderImage::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderImage> {
+	return std::make_unique<detail::RenderImage>(render_device, create_info);
 }
 
-auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap, bool const mip_map) -> std::unique_ptr<IImage> {
+auto IRenderImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap, bool const mip_map) -> std::unique_ptr<IRenderImage> {
 	auto image_ci = ImageCreateInfo{
 		.format = vk::Format::eR8G8B8A8Srgb,
 		.aspect = vk::ImageAspectFlagBits::eColor,
@@ -230,9 +337,11 @@ auto IImage::create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap 
 	return ret;
 }
 
-auto IImage::subresource_range() const -> vk::ImageSubresourceRange { return vk::ImageSubresourceRange{get_aspect(), 0, get_mip_levels(), 0, get_layers()}; }
+auto IRenderImage::subresource_range() const -> vk::ImageSubresourceRange {
+	return vk::ImageSubresourceRange{get_aspect(), 0, get_mip_levels(), 0, get_layers()};
+}
 
-auto IImage::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
+auto IRenderImage::descriptor_info(vk::Sampler const sampler) const -> vk::DescriptorImageInfo {
 	auto ret = vk::DescriptorImageInfo{};
 	ret.setImageView(get_image_view()).setImageLayout(vk::ImageLayout::eShaderReadOnlyOptimal).setSampler(sampler);
 	return ret;

@@ -1,7 +1,7 @@
 #pragma once
 #include "klib/unique.hpp"
-#include "kvf/buffer.hpp"
-#include "kvf/image.hpp"
+#include "kvf/render_buffer.hpp"
+#include "kvf/render_image.hpp"
 #include <vk_mem_alloc.h>
 #include <vulkan/vulkan.hpp>
 

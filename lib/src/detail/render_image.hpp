@@ -1,12 +1,12 @@
 #pragma once
 #include "detail/vma.hpp"
-#include "kvf/image.hpp"
 #include "kvf/kvf_fwd.hpp"
+#include "kvf/render_image.hpp"
 
 namespace kvf::detail {
-class Image : public IImage {
+class RenderImage : public IRenderImage {
   public:
-	explicit Image(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
+	explicit RenderImage(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
 
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }
@@ -27,6 +27,7 @@ class Image : public IImage {
 
 	void resize(vk::Extent2D extent) final;
 	auto resize_and_overwrite(std::span<Bitmap const> layers) -> bool final;
+	[[nodiscard]] auto copy_to_bitmap(vk::Extent2D custom_extent) const -> ColorBitmap final;
 
 	void transition(vk::CommandBuffer command_buffer, vk::ImageMemoryBarrier2 barrier) final;
 

@@ -1,6 +1,6 @@
 #pragma once
-#include "kvf/buffer.hpp"
 #include "kvf/kvf_fwd.hpp"
+#include "kvf/render_buffer.hpp"
 #include <gsl/pointers>
 #include <span>
 
@@ -25,6 +25,6 @@ class FixedUsageBuffer {
   private:
 	vk::BufferUsageFlags m_usage{};
 	BufferType m_type{};
-	std::unique_ptr<IBuffer> m_buffer{};
+	std::unique_ptr<IRenderBuffer> m_buffer{};
 };
 } // namespace kvf

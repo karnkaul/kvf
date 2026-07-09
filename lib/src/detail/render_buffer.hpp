@@ -1,12 +1,12 @@
 #pragma once
 #include "detail/vma.hpp"
-#include "kvf/buffer.hpp"
 #include "kvf/kvf_fwd.hpp"
+#include "kvf/render_buffer.hpp"
 
 namespace kvf::detail {
-class Buffer : public IBuffer {
+class RenderBuffer : public IRenderBuffer {
   public:
-	explicit Buffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
+	explicit RenderBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info);
 
   private:
 	void recreate(CreateInfo const& create_info) final { recreate_impl(create_info); }

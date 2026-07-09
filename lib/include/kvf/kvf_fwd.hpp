@@ -3,8 +3,8 @@
 namespace kvf {
 class IRenderDevice;
 class IRenderPass;
-class IBuffer;
-class IImage;
+class IRenderBuffer;
+class IRenderImage;
 class IRingBufferAllocator;
 class IRingDescriptorAllocator;
 class IGraphicsShader;
