@@ -351,7 +351,7 @@ class DearImGui {
 		init_info.Queue = create_info.queue;
 		init_info.MinImageCount = 2;
 		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
-		init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+		init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE;
 		init_info.UseDynamicRendering = true;
 		init_info.PipelineInfoMain.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
 		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
@@ -816,7 +816,10 @@ class RenderDevice : public IRenderDevice {
 		auto ri = vk::RenderingInfo{};
 		ri.setColorAttachments(backbuffer).setLayerCount(1).setRenderArea(render_area);
 		m_current_cmd.beginRendering(ri);
-		m_dear_imgui->render(m_current_cmd);
+		{
+			auto lock = std::scoped_lock{m_mutex};
+			m_dear_imgui->render(m_current_cmd);
+		}
 		m_current_cmd.endRendering();
 	}
 

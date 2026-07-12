@@ -1,8 +1,8 @@
 #include "scenes/image_viewer.hpp"
 #include "klib/debug/assert.hpp"
+#include "klib/file_io.hpp"
 #include "kvf/image_bitmap.hpp"
 #include "kvf/panic.hpp"
-#include "kvf/util.hpp"
 #include <algorithm>
 #include <filesystem>
 
@@ -56,7 +56,7 @@ void ImageViewer::resize_window() {
 void ImageViewer::try_load(klib::CString const path) {
 	auto const filename = [path] { return fs::path{path.as_view()}.filename().generic_string(); };
 	auto bytes = std::vector<std::byte>{};
-	if (!util::bytes_from_file(bytes, path)) {
+	if (!klib::read_file_bytes_to(bytes, path)) {
 		open_error_modal(std::format("Failed to load image file: {}", filename()));
 		return;
 	}

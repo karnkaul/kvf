@@ -71,6 +71,8 @@ target_sources(dear_imgui PRIVATE
   src/dear_imgui/backends/imgui_impl_glfw.h
   src/dear_imgui/backends/imgui_impl_vulkan.cpp
   src/dear_imgui/backends/imgui_impl_vulkan.h
+
+  src/dear_imgui/misc/cpp/imgui_stdlib.cpp
 )
 
 target_compile_definitions(dear_imgui PUBLIC

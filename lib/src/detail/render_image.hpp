@@ -38,9 +38,7 @@ class RenderImage : public IRenderImage {
 
 	void recreate_impl(CreateInfo create_info);
 
-	void set_pre_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const;
-	void set_post_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const;
-	[[nodiscard]] auto get_image_blit(vk::Extent2D dst_extent) const -> vk::ImageBlit2;
+	[[nodiscard]] auto blit_for_copy(vk::CommandBuffer command_buffer, vk::Extent2D extent) const -> vma::UniqueImage;
 
 	gsl::not_null<IRenderDevice*> m_render_device;
 

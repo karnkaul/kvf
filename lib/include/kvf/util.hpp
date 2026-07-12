@@ -1,16 +1,14 @@
 #pragma once
 #include "GLFW/glfw3.h"
-#include "klib/string/c_string.hpp"
 #include "kvf/color.hpp"
 #include "kvf/rect.hpp"
 #include <vulkan/vulkan.hpp>
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <gsl/pointers>
+#include <optional>
 #include <string>
-#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -82,7 +80,7 @@ constexpr auto is_norm(UvRect const& r) -> bool { return is_norm(r.lt) && is_nor
 [[nodiscard]] auto is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool;
 void set_window_should_close(gsl::not_null<GLFWwindow*> window, bool value);
 
-[[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
+[[nodiscard]] auto color_from_hex(std::string_view hex) -> std::optional<Color>;
 [[nodiscard]] auto to_hex_string(Color const& color) -> std::string;
 
 [[nodiscard]] auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
@@ -107,8 +105,4 @@ struct ImageViewCreateInfo {
 	vk::ImageViewType type{vk::ImageViewType::e2D};
 };
 [[nodiscard]] auto create_image_view(vk::Device device, ImageViewCreateInfo const& create_info) -> vk::UniqueImageView;
-
-auto string_from_file(std::string& out_string, klib::CString path) -> bool;
-auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool;
-auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool;
 } // namespace kvf::util
