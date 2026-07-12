@@ -1,5 +1,6 @@
 #include "scenes/sprite.hpp"
 #include "klib/debug/assert.hpp"
+#include "klib/file_io.hpp"
 #include "klib/random.hpp"
 #include "kvf/image_bitmap.hpp"
 #include "kvf/panic.hpp"
@@ -153,7 +154,7 @@ void Sprite::create_shader() {
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
-	if (!util::bytes_from_file(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
+	if (!klib::read_file_bytes_to(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
 	auto const image = ImageBitmap{bytes};
 	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
 	m_texture = IRenderImage::create_texture(&get_render_device(), image.bitmap());
