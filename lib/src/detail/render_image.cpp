@@ -229,17 +229,16 @@ auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optio
 	KLIB_ASSERT(dst_image.get().mapped);
 
 	auto const subresource_layout = m_render_device->get_device().getImageSubresourceLayout(dst_image.get().image, {m_info.aspect});
-	auto const* byte_ptr = static_cast<std::byte*>(dst_image.get().mapped) + subresource_layout.offset;
+	auto const byte_count = std::size_t(subresource_layout.size + subresource_layout.offset);
+	auto bytes = std::span{static_cast<std::byte const*>(dst_image.get().mapped), byte_count}.subspan(subresource_layout.offset);
 
 	auto const image_size = util::to_glm_vec<int>(custom_extent);
-
 	auto pixels = std::vector<Color>{};
 	for (auto y = 0; y < image_size.y; y++) {
-		void const* ptr = byte_ptr;
+		void const* ptr = bytes.data();
 		auto const row = std::span{static_cast<Color const*>(ptr), std::size_t(image_size.x)};
 		pixels.append_range(row);
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		byte_ptr += subresource_layout.rowPitch;
+		bytes = bytes.subspan(subresource_layout.rowPitch);
 	}
 
 	return ColorBitmap{std::move(pixels), image_size};

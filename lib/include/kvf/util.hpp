@@ -1,16 +1,13 @@
 #pragma once
 #include "GLFW/glfw3.h"
-#include "klib/string/c_string.hpp"
 #include "kvf/color.hpp"
 #include "kvf/rect.hpp"
 #include <vulkan/vulkan.hpp>
 #include <algorithm>
 #include <chrono>
-#include <cstddef>
 #include <cstdint>
 #include <gsl/pointers>
 #include <string>
-#include <vector>
 
 using namespace std::chrono_literals;
 
@@ -107,8 +104,4 @@ struct ImageViewCreateInfo {
 	vk::ImageViewType type{vk::ImageViewType::e2D};
 };
 [[nodiscard]] auto create_image_view(vk::Device device, ImageViewCreateInfo const& create_info) -> vk::UniqueImageView;
-
-auto string_from_file(std::string& out_string, klib::CString path) -> bool;
-auto bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool;
-auto spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool;
 } // namespace kvf::util

@@ -82,8 +82,4 @@ auto util::create_image_view(vk::Device const device, ImageViewCreateInfo const&
 	image_view_ci.setImage(create_info.image).setFormat(create_info.format).setViewType(create_info.type).setSubresourceRange(create_info.subresource);
 	return device.createImageViewUnique(image_view_ci);
 }
-
-auto util::string_from_file(std::string& out_string, klib::CString path) -> bool { return klib::read_file_bytes_into(out_string, path); }
-auto util::bytes_from_file(std::vector<std::byte>& out_bytes, klib::CString path) -> bool { return klib::read_file_bytes_into(out_bytes, path); }
-auto util::spirv_from_file(std::vector<std::uint32_t>& out_code, klib::CString path) -> bool { return klib::read_file_bytes_into(out_code, path); }
 } // namespace kvf
