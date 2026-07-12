@@ -194,36 +194,8 @@ auto RenderImage::copy_to_bitmap(vk::Extent2D custom_extent) const -> std::optio
 
 	if (custom_extent.width == 0 || custom_extent.height == 0) { custom_extent = m_info.extent; }
 
-	auto const dst_image_ci = CreateInfo{
-		.format = m_info.format,
-		.extent = custom_extent,
-	};
-	auto const dst_image = vma::create_image_for_copy(m_image.get().allocator, m_render_device->get_queue_family(), dst_image_ci);
-
 	auto command_buffer = ScratchCommandBuffer{m_render_device};
-
-	auto barriers = std::array<vk::ImageMemoryBarrier2, 2>{};
-	barriers[0] = m_render_device->create_image_barrier();
-	barriers[1] = barriers[0];
-	barriers[0].setImage(m_image.get().image);
-	barriers[1].setImage(dst_image.get().image);
-
-	set_pre_copy_barriers(barriers);
-	util::record_barriers(command_buffer, barriers);
-
-	auto const image_blit = get_image_blit(custom_extent);
-	auto blit_info = vk::BlitImageInfo2{};
-	blit_info.setSrcImage(m_image.get().image)
-		.setDstImage(dst_image.get().image)
-		.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
-		.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
-		.setFilter(vk::Filter::eNearest)
-		.setRegions(image_blit);
-	command_buffer.get().blitImage2(blit_info);
-
-	set_post_copy_barriers(barriers);
-	util::record_barriers(command_buffer, barriers);
-
+	auto const dst_image = blit_for_copy(command_buffer, custom_extent);
 	command_buffer.submit_and_wait();
 
 	KLIB_ASSERT(dst_image.get().mapped);
@@ -272,55 +244,6 @@ void RenderImage::recreate_impl(CreateInfo create_info) {
 	m_layout = vk::ImageLayout::eUndefined;
 }
 
-void RenderImage::set_pre_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const {
-	barriers[0]
-		.setOldLayout(m_layout)
-		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
-		.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferRead)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-	barriers[1]
-		.setOldLayout(vk::ImageLayout::eUndefined)
-		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
-		.setSrcAccessMask(vk::AccessFlagBits2::eNone)
-		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-}
-
-void RenderImage::set_post_copy_barriers(std::span<vk::ImageMemoryBarrier2, 2> barriers) const {
-	KLIB_ASSERT(m_layout != vk::ImageLayout::eUndefined);
-	barriers[0]
-		.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
-		.setNewLayout(m_layout)
-		.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-	barriers[1]
-		.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
-		.setNewLayout(vk::ImageLayout::eGeneral)
-		.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
-		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead)
-		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
-		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
-}
-
-auto RenderImage::get_image_blit(vk::Extent2D const dst_extent) const -> vk::ImageBlit2 {
-	static constexpr auto to_offset = [](vk::Extent2D const extent) { return vk::Offset3D{std::int32_t(extent.width), std::int32_t(extent.height), 1}; };
-
-	auto subresource_layers = vk::ImageSubresourceLayers{};
-	subresource_layers.setAspectMask(vk::ImageAspectFlagBits::eColor).setLayerCount(1);
-
-	auto ret = vk::ImageBlit2{};
-	ret.setSrcOffsets({vk::Offset3D{}, to_offset(m_info.extent)})
-		.setDstOffsets({vk::Offset3D{}, to_offset(dst_extent)})
-		.setSrcSubresource(subresource_layers)
-		.setDstSubresource(subresource_layers);
-	return ret;
-}
-
 auto RenderImage::get_pre_render_barrier() -> vk::ImageMemoryBarrier2 {
 	m_layout = vk::ImageLayout::eAttachmentOptimal;
 	auto ret = m_render_device->create_image_barrier(m_info.aspect);
@@ -351,6 +274,76 @@ auto RenderImage::get_post_render_barrier() -> vk::ImageMemoryBarrier2 {
 		ret.setSrcAccessMask(vk::AccessFlagBits2::eColorAttachmentWrite).setSrcStageMask(vk::PipelineStageFlagBits2::eColorAttachmentOutput);
 	}
 	return ret;
+}
+
+auto RenderImage::blit_for_copy(vk::CommandBuffer const command_buffer, vk::Extent2D const extent) const -> vma::UniqueImage {
+	KLIB_ASSERT(m_layout != vk::ImageLayout::eUndefined);
+
+	auto const dst_image_ci = CreateInfo{
+		.format = m_info.format,
+		.extent = extent,
+	};
+	auto dst_image = vma::create_image_for_copy(m_image.get().allocator, m_render_device->get_queue_family(), dst_image_ci);
+
+	auto barriers = std::array<vk::ImageMemoryBarrier2, 2>{};
+	barriers[0] = m_render_device->create_image_barrier();
+	barriers[1] = barriers[0];
+	barriers[0].setImage(m_image.get().image);
+	barriers[1].setImage(dst_image.get().image);
+
+	barriers[0]
+		.setOldLayout(m_layout)
+		.setNewLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setOldLayout(vk::ImageLayout::eUndefined)
+		.setNewLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setSrcAccessMask(vk::AccessFlagBits2::eNone)
+		.setDstAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	util::record_barriers(command_buffer, barriers);
+
+	static constexpr auto to_offset = [](vk::Extent2D const extent) { return vk::Offset3D{std::int32_t(extent.width), std::int32_t(extent.height), 1}; };
+
+	auto subresource_layers = vk::ImageSubresourceLayers{};
+	subresource_layers.setAspectMask(vk::ImageAspectFlagBits::eColor).setLayerCount(1);
+
+	auto image_blit = vk::ImageBlit2{};
+	image_blit.setSrcOffsets({vk::Offset3D{}, to_offset(m_info.extent)})
+		.setDstOffsets({vk::Offset3D{}, to_offset(extent)})
+		.setSrcSubresource(subresource_layers)
+		.setDstSubresource(subresource_layers);
+
+	auto blit_info = vk::BlitImageInfo2{};
+	blit_info.setSrcImage(m_image.get().image)
+		.setDstImage(dst_image.get().image)
+		.setSrcImageLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setDstImageLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setFilter(vk::Filter::eNearest)
+		.setRegions(image_blit);
+	command_buffer.blitImage2(blit_info);
+
+	barriers[0]
+		.setOldLayout(vk::ImageLayout::eTransferSrcOptimal)
+		.setNewLayout(m_layout)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferRead)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead | vk::AccessFlagBits2::eMemoryWrite)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	barriers[1]
+		.setOldLayout(vk::ImageLayout::eTransferDstOptimal)
+		.setNewLayout(vk::ImageLayout::eGeneral)
+		.setSrcAccessMask(vk::AccessFlagBits2::eTransferWrite)
+		.setDstAccessMask(vk::AccessFlagBits2::eMemoryRead)
+		.setSrcStageMask(vk::PipelineStageFlagBits2::eTransfer)
+		.setDstStageMask(vk::PipelineStageFlagBits2::eTransfer);
+	util::record_barriers(command_buffer, barriers);
+
+	return dst_image;
 }
 } // namespace kvf::detail
 
