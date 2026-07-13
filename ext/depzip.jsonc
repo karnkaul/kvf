@@ -44,7 +44,7 @@
     },
     {
       "uri": "ocornut/imgui",
-      "branch": "v1.92.4",
+      "branch": "v1.92.8",
       "subdir": "dear_imgui",
       "remove_subpaths": [
         "examples"
