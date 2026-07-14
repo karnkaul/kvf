@@ -351,7 +351,7 @@ class DearImGui {
 		init_info.Queue = create_info.queue;
 		init_info.MinImageCount = 2;
 		init_info.ImageCount = static_cast<std::uint32_t>(resource_buffering_v);
-		init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_IMAGE_SAMPLER_POOL_SIZE;
+		init_info.DescriptorPoolSize = IMGUI_IMPL_VULKAN_MINIMUM_SAMPLED_IMAGE_POOL_SIZE + IMGUI_IMPL_VULKAN_MINIMUM_SAMPLER_POOL_SIZE;
 		init_info.UseDynamicRendering = true;
 		init_info.PipelineInfoMain.MSAASamples = static_cast<VkSampleCountFlagBits>(create_info.samples);
 		auto pipline_rendering_ci = vk::PipelineRenderingCreateInfo{};
