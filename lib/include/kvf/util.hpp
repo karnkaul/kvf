@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdint>
 #include <gsl/pointers>
+#include <optional>
 #include <string>
 
 using namespace std::chrono_literals;
@@ -79,7 +80,7 @@ constexpr auto is_norm(UvRect const& r) -> bool { return is_norm(r.lt) && is_nor
 [[nodiscard]] auto is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool;
 void set_window_should_close(gsl::not_null<GLFWwindow*> window, bool value);
 
-[[nodiscard]] auto color_from_hex(std::string_view hex) -> Color;
+[[nodiscard]] auto color_from_hex(std::string_view hex) -> std::optional<Color>;
 [[nodiscard]] auto to_hex_string(Color const& color) -> std::string;
 
 [[nodiscard]] auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;

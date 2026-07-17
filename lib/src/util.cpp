@@ -1,5 +1,5 @@
 #include "kvf/util.hpp"
-#include "klib/file_io.hpp"
+#include "klib/string/from_chars.hpp"
 #include <algorithm>
 #include <cmath>
 
@@ -34,17 +34,32 @@ auto util::is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool { return
 
 void util::set_window_should_close(gsl::not_null<GLFWwindow*> window, bool const value) { glfwSetWindowShouldClose(window, value ? GLFW_TRUE : GLFW_FALSE); }
 
-auto util::color_from_hex(std::string_view hex) -> Color {
-	if (hex.size() != 9 || !hex.starts_with('#')) { return {}; }
-	hex = hex.substr(1);
+auto util::color_from_hex(std::string_view hex) -> std::optional<Color> {
+	static constexpr auto sizes_v = std::array{7uz, 9uz};
+	if (std::ranges::find(sizes_v, hex.size()) == sizes_v.end()) { return {}; }
+
+	if (!hex.starts_with('#')) { return {}; }
+	hex.remove_prefix(1);
+
 	auto const next = [&](std::uint8_t& out) {
-		// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-pointer-arithmetic)
-		auto const [ptr, ec] = std::from_chars(hex.data(), hex.data() + 2, out, 16);
-		hex = hex.substr(2);
-		return ec == std::errc{} && ptr == hex.data();
+		static constexpr auto width_v{2uz};
+		if (hex.size() < width_v) { return false; }
+
+		static constexpr auto base_v{16};
+		if (!klib::try_parse_to(out, hex.substr(0, width_v), base_v)) { return false; }
+
+		hex.remove_prefix(width_v);
+		return true;
 	};
+
 	auto ret = Color{};
-	if (!next(ret.x) || !next(ret.y) || !next(ret.z) || !next(ret.w)) { return {}; }
+	if (!next(ret.x) || !next(ret.y) || !next(ret.z)) { return {}; }
+	if (hex.empty()) {
+		ret.w = 0xff;
+		return ret;
+	}
+
+	if (!next(ret.w)) { return {}; }
 	return ret;
 }
 
