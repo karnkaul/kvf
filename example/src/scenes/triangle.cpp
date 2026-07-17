@@ -8,7 +8,7 @@ namespace kvf::example {
 Triangle::Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
 	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)) {
 	m_color_pass->set_color_target();
-	// m_color_pass->set_depth_target();
+	m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
 	create_pipeline();
 }
