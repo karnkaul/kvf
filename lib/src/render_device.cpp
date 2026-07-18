@@ -816,7 +816,10 @@ class RenderDevice : public IRenderDevice {
 		auto ri = vk::RenderingInfo{};
 		ri.setColorAttachments(backbuffer).setLayerCount(1).setRenderArea(render_area);
 		m_current_cmd.beginRendering(ri);
-		m_dear_imgui->render(m_current_cmd);
+		{
+			auto lock = std::scoped_lock{m_mutex};
+			m_dear_imgui->render(m_current_cmd);
+		}
 		m_current_cmd.endRendering();
 	}
 
