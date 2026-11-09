@@ -3,8 +3,11 @@
 #include "kvf/render_device.hpp"
 
 namespace kvf {
-FixedUsageBuffer::FixedUsageBuffer(gsl::not_null<IRenderDevice*> render_device, vk::BufferUsageFlags const usage, BufferType const type)
-	: m_usage(usage), m_buffer(IRenderBuffer::create(render_device, BufferCreateInfo{.usage = usage, .type = type})) {}
+FixedUsageBuffer::FixedUsageBuffer(gsl::not_null<IRenderDevice*> render_device,
+								   vk::BufferUsageFlags const usage,
+								   BufferType const type)
+	: m_usage(usage),
+	  m_buffer(IRenderBuffer::create(render_device, BufferCreateInfo{.usage = usage, .type = type})) {}
 
 void FixedUsageBuffer::write(BufferWrite buffer_write) const {
 	KLIB_ASSERT(m_buffer);

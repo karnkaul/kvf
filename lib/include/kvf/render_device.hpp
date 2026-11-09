@@ -53,7 +53,8 @@ class IRenderDevice : public klib::Polymorphic {
   public:
 	using CreateInfo = RenderDeviceCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info = {}) -> std::unique_ptr<IRenderDevice>;
+	[[nodiscard]] static auto create(gsl::not_null<GLFWwindow*> window, CreateInfo const& create_info = {})
+		-> std::unique_ptr<IRenderDevice>;
 
 	static constexpr auto vk_api_version_v = klib::Version{.major = 1, .minor = 3};
 
@@ -90,8 +91,12 @@ class IRenderDevice : public klib::Polymorphic {
 	virtual auto render(RenderTarget const& render_target, vk::Filter filter = vk::Filter::eLinear) -> bool = 0;
 
 	[[nodiscard]] auto create_sampler(vk::SamplerCreateInfo create_info) const -> vk::UniqueSampler;
-	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const -> std::array<vk::UniqueShaderEXT, 2>;
-	[[nodiscard]] auto create_image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const -> vk::ImageMemoryBarrier2KHR;
-	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout, PipelineState const& state, PipelineFormat const& format) const -> vk::UniquePipeline;
+	[[nodiscard]] auto create_shader_objects(ShaderObjectCreateInfo const& create_info) const
+		-> std::array<vk::UniqueShaderEXT, 2>;
+	[[nodiscard]] auto create_image_barrier(vk::ImageAspectFlags aspect = vk::ImageAspectFlagBits::eColor) const
+		-> vk::ImageMemoryBarrier2KHR;
+	[[nodiscard]] auto create_pipeline(vk::PipelineLayout layout,
+									   PipelineState const& state,
+									   PipelineFormat const& format) const -> vk::UniquePipeline;
 };
 } // namespace kvf

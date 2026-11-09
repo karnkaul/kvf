@@ -14,10 +14,18 @@ class Color : public GlmColor {
 	static constexpr auto to_f32(std::uint8_t const channel) -> float { return float(channel) / float(channel_max_v); }
 	static constexpr auto to_u8(float const norm) -> std::uint8_t { return std::uint8_t(norm * float(channel_max_v)); }
 
-	static constexpr auto red(std::uint32_t const mask) -> std::uint8_t { return std::uint8_t((mask >> (3 * 8)) & 0xff); }
-	static constexpr auto green(std::uint32_t const mask) -> std::uint8_t { return std::uint8_t((mask >> (2 * 8)) & 0xff); }
-	static constexpr auto blue(std::uint32_t const mask) -> std::uint8_t { return std::uint8_t((mask >> (1 * 8)) & 0xff); }
-	static constexpr auto alpha(std::uint32_t const mask) -> std::uint8_t { return std::uint8_t((mask >> (0 * 8)) & 0xff); }
+	static constexpr auto red(std::uint32_t const mask) -> std::uint8_t {
+		return std::uint8_t((mask >> (3 * 8)) & 0xff);
+	}
+	static constexpr auto green(std::uint32_t const mask) -> std::uint8_t {
+		return std::uint8_t((mask >> (2 * 8)) & 0xff);
+	}
+	static constexpr auto blue(std::uint32_t const mask) -> std::uint8_t {
+		return std::uint8_t((mask >> (1 * 8)) & 0xff);
+	}
+	static constexpr auto alpha(std::uint32_t const mask) -> std::uint8_t {
+		return std::uint8_t((mask >> (0 * 8)) & 0xff);
+	}
 
 	Color() = default;
 
@@ -26,7 +34,8 @@ class Color : public GlmColor {
 	explicit constexpr Color(std::uint32_t const mask) : GlmColor(red(mask), green(mask), blue(mask), alpha(mask)) {}
 
 	[[nodiscard]] constexpr auto to_u32() const -> std::uint32_t {
-		return (std::uint32_t(x) << (3 * 8)) | (std::uint32_t(y) << (2 * 8)) | (std::uint32_t(z) << 8) | std::uint32_t(w);
+		return (std::uint32_t(x) << (3 * 8)) | (std::uint32_t(y) << (2 * 8)) | (std::uint32_t(z) << 8) |
+			   std::uint32_t(w);
 	}
 
 	[[nodiscard]] constexpr auto to_vec4() const -> glm::vec4 { return {to_f32(x), to_f32(y), to_f32(z), to_f32(w)}; }

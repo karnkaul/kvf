@@ -16,7 +16,9 @@ Standalone::Standalone(gsl::not_null<IRenderDevice*> device, std::string_view as
 		.extent = util::to_vk_extent(bitmap.size),
 	};
 	m_image = IRenderImage::create(device, ici);
-	if (!m_image->resize_and_overwrite(bitmap)) { throw Panic{"Failed to write to Image"}; }
+	if (!m_image->resize_and_overwrite(bitmap)) {
+		throw Panic{"Failed to write to Image"};
+	}
 }
 
 auto Standalone::get_render_filter() const -> vk::Filter { return vk::Filter::eNearest; }

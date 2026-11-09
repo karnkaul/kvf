@@ -8,7 +8,9 @@ namespace {
 class GraphicsShader : public IGraphicsShader {
   public:
 	explicit GraphicsShader(GraphicsShaderInput const& input, vk::UniqueShaderEXT vertex, vk::UniqueShaderEXT fragment)
-		: m_input(input), m_vertex(std::move(vertex)), m_fragment(std::move(fragment)) {}
+		: m_input(input),
+		  m_vertex(std::move(vertex)),
+		  m_fragment(std::move(fragment)) {}
 
   private:
 	[[nodiscard]] auto get_input() const -> GraphicsShaderInput const& final { return m_input; }
@@ -22,7 +24,8 @@ class GraphicsShader : public IGraphicsShader {
 } // namespace
 } // namespace detail
 
-auto IGraphicsShader::create(gsl::not_null<kvf::IRenderDevice const*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader> {
+auto IGraphicsShader::create(gsl::not_null<kvf::IRenderDevice const*> render_device, CreateInfo const& create_info)
+	-> std::unique_ptr<IGraphicsShader> {
 	if ((render_device->get_flags() & RenderDeviceFlag::ShaderObjectFeature) != RenderDeviceFlag::ShaderObjectFeature) {
 		log.warn("Attempt to create ShaderEXT objects without ShaderObjectFeature");
 		return {};
@@ -54,6 +57,7 @@ auto IGraphicsShader::create(gsl::not_null<kvf::IRenderDevice const*> render_dev
 		return {};
 	}
 
-	return std::make_unique<detail::GraphicsShader>(create_info.input, vk::UniqueShaderEXT{shaders[0], device}, vk::UniqueShaderEXT{shaders[1], device});
+	return std::make_unique<detail::GraphicsShader>(
+		create_info.input, vk::UniqueShaderEXT{shaders[0], device}, vk::UniqueShaderEXT{shaders[1], device});
 }
 } // namespace kvf

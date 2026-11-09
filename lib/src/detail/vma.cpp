@@ -6,7 +6,10 @@
 namespace kvf::detail {
 namespace vma {
 namespace {
-auto create_image_impl(VmaAllocator allocator, std::uint32_t const queue_family, ImageCreateInfo const& create_info, bool const for_copy) -> UniqueImage {
+auto create_image_impl(VmaAllocator allocator,
+					   std::uint32_t const queue_family,
+					   ImageCreateInfo const& create_info,
+					   bool const for_copy) -> UniqueImage {
 	KLIB_ASSERT((create_info.usage & ImageCreateInfo::implicit_usage_v) == ImageCreateInfo::implicit_usage_v);
 	KLIB_ASSERT(create_info.format != vk::Format::eUndefined);
 	KLIB_ASSERT(create_info.extent.width > 0 && create_info.extent.height > 0);
@@ -30,24 +33,38 @@ auto create_image_impl(VmaAllocator allocator, std::uint32_t const queue_family,
 		allocation_ci.flags |= VMA_ALLOCATION_CREATE_DEDICATED_MEMORY_BIT;
 		allocation_ci.priority = 1.0f;
 	}
-	if (for_copy) { allocation_ci.flags |= (VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT); }
+	if (for_copy) {
+		allocation_ci.flags |=
+			(VMA_ALLOCATION_CREATE_MAPPED_BIT | VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT);
+	}
 
 	VkImage image{};
 	VmaAllocation allocation{};
 	auto allocation_info = VmaAllocationInfo{};
-	if (vmaCreateImage(allocator, &vici, &allocation_ci, &image, &allocation, &allocation_info) != VK_SUCCESS) { throw Panic{"Failed to create Vulkan Image"}; }
+	if (vmaCreateImage(allocator, &vici, &allocation_ci, &image, &allocation, &allocation_info) != VK_SUCCESS) {
+		throw Panic{"Failed to create Vulkan Image"};
+	}
 
-	return Image{.image = image, .allocator = allocator, .allocation = allocation, .mip_levels = image_ci.mipLevels, .mapped = allocation_info.pMappedData};
+	return Image{.image = image,
+				 .allocator = allocator,
+				 .allocation = allocation,
+				 .mip_levels = image_ci.mipLevels,
+				 .mapped = allocation_info.pMappedData};
 }
 } // namespace
 
-void Buffer::Deleter::operator()(Buffer const& buffer) const noexcept { vmaDestroyBuffer(buffer.allocator, buffer.buffer, buffer.allocation); }
+void Buffer::Deleter::operator()(Buffer const& buffer) const noexcept {
+	vmaDestroyBuffer(buffer.allocator, buffer.buffer, buffer.allocation);
+}
 
-void Image::Deleter::operator()(Image const& image) const noexcept { vmaDestroyImage(image.allocator, image.image, image.allocation); }
+void Image::Deleter::operator()(Image const& image) const noexcept {
+	vmaDestroyImage(image.allocator, image.image, image.allocation);
+}
 } // namespace vma
 
 auto vma::create_buffer(VmaAllocator allocator, BufferCreateInfo const& create_info) noexcept(false) -> UniqueBuffer {
-	KLIB_ASSERT(create_info.type == BufferType::Host || (create_info.usage & vk::BufferUsageFlagBits::eTransferDst) == vk::BufferUsageFlagBits::eTransferDst);
+	KLIB_ASSERT(create_info.type == BufferType::Host ||
+				(create_info.usage & vk::BufferUsageFlagBits::eTransferDst) == vk::BufferUsageFlagBits::eTransferDst);
 	KLIB_ASSERT(create_info.size > 0);
 
 	auto allocation_ci = VmaAllocationCreateInfo{};
@@ -65,18 +82,23 @@ auto vma::create_buffer(VmaAllocator allocator, BufferCreateInfo const& create_i
 	VmaAllocation allocation{};
 	VkBuffer buffer{};
 	auto allocation_info = VmaAllocationInfo{};
-	if (vmaCreateBuffer(allocator, &c_buffer_ci, &allocation_ci, &buffer, &allocation, &allocation_info) != VK_SUCCESS) {
+	if (vmaCreateBuffer(allocator, &c_buffer_ci, &allocation_ci, &buffer, &allocation, &allocation_info) !=
+		VK_SUCCESS) {
 		throw Panic{"Failed to create Vulkan Buffer"};
 	}
 
-	return Buffer{.buffer = buffer, .allocator = allocator, .allocation = allocation, .mapped = allocation_info.pMappedData};
+	return Buffer{
+		.buffer = buffer, .allocator = allocator, .allocation = allocation, .mapped = allocation_info.pMappedData};
 }
 
-auto vma::create_image(VmaAllocator allocator, std::uint32_t const queue_family, ImageCreateInfo const& create_info) -> UniqueImage {
+auto vma::create_image(VmaAllocator allocator, std::uint32_t const queue_family, ImageCreateInfo const& create_info)
+	-> UniqueImage {
 	return create_image_impl(allocator, queue_family, create_info, false);
 }
 
-auto vma::create_image_for_copy(VmaAllocator allocator, std::uint32_t const queue_family, ImageCreateInfo const& create_info) -> UniqueImage {
+auto vma::create_image_for_copy(VmaAllocator allocator,
+								std::uint32_t const queue_family,
+								ImageCreateInfo const& create_info) -> UniqueImage {
 	return create_image_impl(allocator, queue_family, create_info, true);
 }
 } // namespace kvf::detail

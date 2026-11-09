@@ -6,6 +6,7 @@
 namespace kvf {
 class IRingDescriptorAllocator : public klib::Polymorphic {
   public:
-	[[nodiscard]] virtual auto allocate_next(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> set_layouts) -> bool = 0;
+	[[nodiscard]] virtual auto allocate_next(std::span<vk::DescriptorSet> out_sets,
+											 std::span<vk::DescriptorSetLayout const> set_layouts) -> bool = 0;
 };
 } // namespace kvf

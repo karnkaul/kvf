@@ -23,7 +23,8 @@ struct Buffer::Deleter {
 
 using UniqueBuffer = klib::Unique<Buffer, Buffer::Deleter>;
 
-[[nodiscard]] auto create_buffer(VmaAllocator allocator, BufferCreateInfo const& create_info) noexcept(false) -> UniqueBuffer;
+[[nodiscard]] auto create_buffer(VmaAllocator allocator, BufferCreateInfo const& create_info) noexcept(false)
+	-> UniqueBuffer;
 
 struct Image {
 	struct Deleter;
@@ -43,6 +44,10 @@ struct Image::Deleter {
 
 using UniqueImage = klib::Unique<Image, Image::Deleter>;
 
-[[nodiscard]] auto create_image(VmaAllocator allocator, std::uint32_t queue_family, ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
-[[nodiscard]] auto create_image_for_copy(VmaAllocator allocator, std::uint32_t queue_family, ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
+[[nodiscard]] auto create_image(VmaAllocator allocator,
+								std::uint32_t queue_family,
+								ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
+[[nodiscard]] auto create_image_for_copy(VmaAllocator allocator,
+										 std::uint32_t queue_family,
+										 ImageCreateInfo const& create_info) noexcept(false) -> UniqueImage;
 } // namespace kvf::detail::vma

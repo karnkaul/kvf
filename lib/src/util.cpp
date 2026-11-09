@@ -6,7 +6,10 @@
 namespace kvf {
 namespace {
 template <typename DescriptorInfoT>
-[[nodiscard]] auto descriptor_write(vk::DescriptorType const type, DescriptorInfoT const* info, vk::DescriptorSet set, std::uint32_t const binding) {
+[[nodiscard]] auto descriptor_write(vk::DescriptorType const type,
+									DescriptorInfoT const* info,
+									vk::DescriptorSet set,
+									std::uint32_t const binding) {
 	auto ret = vk::WriteDescriptorSet{};
 	ret.setDescriptorCount(1).setDescriptorType(type).setDstSet(set).setDstBinding(binding);
 	if constexpr (std::same_as<DescriptorInfoT, vk::DescriptorBufferInfo>) {
@@ -30,54 +33,78 @@ auto util::framebuffer_size(gsl::not_null<GLFWwindow*> window) -> glm::ivec2 {
 	return ret;
 }
 
-auto util::is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool { return glfwWindowShouldClose(window) == GLFW_TRUE; }
+auto util::is_window_closing(gsl::not_null<GLFWwindow*> window) -> bool {
+	return glfwWindowShouldClose(window) == GLFW_TRUE;
+}
 
-void util::set_window_should_close(gsl::not_null<GLFWwindow*> window, bool const value) { glfwSetWindowShouldClose(window, value ? GLFW_TRUE : GLFW_FALSE); }
+void util::set_window_should_close(gsl::not_null<GLFWwindow*> window, bool const value) {
+	glfwSetWindowShouldClose(window, value ? GLFW_TRUE : GLFW_FALSE);
+}
 
 auto util::color_from_hex(std::string_view hex) -> std::optional<Color> {
 	static constexpr auto sizes_v = std::array{7uz, 9uz};
-	if (std::ranges::find(sizes_v, hex.size()) == sizes_v.end()) { return {}; }
+	if (std::ranges::find(sizes_v, hex.size()) == sizes_v.end()) {
+		return {};
+	}
 
-	if (!hex.starts_with('#')) { return {}; }
+	if (!hex.starts_with('#')) {
+		return {};
+	}
 	hex.remove_prefix(1);
 
 	auto const next = [&](std::uint8_t& out) {
 		static constexpr auto width_v{2uz};
-		if (hex.size() < width_v) { return false; }
+		if (hex.size() < width_v) {
+			return false;
+		}
 
 		static constexpr auto base_v{16};
-		if (!klib::try_parse_to(out, hex.substr(0, width_v), base_v)) { return false; }
+		if (!klib::try_parse_to(out, hex.substr(0, width_v), base_v)) {
+			return false;
+		}
 
 		hex.remove_prefix(width_v);
 		return true;
 	};
 
 	auto ret = Color{};
-	if (!next(ret.x) || !next(ret.y) || !next(ret.z)) { return {}; }
+	if (!next(ret.x) || !next(ret.y) || !next(ret.z)) {
+		return {};
+	}
 	if (hex.empty()) {
 		ret.w = 0xff;
 		return ret;
 	}
 
-	if (!next(ret.w)) { return {}; }
+	if (!next(ret.w)) {
+		return {};
+	}
 	return ret;
 }
 
-auto util::to_hex_string(Color const& color) -> std::string { return std::format("#{:02x}{:02x}{:02x}{:02x}", color.x, color.y, color.z, color.w); }
+auto util::to_hex_string(Color const& color) -> std::string {
+	return std::format("#{:02x}{:02x}{:02x}{:02x}", color.x, color.y, color.z, color.w);
+}
 
 auto util::compute_mip_levels(vk::Extent2D const extent) -> std::uint32_t {
 	return static_cast<std::uint32_t>(std::floor(std::log2(std::max(extent.width, extent.height)))) + 1u;
 }
 
-auto util::ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+auto util::ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info,
+					 vk::DescriptorSet const set,
+					 std::uint32_t const binding) -> vk::WriteDescriptorSet {
 	return descriptor_write(vk::DescriptorType::eUniformBuffer, info.get(), set, binding);
 }
 
-auto util::ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+auto util::ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info,
+					  vk::DescriptorSet const set,
+					  std::uint32_t const binding) -> vk::WriteDescriptorSet {
 	return descriptor_write(vk::DescriptorType::eStorageBuffer, info.get(), set, binding);
 }
 
-auto util::image_write(gsl::not_null<vk::DescriptorImageInfo const*> info, vk::DescriptorSet const set, std::uint32_t const binding) -> vk::WriteDescriptorSet {
+auto util::image_write(gsl::not_null<vk::DescriptorImageInfo const*> info,
+					   vk::DescriptorSet const set,
+					   std::uint32_t const binding) -> vk::WriteDescriptorSet {
 	return descriptor_write(vk::DescriptorType::eCombinedImageSampler, info.get(), set, binding);
 }
 
@@ -85,7 +112,8 @@ auto util::wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanos
 	return device.waitForFences(fence, vk::True, std::uint64_t(timeout.count())) == vk::Result::eSuccess;
 }
 
-void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
+void util::record_barriers(vk::CommandBuffer const command_buffer,
+						   std::span<vk::ImageMemoryBarrier2 const> image_barriers) {
 	auto di = vk::DependencyInfo{};
 	di.pImageMemoryBarriers = image_barriers.data();
 	di.imageMemoryBarrierCount = static_cast<std::uint32_t>(image_barriers.size());
@@ -94,7 +122,10 @@ void util::record_barriers(vk::CommandBuffer const command_buffer, std::span<vk:
 
 auto util::create_image_view(vk::Device const device, ImageViewCreateInfo const& create_info) -> vk::UniqueImageView {
 	auto image_view_ci = vk::ImageViewCreateInfo{};
-	image_view_ci.setImage(create_info.image).setFormat(create_info.format).setViewType(create_info.type).setSubresourceRange(create_info.subresource);
+	image_view_ci.setImage(create_info.image)
+		.setFormat(create_info.format)
+		.setViewType(create_info.type)
+		.setSubresourceRange(create_info.subresource);
 	return device.createImageViewUnique(image_view_ci);
 }
 } // namespace kvf

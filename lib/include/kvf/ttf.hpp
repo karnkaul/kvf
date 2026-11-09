@@ -23,7 +23,9 @@ struct Slot {
 
 	[[nodiscard]] constexpr auto operator[](int const x, int const y) const -> std::byte {
 		auto const index = std::size_t((y * size.x) + x);
-		if (index >= alpha_channels.size()) { return {}; }
+		if (index >= alpha_channels.size()) {
+			return {};
+		}
 		return alpha_channels[index];
 	}
 };
@@ -40,7 +42,9 @@ struct Glyph {
 		return {.lt = baseline + scale * left_top, .rb = baseline + scale * (left_top + glm::vec2{size.x, -size.y})};
 	}
 
-	[[nodiscard]] constexpr auto is_empty() const -> bool { return advance == glm::vec2{0.0f} && size == glm::vec2{0.0f}; }
+	[[nodiscard]] constexpr auto is_empty() const -> bool {
+		return advance == glm::vec2{0.0f} && size == glm::vec2{0.0f};
+	}
 };
 
 struct Atlas {
@@ -81,7 +85,9 @@ class Typeface {
 	[[nodiscard]] auto has_kerning() const -> bool;
 	[[nodiscard]] auto get_kerning(std::uint32_t height, GlyphIndex left, GlyphIndex right) const -> glm::ivec2;
 
-	[[nodiscard]] auto build_atlas(std::uint32_t height, std::span<Codepoint const> codepoints = default_codepoints(), glm::ivec2 padding = padding_v) -> Atlas;
+	[[nodiscard]] auto build_atlas(std::uint32_t height,
+								   std::span<Codepoint const> codepoints = default_codepoints(),
+								   glm::ivec2 padding = padding_v) -> Atlas;
 
 	/// \brief Build GlyphLayouts for given TextInput.
 	/// \returns Position of cursor (for the next glyph).
@@ -97,6 +103,7 @@ class Typeface {
 	std::unique_ptr<Impl, Deleter> m_impl{};
 };
 
-[[nodiscard]] auto glyph_or_fallback(std::span<Glyph const> glyphs, Codepoint codepoint, bool use_tofu = true) -> Glyph const&;
+[[nodiscard]] auto glyph_or_fallback(std::span<Glyph const> glyphs, Codepoint codepoint, bool use_tofu = true)
+	-> Glyph const&;
 [[nodiscard]] auto glyph_bounds(std::span<GlyphLayout const> glyph_layouts) -> Rect<>;
 } // namespace kvf::ttf

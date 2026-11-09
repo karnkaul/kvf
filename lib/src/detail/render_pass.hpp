@@ -28,7 +28,8 @@ class RenderPass : public IRenderPass {
 
 	void recreate(vk::SampleCountFlagBits samples = samples_v) final;
 
-	[[nodiscard]] auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state) -> vk::UniquePipeline final;
+	[[nodiscard]] auto create_graphics_pipeline(vk::PipelineLayout layout, PipelineState const& state)
+		-> vk::UniquePipeline final;
 
 	[[nodiscard]] auto has_color_target() const -> bool final { return m_framebuffers.front().color.has_value(); }
 	[[nodiscard]] auto has_resolve_target() const -> bool final { return m_framebuffers.front().resolve.has_value(); }
@@ -43,13 +44,15 @@ class RenderPass : public IRenderPass {
 
 	void begin_render(vk::CommandBuffer command_buffer, vk::Extent2D extent) final;
 	[[nodiscard]] auto get_command_buffer() const -> vk::CommandBuffer final { return m_command_buffer; }
-	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> sets_layouts) -> bool final;
+	auto allocate_sets(std::span<vk::DescriptorSet> out_sets, std::span<vk::DescriptorSetLayout const> sets_layouts)
+		-> bool final;
 	void end_render() final;
 
 	void bind_graphics_pipeline(vk::Pipeline pipeline) const final;
 	void bind_graphics_shader(IGraphicsShader const& shader) const final;
 
-	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const -> std::optional<vk::DescriptorImageInfo> final;
+	[[nodiscard]] auto render_texture_descriptor_info(vk::Sampler sampler) const
+		-> std::optional<vk::DescriptorImageInfo> final;
 	[[nodiscard]] auto copy_render_texture(vk::Extent2D custom_extent) const -> std::optional<ColorBitmap> final;
 
 	[[nodiscard]] auto get_rendered_image() const -> klib::Ptr<IRenderImage const>;

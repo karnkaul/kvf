@@ -13,11 +13,17 @@
 using namespace std::chrono_literals;
 
 namespace kvf::util {
-inline constexpr auto srgb_formats_v = std::array{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb, vk::Format::eA8B8G8R8SrgbPack32};
-inline constexpr auto linear_formats_v = std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
+inline constexpr auto srgb_formats_v =
+	std::array{vk::Format::eR8G8B8A8Srgb, vk::Format::eB8G8R8A8Srgb, vk::Format::eA8B8G8R8SrgbPack32};
+inline constexpr auto linear_formats_v =
+	std::array{vk::Format::eR8G8B8A8Unorm, vk::Format::eB8G8R8A8Unorm, vk::Format::eA8B8G8R8UnormPack32};
 
-[[nodiscard]] constexpr auto is_linear(vk::Format const format) -> bool { return std::ranges::find(linear_formats_v, format) != linear_formats_v.end(); }
-[[nodiscard]] constexpr auto is_srgb(vk::Format const format) -> bool { return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end(); }
+[[nodiscard]] constexpr auto is_linear(vk::Format const format) -> bool {
+	return std::ranges::find(linear_formats_v, format) != linear_formats_v.end();
+}
+[[nodiscard]] constexpr auto is_srgb(vk::Format const format) -> bool {
+	return std::ranges::find(srgb_formats_v, format) != srgb_formats_v.end();
+}
 
 [[nodiscard]] constexpr auto to_string_view(vk::PresentModeKHR const present_mode) -> std::string_view {
 	switch (present_mode) {
@@ -61,7 +67,8 @@ constexpr auto is_norm(float const f) -> bool { return f >= 0.0f && f <= 1.0f; }
 constexpr auto is_norm(glm::vec2 const v) -> bool { return is_norm(v.x) && is_norm(v.y); }
 constexpr auto is_norm(UvRect const& r) -> bool { return is_norm(r.lt) && is_norm(r.rb); }
 
-[[nodiscard]] constexpr auto create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter, float const aniso = 16.0f) {
+[[nodiscard]] constexpr auto
+create_sampler_ci(vk::SamplerAddressMode const wrap, vk::Filter const filter, float const aniso = 16.0f) {
 	auto ret = vk::SamplerCreateInfo{};
 	ret.setAddressModeU(wrap)
 		.setAddressModeV(wrap)
@@ -85,9 +92,15 @@ void set_window_should_close(gsl::not_null<GLFWwindow*> window, bool value);
 
 [[nodiscard]] auto compute_mip_levels(vk::Extent2D extent) -> std::uint32_t;
 
-[[nodiscard]] auto ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
-[[nodiscard]] auto ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
-[[nodiscard]] auto image_write(gsl::not_null<vk::DescriptorImageInfo const*> info, vk::DescriptorSet set, std::uint32_t binding) -> vk::WriteDescriptorSet;
+[[nodiscard]] auto ubo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info,
+							 vk::DescriptorSet set,
+							 std::uint32_t binding) -> vk::WriteDescriptorSet;
+[[nodiscard]] auto ssbo_write(gsl::not_null<vk::DescriptorBufferInfo const*> info,
+							  vk::DescriptorSet set,
+							  std::uint32_t binding) -> vk::WriteDescriptorSet;
+[[nodiscard]] auto image_write(gsl::not_null<vk::DescriptorImageInfo const*> info,
+							   vk::DescriptorSet set,
+							   std::uint32_t binding) -> vk::WriteDescriptorSet;
 
 auto wait_for_fence(vk::Device device, vk::Fence fence, std::chrono::nanoseconds timeout = 5s) -> bool;
 

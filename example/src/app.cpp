@@ -11,7 +11,9 @@
 
 namespace kvf::example {
 App::App(std::string_view const build_version)
-	: m_window(make_window(build_version)), m_device(IRenderDevice::create(m_window.get())), m_blocker(m_device->get_device()) {
+	: m_window(make_window(build_version)),
+	  m_device(IRenderDevice::create(m_window.get())),
+	  m_blocker(m_device->get_device()) {
 	add_factory<Standalone>("Standalone");
 	add_factory<ImageViewer>("Image Viewer");
 	add_factory<Triangle>("Triangle");
@@ -20,7 +22,9 @@ App::App(std::string_view const build_version)
 
 template <std::derived_from<Scene> T>
 void App::add_factory(klib::CString name) {
-	m_factories.push_back(Factory{.name = name, .create = [this] { return std::make_unique<T>(m_device.get(), m_assets_dir); }});
+	m_factories.push_back(Factory{.name = name, .create = [this] {
+									  return std::make_unique<T>(m_device.get(), m_assets_dir);
+								  }});
 }
 
 void App::run(std::string_view const assets_dir) {
@@ -44,7 +48,9 @@ auto App::make_window(std::string_view const build_version) -> kvf::UniqueWindow
 	glfwSetWindowUserPointer(ret.get(), this);
 	glfwSetKeyCallback(ret.get(), [](GLFWwindow* w, int const key, int const /*scancode*/, int action, int const mods) {
 		auto& self = *static_cast<App*>(glfwGetWindowUserPointer(w));
-		if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && mods == 0) { util::set_window_should_close(self.m_device->get_window(), true); }
+		if (key == GLFW_KEY_ESCAPE && action == GLFW_RELEASE && mods == 0) {
+			util::set_window_should_close(self.m_device->get_window(), true);
+		}
 		auto const input = Scene::KeyInput{.key = key, .action = action, .mods = mods};
 		self.m_scene->on_key(input);
 	});
@@ -56,15 +62,21 @@ auto App::make_window(std::string_view const build_version) -> kvf::UniqueWindow
 }
 
 void App::draw_menu() {
-	if (!ImGui::BeginMainMenuBar()) { return; }
+	if (!ImGui::BeginMainMenuBar()) {
+		return;
+	}
 	if (ImGui::BeginMenu("File")) {
-		if (ImGui::MenuItem("Exit")) { util::set_window_should_close(m_device->get_window(), true); }
+		if (ImGui::MenuItem("Exit")) {
+			util::set_window_should_close(m_device->get_window(), true);
+		}
 		ImGui::EndMenu();
 	}
 	if (ImGui::BeginMenu("Scenes")) {
 		auto* new_factory = m_current_factory;
 		for (auto& factory : m_factories) {
-			if (ImGui::MenuItem(factory.name.c_str(), nullptr, m_current_factory == &factory)) { new_factory = &factory; }
+			if (ImGui::MenuItem(factory.name.c_str(), nullptr, m_current_factory == &factory)) {
+				new_factory = &factory;
+			}
 		}
 
 		if (new_factory != m_current_factory) {
@@ -75,7 +87,8 @@ void App::draw_menu() {
 				m_current_factory = new_factory;
 				m_delta_time.reset();
 			} catch (Panic const& e) {
-				auto const message = std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());
+				auto const message =
+					std::format("Failed to create scene {}\n{}", new_factory->name.as_view(), e.what());
 				m_scene->open_error_modal(message);
 			}
 		}
@@ -93,7 +106,9 @@ void App::draw_error_modal() const {
 		modal.set_open = false;
 	}
 
-	if (!ImGui::BeginPopupModal("Error!")) { return; }
+	if (!ImGui::BeginPopupModal("Error!")) {
+		return;
+	}
 
 	ImGui::TextUnformatted(modal.message.c_str());
 	if (ImGui::Button("Close")) {

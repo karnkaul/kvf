@@ -17,6 +17,8 @@ struct WindowHint {
 
 using UniqueWindow = std::unique_ptr<GLFWwindow, WindowDeleter>;
 
-[[nodiscard]] auto create_window(glm::ivec2 size, klib::CString title, std::span<WindowHint const> hints = {}) noexcept(false) -> UniqueWindow;
+[[nodiscard]] auto create_window(glm::ivec2 size,
+								 klib::CString title,
+								 std::span<WindowHint const> hints = {}) noexcept(false) -> UniqueWindow;
 [[nodiscard]] auto create_fullscreen_window(klib::CString title) noexcept(false) -> UniqueWindow;
 } // namespace kvf

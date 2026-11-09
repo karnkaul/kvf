@@ -29,7 +29,8 @@ class IGraphicsShader : public klib::Polymorphic {
 	using CreateInfo = GraphicsShaderCreateInfo;
 	using Input = GraphicsShaderInput;
 
-	[[nodiscard]] static auto create(gsl::not_null<kvf::IRenderDevice const*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader>;
+	[[nodiscard]] static auto create(gsl::not_null<kvf::IRenderDevice const*> render_device,
+									 CreateInfo const& create_info) -> std::unique_ptr<IGraphicsShader>;
 
 	[[nodiscard]] virtual auto get_input() const -> GraphicsShaderInput const& = 0;
 	[[nodiscard]] virtual auto get_vertex() const -> vk::ShaderEXT = 0;
