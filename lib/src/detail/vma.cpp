@@ -45,11 +45,13 @@ auto create_image_impl(VmaAllocator allocator,
 		throw Panic{"Failed to create Vulkan Image"};
 	}
 
-	return Image{.image = image,
-				 .allocator = allocator,
-				 .allocation = allocation,
-				 .mip_levels = image_ci.mipLevels,
-				 .mapped = allocation_info.pMappedData};
+	return Image{
+		.image = image,
+		.allocator = allocator,
+		.allocation = allocation,
+		.mip_levels = image_ci.mipLevels,
+		.mapped = allocation_info.pMappedData,
+	};
 }
 } // namespace
 
@@ -88,7 +90,11 @@ auto vma::create_buffer(VmaAllocator allocator, BufferCreateInfo const& create_i
 	}
 
 	return Buffer{
-		.buffer = buffer, .allocator = allocator, .allocation = allocation, .mapped = allocation_info.pMappedData};
+		.buffer = buffer,
+		.allocator = allocator,
+		.allocation = allocation,
+		.mapped = allocation_info.pMappedData,
+	};
 }
 
 auto vma::create_image(VmaAllocator allocator, std::uint32_t const queue_family, ImageCreateInfo const& create_info)

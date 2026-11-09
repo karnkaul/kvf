@@ -4,9 +4,6 @@
 #include "kvf/build_version.hpp"
 #include "log.hpp"
 
-#include "kvf/util.hpp"
-#include <imgui.h>
-
 auto main(int argc, char** argv) -> int {
 	auto const log_file = klib::log::File{"kvf-example.log"};
 	auto const& log = kvf::example::log;

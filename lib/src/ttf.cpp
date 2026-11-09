@@ -1,6 +1,5 @@
 #include "kvf/ttf.hpp"
 #include "klib/unique.hpp"
-#include "kvf/constants.hpp"
 #include <log.hpp>
 #include <algorithm>
 #include <cmath>
@@ -217,8 +216,8 @@ void Typeface::Deleter::operator()(Impl* ptr) const noexcept { std::default_dele
 
 auto Typeface::load(std::vector<std::byte> font) -> bool {
 	if (!m_impl) {
-		m_impl.reset(new Impl);
-	} // NOLINT(cppcoreguidelines-owning-memory)
+		m_impl.reset(new Impl); // NOLINT(cppcoreguidelines-owning-memory)
+	}
 	if (!m_impl->lib) {
 		return false;
 	}

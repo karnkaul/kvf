@@ -1089,7 +1089,9 @@ auto IRenderDevice::create_shader_objects(ShaderObjectCreateInfo const& create_i
 		create_shader_ci(create_info.vertex_spir_v),
 		create_shader_ci(create_info.fragment_spir_v),
 	};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
 	shader_cis[0].setStage(vk::ShaderStageFlagBits::eVertex).setNextStage(vk::ShaderStageFlagBits::eFragment);
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
 	shader_cis[1].setStage(vk::ShaderStageFlagBits::eFragment);
 
 	auto shaders = std::array<vk::ShaderEXT, 2>{};
@@ -1122,7 +1124,9 @@ auto IRenderDevice::create_pipeline(vk::PipelineLayout layout,
 									PipelineState const& state,
 									PipelineFormat const& format) const -> vk::UniquePipeline {
 	auto shader_stages = std::array<vk::PipelineShaderStageCreateInfo, 2>{};
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
 	shader_stages[0].setStage(vk::ShaderStageFlagBits::eVertex).setPName("main").setModule(state.vertex_shader);
+	// NOLINTNEXTLINE(cppcoreguidelines-pro-bounds-avoid-unchecked-container-access)
 	shader_stages[1].setStage(vk::ShaderStageFlagBits::eFragment).setPName("main").setModule(state.fragment_shader);
 
 	auto vertex_input_ci = vk::PipelineVertexInputStateCreateInfo{};

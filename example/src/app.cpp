@@ -22,9 +22,13 @@ App::App(std::string_view const build_version)
 
 template <std::derived_from<Scene> T>
 void App::add_factory(klib::CString name) {
-	m_factories.push_back(Factory{.name = name, .create = [this] {
-									  return std::make_unique<T>(m_device.get(), m_assets_dir);
-								  }});
+	m_factories.push_back(Factory{
+		.name = name,
+		.create =
+			[this] {
+				return std::make_unique<T>(m_device.get(), m_assets_dir);
+			},
+	});
 }
 
 void App::run(std::string_view const assets_dir) {
