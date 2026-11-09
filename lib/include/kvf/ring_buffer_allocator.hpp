@@ -6,7 +6,8 @@
 namespace kvf {
 class IRingBufferAllocator : public klib::Polymorphic {
   public:
-	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, BufferUsageLayout const& layout) -> std::shared_ptr<IRingBufferAllocator>;
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, BufferUsageLayout const& layout)
+		-> std::shared_ptr<IRingBufferAllocator>;
 
 	[[nodiscard]] virtual auto get_render_device() const -> IRenderDevice& = 0;
 

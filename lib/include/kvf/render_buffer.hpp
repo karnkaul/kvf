@@ -23,7 +23,8 @@ class IRenderBuffer : public klib::Polymorphic {
   public:
 	using CreateInfo = BufferCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderBuffer>;
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info)
+		-> std::unique_ptr<IRenderBuffer>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 
@@ -46,6 +47,7 @@ class IRenderBuffer : public klib::Polymorphic {
 	[[nodiscard]] auto descriptor_info() const -> vk::DescriptorBufferInfo;
 
   protected:
-	virtual auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool = 0;
+	virtual auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset)
+		-> bool = 0;
 };
 } // namespace kvf

@@ -9,11 +9,13 @@ class Writer {
 
 	auto encode_png(Bitmap const& bitmap) -> bool {
 		auto const stride = bitmap.size.x * comp_v;
-		return stbi_write_png_to_func(&write_callback, this, bitmap.size.x, bitmap.size.y, comp_v, bitmap.bytes.data(), stride);
+		return stbi_write_png_to_func(
+			&write_callback, this, bitmap.size.x, bitmap.size.y, comp_v, bitmap.bytes.data(), stride);
 	}
 
 	auto encode_jpg(Bitmap const& bitmap, int const quality) -> bool {
-		return stbi_write_jpg_to_func(&write_callback, this, bitmap.size.x, bitmap.size.y, comp_v, bitmap.bytes.data(), quality) != 0;
+		return stbi_write_jpg_to_func(
+				   &write_callback, this, bitmap.size.x, bitmap.size.y, comp_v, bitmap.bytes.data(), quality) != 0;
 	}
 
 	auto encode_tga(Bitmap const& bitmap) -> bool {
@@ -28,7 +30,9 @@ class Writer {
 		m_out.append_range(in);
 	}
 
-	static void write_callback(void* context, void* data, int size) { static_cast<Writer*>(context)->on_write(data, size); }
+	static void write_callback(void* context, void* data, int size) {
+		static_cast<Writer*>(context)->on_write(data, size);
+	}
 
 	std::vector<std::byte>& m_out;
 };

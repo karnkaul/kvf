@@ -7,7 +7,8 @@
 
 namespace kvf {
 namespace detail {
-RenderBuffer::RenderBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) : m_render_device(render_device) {
+RenderBuffer::RenderBuffer(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info)
+	: m_render_device(render_device) {
 	recreate_impl(create_info);
 }
 
@@ -24,22 +25,32 @@ void RenderBuffer::resize(vk::DeviceSize size) {
 	recreate_impl(info);
 }
 
-auto RenderBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize const write_size, vk::DeviceSize const offset) -> bool {
-	if (get_size() < offset + write_size) { return false; }
-	if (write_size == 0) { return true; }
+auto RenderBuffer::write_contiguous(std::span<BufferWrite const> writes,
+									vk::DeviceSize const write_size,
+									vk::DeviceSize const offset) -> bool {
+	if (get_size() < offset + write_size) {
+		return false;
+	}
+	if (write_size == 0) {
+		return true;
+	}
 
 	if (auto dst = get_mapped_span(); !dst.empty()) {
 		KLIB_ASSERT(dst.size() >= offset + write_size);
 		dst = dst.subspan(offset);
 		for (auto const write : writes) {
-			if (write.is_empty()) { continue; }
+			if (write.is_empty()) {
+				continue;
+			}
 			std::memcpy(dst.data(), write.data(), write.size());
 			dst = dst.subspan(write.size());
 		}
 		return true;
 	}
 
-	if ((m_info.usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) { return false; }
+	if ((m_info.usage & vk::BufferUsageFlagBits::eTransferDst) != vk::BufferUsageFlagBits::eTransferDst) {
+		return false;
+	}
 
 	auto const bci = BufferCreateInfo{
 		.usage = vk::BufferUsageFlagBits::eTransferSrc,
@@ -47,7 +58,9 @@ auto RenderBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::Dev
 		.size = write_size,
 	};
 	auto staging = RenderBuffer{m_render_device, bci};
-	if (!staging.write_contiguous(writes, write_size, 0)) { return false; }
+	if (!staging.write_contiguous(writes, write_size, 0)) {
+		return false;
+	}
 
 	auto const bc = vk::BufferCopy2{0, offset, staging.get_size()};
 	auto cbi = vk::CopyBufferInfo2{};
@@ -59,7 +72,9 @@ auto RenderBuffer::write_contiguous(std::span<BufferWrite const> writes, vk::Dev
 }
 
 void RenderBuffer::recreate_impl(CreateInfo create_info) {
-	if (create_info.type == BufferType::Device) { create_info.usage |= vk::BufferUsageFlagBits::eTransferDst; }
+	if (create_info.type == BufferType::Device) {
+		create_info.usage |= vk::BufferUsageFlagBits::eTransferDst;
+	}
 	util::ensure_positive(create_info.size);
 
 	m_buffer = vma::create_buffer(m_render_device->get_allocator(), create_info);
@@ -68,21 +83,28 @@ void RenderBuffer::recreate_impl(CreateInfo create_info) {
 }
 } // namespace detail
 
-auto IRenderBuffer::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderBuffer> {
+auto IRenderBuffer::create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info)
+	-> std::unique_ptr<IRenderBuffer> {
 	return std::make_unique<detail::RenderBuffer>(render_device, create_info);
 }
 
-auto IRenderBuffer::write_in_place(BufferWrite const write, vk::DeviceSize const offset) -> bool { return write_contiguous({&write, 1}, write.size(), offset); }
+auto IRenderBuffer::write_in_place(BufferWrite const write, vk::DeviceSize const offset) -> bool {
+	return write_contiguous({&write, 1}, write.size(), offset);
+}
 
 void IRenderBuffer::resize_overwrite_contiguous(std::span<BufferWrite const> writes) {
-	auto const total_size = std::accumulate(writes.begin(), writes.end(), 0uz, [](std::size_t i, BufferWrite const& w) { return i + w.size(); });
+	auto const total_size = std::accumulate(writes.begin(), writes.end(), 0uz, [](std::size_t i, BufferWrite const& w) {
+		return i + w.size();
+	});
 	resize(total_size);
 	write_contiguous(writes, total_size, 0);
 }
 
 auto IRenderBuffer::get_mapped_span() const -> std::span<std::byte> {
 	auto* bytes = get_mapped_ptr();
-	if (bytes == nullptr) { return {}; }
+	if (bytes == nullptr) {
+		return {};
+	}
 	return {static_cast<std::byte*>(bytes), get_size()};
 }
 

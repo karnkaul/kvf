@@ -22,7 +22,8 @@ class RenderBuffer : public IRenderBuffer {
 	[[nodiscard]] auto get_capacity() const -> vk::DeviceSize final { return m_info.size; }
 	void resize(vk::DeviceSize size) final;
 
-	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset) -> bool final;
+	auto write_contiguous(std::span<BufferWrite const> writes, vk::DeviceSize write_size, vk::DeviceSize offset)
+		-> bool final;
 
 	void recreate_impl(CreateInfo create_info);
 

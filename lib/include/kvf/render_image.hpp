@@ -19,7 +19,8 @@ enum class ImageFlag : std::int8_t {
 constexpr auto enable_enum_bitops(ImageFlag /*unused*/) { return true; }
 
 struct ImageCreateInfo {
-	static constexpr auto implicit_usage_v = vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
+	static constexpr auto implicit_usage_v =
+		vk::ImageUsageFlagBits::eTransferSrc | vk::ImageUsageFlagBits::eTransferDst | vk::ImageUsageFlagBits::eSampled;
 	static constexpr auto min_extent_v = vk::Extent2D{1, 1};
 
 	vk::Format format;
@@ -37,9 +38,11 @@ class IRenderImage : public klib::Polymorphic {
   public:
 	using CreateInfo = ImageCreateInfo;
 
-	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info) -> std::unique_ptr<IRenderImage>;
-	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device, Bitmap bitmap = {}, bool mip_map = true)
+	[[nodiscard]] static auto create(gsl::not_null<IRenderDevice*> render_device, CreateInfo const& create_info)
 		-> std::unique_ptr<IRenderImage>;
+	[[nodiscard]] static auto create_texture(gsl::not_null<IRenderDevice*> render_device,
+											 Bitmap bitmap = {},
+											 bool mip_map = true) -> std::unique_ptr<IRenderImage>;
 
 	virtual void recreate(CreateInfo const& info) = 0;
 
@@ -67,7 +70,9 @@ class IRenderImage : public klib::Polymorphic {
 
 	[[nodiscard]] auto subresource_range() const -> vk::ImageSubresourceRange;
 
-	[[nodiscard]] auto render_target() const -> RenderTarget { return RenderTarget{.image = get_image(), .view = get_image_view(), .extent = get_extent()}; }
+	[[nodiscard]] auto render_target() const -> RenderTarget {
+		return RenderTarget{.image = get_image(), .view = get_image_view(), .extent = get_extent()};
+	}
 
 	[[nodiscard]] auto descriptor_info(vk::Sampler sampler) const -> vk::DescriptorImageInfo;
 };

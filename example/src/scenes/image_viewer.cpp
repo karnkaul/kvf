@@ -12,23 +12,32 @@ namespace fs = std::filesystem;
 
 [[nodiscard]] auto find_image_file(std::span<char const* const> paths) -> klib::CString {
 	static constexpr auto extensions_v = std::array{
-		".jpg", ".jpeg", ".bmp", ".png", ".ppm",
+		".jpg",
+		".jpeg",
+		".bmp",
+		".png",
+		".ppm",
 	};
 	for (auto const* path : paths) {
 		auto const extension = fs::path{path}.extension().string();
-		if (std::ranges::find(extensions_v, extension) == extensions_v.end()) { continue; }
+		if (std::ranges::find(extensions_v, extension) == extensions_v.end()) {
+			continue;
+		}
 		return path;
 	}
 	return {};
 }
 } // namespace
 
-ImageViewer::ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir) : Scene(device, assets_dir) {
+ImageViewer::ImageViewer(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
+	: Scene(device, assets_dir) {
 	auto const ici = ImageCreateInfo{.format = vk::Format::eR8G8B8A8Srgb, .extent = {1, 1}};
 	static constexpr auto image_bytes_v = std::array{std::byte{}, std::byte{}, std::byte{}, std::byte{0xff}};
 	auto const bitmap = Bitmap{.bytes = image_bytes_v, .size = {1, 1}};
 	m_image = IRenderImage::create(device, ici);
-	if (!m_image->resize_and_overwrite(bitmap)) { throw Panic{"Failed to write to Image"}; }
+	if (!m_image->resize_and_overwrite(bitmap)) {
+		throw Panic{"Failed to write to Image"};
+	}
 	resize_window();
 }
 
@@ -36,7 +45,9 @@ auto ImageViewer::get_render_target() const -> RenderTarget { return m_image->re
 
 void ImageViewer::on_drop(std::span<char const* const> paths) {
 	auto const path = find_image_file(paths);
-	if (path.as_view().empty()) { return; }
+	if (path.as_view().empty()) {
+		return;
+	}
 	try_load(path);
 }
 
@@ -54,7 +65,9 @@ void ImageViewer::resize_window() {
 }
 
 void ImageViewer::try_load(klib::CString const path) {
-	auto const filename = [path] { return fs::path{path.as_view()}.filename().generic_string(); };
+	auto const filename = [path] {
+		return fs::path{path.as_view()}.filename().generic_string();
+	};
 	auto bytes = std::vector<std::byte>{};
 	if (!klib::read_file_bytes_to(bytes, path)) {
 		open_error_modal(std::format("Failed to load image file: {}", filename()));

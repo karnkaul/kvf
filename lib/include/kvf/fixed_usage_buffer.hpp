@@ -9,7 +9,9 @@ using BufferUsageLayout = std::span<vk::BufferUsageFlags const>;
 
 class FixedUsageBuffer {
   public:
-	explicit FixedUsageBuffer(gsl::not_null<IRenderDevice*> device, vk::BufferUsageFlags usage, BufferType type = BufferType::Host);
+	explicit FixedUsageBuffer(gsl::not_null<IRenderDevice*> device,
+							  vk::BufferUsageFlags usage,
+							  BufferType type = BufferType::Host);
 
 	[[nodiscard]] auto get_render_device() const -> IRenderDevice& { return m_buffer->get_render_device(); }
 

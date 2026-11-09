@@ -4,7 +4,8 @@
 #include "kvf/util.hpp"
 
 namespace kvf {
-ScratchCommandBuffer::ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device) : m_render_device(render_device) {
+ScratchCommandBuffer::ScratchCommandBuffer(gsl::not_null<IRenderDevice*> render_device)
+	: m_render_device(render_device) {
 	auto cpci = vk::CommandPoolCreateInfo{};
 	cpci.setQueueFamilyIndex(m_render_device->get_queue_family())
 		.setFlags(vk::CommandPoolCreateFlagBits::eTransient | vk::CommandPoolCreateFlagBits::eResetCommandBuffer);

@@ -6,7 +6,9 @@
 namespace kvf::example {
 class Scene : public klib::Polymorphic {
   public:
-	explicit Scene(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir) : m_device(device), m_assets_dir(assets_dir) {}
+	explicit Scene(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
+		: m_device(device),
+		  m_assets_dir(assets_dir) {}
 
   protected:
 	struct KeyInput {

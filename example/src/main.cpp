@@ -4,9 +4,6 @@
 #include "kvf/build_version.hpp"
 #include "log.hpp"
 
-#include "kvf/util.hpp"
-#include <imgui.h>
-
 auto main(int argc, char** argv) -> int {
 	auto const log_file = klib::log::File{"kvf-example.log"};
 	auto const& log = kvf::example::log;
@@ -27,9 +24,13 @@ auto main(int argc, char** argv) -> int {
 		};
 		auto parser = clap::Parser{std::move(spec)};
 		auto const parse_result = parser.parse_main(argc, argv);
-		if (parse_result.should_early_exit()) { return parse_result.return_code(); }
+		if (parse_result.should_early_exit()) {
+			return parse_result.return_code();
+		}
 		log.info("Using assets directory: {}", assets_dir);
-		if (force_x11) { glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11); }
+		if (force_x11) {
+			glfwInitHint(GLFW_PLATFORM, GLFW_PLATFORM_X11);
+		}
 		kvf::example::App{build_version}.run(assets_dir);
 	} catch (std::exception const& e) {
 		log.error("PANIC: {}", e.what());

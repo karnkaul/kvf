@@ -56,8 +56,10 @@ constexpr auto buffer_usage_layout_v = std::array<vk::BufferUsageFlags, 2>{
 } // namespace
 
 Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)),
-	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)), m_vbo(IRenderBuffer::create(device, vbo_ci_v)) {
+	: Scene(device, assets_dir),
+	  m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)),
+	  m_scratch_buffers(IRingBufferAllocator::create(device, buffer_usage_layout_v)),
+	  m_vbo(IRenderBuffer::create(device, vbo_ci_v)) {
 	m_color_pass->set_color_target();
 	m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
@@ -73,7 +75,9 @@ Sprite::Sprite(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir
 }
 
 void Sprite::update(vk::CommandBuffer const command_buffer) {
-	for (auto& instance : m_instances) { instance.rotation += instance.degrees_per_sec * get_dt().count(); }
+	for (auto& instance : m_instances) {
+		instance.rotation += instance.degrees_per_sec * get_dt().count();
+	}
 
 	auto const extent = get_render_device().get_swapchain_image_extent();
 
@@ -112,7 +116,9 @@ void Sprite::create_set_layouts() {
 	dslci.setBindings(set_1);
 	m_set_layout_storage[1] = get_render_device().get_device().createDescriptorSetLayoutUnique(dslci);
 
-	for (auto [storage, set_layout] : std::ranges::zip_view(m_set_layout_storage, m_set_layouts)) { set_layout = *storage; }
+	for (auto [storage, set_layout] : std::ranges::zip_view(m_set_layout_storage, m_set_layouts)) {
+		set_layout = *storage;
+	}
 }
 
 void Sprite::create_pipeline_layout() {
@@ -141,7 +147,8 @@ void Sprite::create_shader() {
 		ret[1].setBinding(0).setLocation(1).setFormat(vk::Format::eR32G32Sfloat).setOffset(offsetof(Vertex, uv));
 		return ret;
 	}();
-	static constexpr auto shader_input_v = GraphicsShaderInput{.bindings = input_bindings_v, .attributes = input_attributes_v};
+	static constexpr auto shader_input_v =
+		GraphicsShaderInput{.bindings = input_bindings_v, .attributes = input_attributes_v};
 
 	auto const shader_ci = IGraphicsShader::CreateInfo{
 		.code = shader_code,
@@ -154,9 +161,13 @@ void Sprite::create_shader() {
 void Sprite::create_texture() {
 	auto bytes = std::vector<std::byte>{};
 	auto const path = (fs::path{get_assets_dir()} / "awesomeface.png").generic_string();
-	if (!klib::read_file_bytes_to(bytes, path.c_str())) { throw Panic{std::format("Failed to load image: {}", path)}; }
+	if (!klib::read_file_bytes_to(bytes, path.c_str())) {
+		throw Panic{std::format("Failed to load image: {}", path)};
+	}
 	auto const image = ImageBitmap{bytes};
-	if (!image.is_loaded()) { throw Panic{"Failed to load image: awesomeface.png"}; }
+	if (!image.is_loaded()) {
+		throw Panic{"Failed to load image: awesomeface.png"};
+	}
 	m_texture = IRenderImage::create_texture(&get_render_device(), image.bitmap());
 
 	auto const sci = util::create_sampler_ci(vk::SamplerAddressMode::eRepeat, vk::Filter::eLinear);
@@ -168,11 +179,15 @@ void Sprite::write_vbo() {
 	quad.resize(glm::vec2{100.0f});
 
 	auto const vertices = std::span{quad.vertices};
-	if (!m_vbo->write_in_place(vertices)) { throw Panic{"Failed to write vertices to Buffer"}; }
+	if (!m_vbo->write_in_place(vertices)) {
+		throw Panic{"Failed to write vertices to Buffer"};
+	}
 
 	m_index_offset = vertices.size_bytes();
 	auto const indices = std::span{quad.indices};
-	if (!m_vbo->write_in_place(indices, m_index_offset)) { throw Panic{"Failed to write indices to Buffer"}; }
+	if (!m_vbo->write_in_place(indices, m_index_offset)) {
+		throw Panic{"Failed to write indices to Buffer"};
+	}
 }
 
 void Sprite::create_instances() {

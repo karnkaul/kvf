@@ -16,7 +16,9 @@ class Gpu::Selector : public klib::Polymorphic {
   public:
 	[[nodiscard]] virtual auto select(std::span<Gpu const> gpus) const -> gsl::not_null<Gpu const*> {
 		for (auto const& gpu : gpus) {
-			if (gpu.properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) { return &gpu; }
+			if (gpu.properties.deviceType == vk::PhysicalDeviceType::eDiscreteGpu) {
+				return &gpu;
+			}
 		}
 		return &gpus.front();
 	}

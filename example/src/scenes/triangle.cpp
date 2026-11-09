@@ -6,7 +6,8 @@
 
 namespace kvf::example {
 Triangle::Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets_dir)
-	: Scene(device, assets_dir), m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)) {
+	: Scene(device, assets_dir),
+	  m_color_pass(IRenderPass::create(device, vk::SampleCountFlagBits::e2)) {
 	m_color_pass->set_color_target();
 	m_color_pass->set_depth_target();
 	m_color_pass->clear_color = Color{glm::vec4{0.1f, 0.1f, 0.1f, 1.0f}}.to_linear();
@@ -14,15 +15,25 @@ Triangle::Triangle(gsl::not_null<IRenderDevice*> device, std::string_view assets
 }
 
 void Triangle::on_key(KeyInput const& ki) {
-	if (ki.key == GLFW_KEY_1 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e1); }
-	if (ki.key == GLFW_KEY_2 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e2); }
-	if (ki.key == GLFW_KEY_4 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e4); }
-	if (ki.key == GLFW_KEY_8 && ki.action == GLFW_PRESS && ki.mods == 0) { recreate(vk::SampleCountFlagBits::e8); }
+	if (ki.key == GLFW_KEY_1 && ki.action == GLFW_PRESS && ki.mods == 0) {
+		recreate(vk::SampleCountFlagBits::e1);
+	}
+	if (ki.key == GLFW_KEY_2 && ki.action == GLFW_PRESS && ki.mods == 0) {
+		recreate(vk::SampleCountFlagBits::e2);
+	}
+	if (ki.key == GLFW_KEY_4 && ki.action == GLFW_PRESS && ki.mods == 0) {
+		recreate(vk::SampleCountFlagBits::e4);
+	}
+	if (ki.key == GLFW_KEY_8 && ki.action == GLFW_PRESS && ki.mods == 0) {
+		recreate(vk::SampleCountFlagBits::e8);
+	}
 }
 
 void Triangle::update(vk::CommandBuffer const command_buffer) {
 	ImGui::SetNextWindowSize({150.0f, 80.0f}, ImGuiCond_Once);
-	if (ImGui::Begin("Controls")) { draw_controls(); }
+	if (ImGui::Begin("Controls")) {
+		draw_controls();
+	}
 	ImGui::End();
 
 	auto const extent = kvf::util::scale_extent(get_render_device().get_swapchain_image_extent(), m_framebuffer_scale);
@@ -49,7 +60,9 @@ void Triangle::create_pipeline() {
 		.fragment_shader = *fragment_shader,
 	};
 	m_pipeline = m_color_pass->create_graphics_pipeline(*m_pipeline_layout, pipeline_state);
-	if (!m_pipeline) { throw Panic{"Failed to create Vulkan Pipeline"}; }
+	if (!m_pipeline) {
+		throw Panic{"Failed to create Vulkan Pipeline"};
+	}
 }
 
 void Triangle::recreate(vk::SampleCountFlagBits samples) {
